@@ -108,13 +108,7 @@ export async function autocompletePlaces(input: {
   const q = input.query.trim()
   if (q.length < 2) return { source: isGooglePlacesConfigured() ? 'google' : 'stub', places: [] }
   if (!isGooglePlacesConfigured()) return stubPlaces(q)
-
-  try {
-    return await autocompletePlacesNew(q, input.loc, input.sessionToken)
-  } catch (err) {
-    console.warn('[places] autocomplete (New) failed, trying legacy', err)
-    return autocompletePlacesLegacy(q, input.loc)
-  }
+  return autocompletePlacesNew(q, input.loc, input.sessionToken)
 }
 
 async function autocompletePlacesNew(
@@ -167,51 +161,6 @@ async function autocompletePlacesNew(
   return { source: 'google', places }
 }
 
-async function autocompletePlacesLegacy(
-  query: string,
-  loc?: LatLng | null,
-): Promise<PlaceSearchResult> {
-  const url = new URL(
-    'https://maps.googleapis.com/maps/api/place/autocomplete/json',
-  )
-  url.searchParams.set('input', query)
-  url.searchParams.set('key', getGoogleMapsApiKey())
-  url.searchParams.set('types', 'establishment')
-  url.searchParams.set('language', 'id')
-  url.searchParams.set('components', 'country:id')
-  if (loc) {
-    url.searchParams.set('location', `${loc.lat},${loc.lng}`)
-    url.searchParams.set('radius', String(SEARCH_BIAS_RADIUS_M))
-  }
-
-  const res = await fetch(url)
-  if (!res.ok) throw new Error('Gagal memanggil Google Places Autocomplete')
-  const data = (await res.json()) as {
-    status: string
-    predictions?: Array<{
-      place_id: string
-      description: string
-      structured_formatting?: {
-        main_text?: string
-        secondary_text?: string
-      }
-    }>
-    error_message?: string
-  }
-  if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
-    throw new Error(data.error_message ?? `Places status: ${data.status}`)
-  }
-
-  const places = (data.predictions ?? []).map((p) =>
-    suggestion(
-      p.place_id,
-      p.structured_formatting?.main_text ?? p.description,
-      p.structured_formatting?.secondary_text ?? null,
-    ),
-  )
-  return { source: 'google', places }
-}
-
 export async function nearbyPlaces(input: {
   loc: LatLng
 }): Promise<PlaceSearchResult> {
@@ -228,12 +177,7 @@ export async function nearbyPlaces(input: {
     }
   }
 
-  try {
-    return await nearbyPlacesNew(input.loc)
-  } catch (err) {
-    console.warn('[places] nearby (New) failed, trying legacy', err)
-    return nearbyPlacesLegacy(input.loc)
-  }
+  return nearbyPlacesNew(input.loc)
 }
 
 async function nearbyPlacesNew(loc: LatLng): Promise<PlaceSearchResult> {
@@ -264,42 +208,6 @@ async function nearbyPlacesNew(loc: LatLng): Promise<PlaceSearchResult> {
   return { source: 'google', places }
 }
 
-async function nearbyPlacesLegacy(loc: LatLng): Promise<PlaceSearchResult> {
-  const url = new URL(
-    'https://maps.googleapis.com/maps/api/place/nearbysearch/json',
-  )
-  url.searchParams.set('location', `${loc.lat},${loc.lng}`)
-  url.searchParams.set('radius', String(NEARBY_RADIUS_M))
-  url.searchParams.set('type', 'establishment')
-  url.searchParams.set('language', 'id')
-  url.searchParams.set('key', getGoogleMapsApiKey())
-
-  const res = await fetch(url)
-  if (!res.ok) throw new Error('Gagal memanggil Google Places Nearby')
-  const data = (await res.json()) as {
-    status: string
-    results?: Array<{
-      place_id: string
-      name: string
-      vicinity?: string
-      formatted_address?: string
-    }>
-    error_message?: string
-  }
-  if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
-    throw new Error(data.error_message ?? `Places Nearby: ${data.status}`)
-  }
-
-  const places = (data.results ?? []).map((p) =>
-    suggestion(
-      p.place_id,
-      p.name,
-      p.vicinity ?? p.formatted_address ?? null,
-    ),
-  )
-  return { source: 'google', places }
-}
-
 export async function getPlaceDetails(
   placeId: string,
   sessionToken?: string,
@@ -324,12 +232,7 @@ export async function getPlaceDetails(
     }
   }
 
-  try {
-    return await getPlaceDetailsNew(id, sessionToken)
-  } catch (err) {
-    console.warn('[places] details (New) failed, trying legacy', err)
-    return getPlaceDetailsLegacy(id)
-  }
+  return getPlaceDetailsNew(id, sessionToken)
 }
 
 async function getPlaceDetailsNew(
@@ -363,47 +266,5 @@ async function getPlaceDetailsNew(
     googleMapsUri:
       data.googleMapsUri ??
       `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(resolvedId)}`,
-  }
-}
-
-async function getPlaceDetailsLegacy(placeId: string): Promise<PlaceDetails> {
-  const apiKey = getGoogleMapsApiKey()
-  const url = new URL('https://maps.googleapis.com/maps/api/place/details/json')
-  url.searchParams.set('place_id', placeId)
-  url.searchParams.set('fields', 'place_id,name,formatted_address,url,photos')
-  url.searchParams.set('key', apiKey)
-  url.searchParams.set('language', 'id')
-
-  const res = await fetch(url)
-  if (!res.ok) throw new Error('Gagal memanggil Google Place Details')
-  const data = (await res.json()) as {
-    status: string
-    result?: {
-      place_id: string
-      name: string
-      formatted_address?: string
-      url?: string
-      photos?: Array<{ photo_reference: string }>
-    }
-    error_message?: string
-  }
-  if (data.status !== 'OK' || !data.result?.name) {
-    throw new Error(data.error_message ?? `Place Details: ${data.status}`)
-  }
-
-  let photoUrl: string | null = null
-  const ref = data.result.photos?.[0]?.photo_reference
-  if (ref) {
-    photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photo_reference=${encodeURIComponent(ref)}&key=${apiKey}`
-  }
-
-  return {
-    placeId: data.result.place_id,
-    name: data.result.name,
-    formattedAddress: data.result.formatted_address ?? null,
-    photoUrl,
-    googleMapsUri:
-      data.result.url ??
-      `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(data.result.place_id)}`,
   }
 }

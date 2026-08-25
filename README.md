@@ -120,7 +120,7 @@ Cek setelah nyala: `GET /health` — field `target` adalah `cloudflare` atau `no
 - Schema tetap SQLite (`sqlite-core`). Jangan port ke Postgres untuk jalur ini.
 - Set `AUTH_SECRET` (acak, minimal 32 karakter) dan `IP_HASH_SALT` kuat. Jangan pakai nilai contoh.
 - Wajibkan HTTPS; cookie session memakai flag `Secure` jika `APP_URL` HTTPS atau `NODE_ENV=production`.
-- Isi `GOOGLE_MAPS_API_KEY`, enable **Places API (New)**. Di Cloudflare, batasi key ke Places API (New) + kuota — IP Worker tidak tetap. Legacy Places API dipakai otomatis sebagai cadangan.
+- Isi `GOOGLE_MAPS_API_KEY`, enable **Places API (New)**. Di Cloudflare, batasi key ke Places API (New) + kuota — IP Worker tidak tetap.
 - Aktivasi hanya menyimpan `place_id` resmi Google. QR dan NTAG215 mengarah ke `/r/{id}`, lalu ke `writereview?placeid=…` listing itu.
 - Set `APP_URL` HTTPS final **sebelum** cetak dan tulis chip. URL di kertas/chip tidak ikut pindah domain; yang dinamis hanya tujuan Google.
 - Hosting redirect (`/r/*`) harus uptime tinggi — ini jalur kritis produk.

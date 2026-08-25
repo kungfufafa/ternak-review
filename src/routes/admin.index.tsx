@@ -44,7 +44,7 @@ export const Route = createFileRoute('/admin/')({
     ])
     return {
       summary,
-      batches: batches.filter((batch) => batch.type !== 'NFC'),
+      batches,
       affiliates,
       appUrl,
     }

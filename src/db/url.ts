@@ -16,7 +16,7 @@ export function isPostgresUrl(url: string) {
 export function resolveSqliteFilePath(url = getDatabaseUrl()) {
   if (isPostgresUrl(url)) {
     throw new Error(
-      'DATABASE_URL menunjuk PostgreSQL, tapi runtime saat ini memakai SQLite. Set DATABASE_URL=file:./data/dev.db — PostgreSQL tetap dipakai di produksi nanti.',
+      'DATABASE_URL menunjuk PostgreSQL. Lokal/VPS memakai file SQLite, Cloudflare memakai D1. Set DATABASE_URL=file:./data/dev.db',
     )
   }
   const stripped = url.replace(/^file:/i, '')

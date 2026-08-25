@@ -88,7 +88,7 @@ export const Route = createFileRoute('/dashboard/units/')({
       }),
       listStockBatchesFn(),
     ])
-    return { list, batches: batches.filter((batch) => batch.type !== 'NFC') }
+    return { list, batches }
   },
   component: UnitsListPage,
   head: () => ({

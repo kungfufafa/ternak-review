@@ -5,7 +5,3 @@ export function getDeployTarget(): DeployTarget {
   if (value === 'cloudflare' || value === 'node') return value
   return 'local'
 }
-
-export function isCloudflareDeploy() {
-  return getDeployTarget() === 'cloudflare'
-}

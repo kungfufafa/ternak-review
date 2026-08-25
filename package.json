@@ -32,7 +32,6 @@
     "smoke": "tsx scripts/smoke-flow.ts"
   },
   "dependencies": {
-    "@radix-ui/react-slot": "^1.3.3",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "0.10.10",
     "@tanstack/react-query": "5.101.4",
@@ -75,12 +74,5 @@
     "typescript": "^6.0.2",
     "vite": "^8.0.0",
     "wrangler": "^4.125.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "esbuild",
-      "lightningcss"
-    ]
   }
 }

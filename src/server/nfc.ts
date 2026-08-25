@@ -21,14 +21,11 @@ export async function lookupQr(raw: string) {
   if (!unit) throw new Error('QR kartu tidak ditemukan')
   const url = `${getAppUrl()}/r/${unit.publicId}`
   return {
-    kind: 'qr' as const,
     publicId: unit.publicId,
     redirectUrl: url,
     batchId: unit.batchId,
     batchLabel: unit.batch?.label ?? null,
     batchSeq: unit.batchSeq,
-    nfcPublicId: unit.publicId,
-    nfcUrl: url,
     nfcEncodedAt: unit.nfcEncodedAt,
   }
 }

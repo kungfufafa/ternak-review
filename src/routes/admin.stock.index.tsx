@@ -104,7 +104,7 @@ function AdminStockPage() {
   } | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  const cardBatches = batches.filter((b) => b.type !== 'NFC')
+  const cardBatches = batches
   const presetValue = PRESETS.includes(count as (typeof PRESETS)[number])
     ? String(count)
     : ''
