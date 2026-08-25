@@ -53,11 +53,13 @@ Buka http://localhost:3000
 
 Push dan pull request ke `main` menjalankan GitHub Actions: **typecheck**, **smoke** (SQLite stub, tanpa Google API), **build Node**, **build Cloudflare**. Job `CI` hijau hanya jika semua lolos.
 
-Lokal:
+Lokal, **sebelum commit/push**:
 
 ```bash
 npm run ci
 ```
+
+Hook git (`.githooks`) ikut: `pre-commit` menjalankan typecheck, `pre-push` menjalankan `npm run ci`. Aktif setelah `npm install`. Lewati sekali dengan `git commit --no-verify` / `git push --no-verify`. Smoke Places live: `SMOKE_LIVE_PLACES=1 npm run smoke`.
 
 ## Alur uji cepat
 

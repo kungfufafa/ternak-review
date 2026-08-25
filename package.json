@@ -23,6 +23,7 @@
     "db:backup:d1": "tsx scripts/backup-db.ts --d1 --remote",
     "typecheck": "tsc --noEmit",
     "ci": "npm run typecheck && npm run smoke",
+    "prepare": "git config core.hooksPath .githooks",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
