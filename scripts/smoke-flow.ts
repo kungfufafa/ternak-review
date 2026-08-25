@@ -2,6 +2,11 @@ import 'dotenv/config'
 import { config } from 'dotenv'
 config({ path: '.env.local' })
 
+if (process.env.CI) {
+  process.env.GOOGLE_MAPS_API_KEY = ''
+  process.env.DATABASE_URL ??= 'file:./data/ci.db'
+}
+
 import {
   generateStockBatch,
   getBatchPrintData,

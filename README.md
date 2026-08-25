@@ -49,6 +49,16 @@ npm run dev
 
 Buka http://localhost:3000
 
+## CI
+
+Push dan pull request ke `main` menjalankan GitHub Actions: **typecheck**, **smoke** (SQLite stub, tanpa Google API), **build Node**, **build Cloudflare**. Job `CI` hijau hanya jika semua lolos.
+
+Lokal:
+
+```bash
+npm run ci
+```
+
 ## Alur uji cepat
 
 1. Buka `/login` — buat admin pertama (hanya sekali), lalu masuk dashboard.

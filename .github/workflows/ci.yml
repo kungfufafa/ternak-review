@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+
+  smoke:
+    name: Smoke
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+      DATABASE_URL: file:./data/ci.db
+      GOOGLE_MAPS_API_KEY: ""
+      AUTH_SECRET: ci-only-not-for-production-use-32
+      APP_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run smoke
+
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [node, cf]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build:${{ matrix.target }}
+
+  gate:
+    name: CI
+    if: always()
+    needs: [typecheck, smoke, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every gate
+        run: |
+          test "${{ needs.typecheck.result }}" = "success"
+          test "${{ needs.smoke.result }}" = "success"
+          test "${{ needs.build.result }}" = "success"
