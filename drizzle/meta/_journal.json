@@ -64,6 +64,13 @@
       "when": 1787578254586,
       "tag": "0008_drop_magic_link_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1787619817870,
+      "tag": "0009_sweet_killraven",
+      "breakpoints": true
     }
   ]
 }

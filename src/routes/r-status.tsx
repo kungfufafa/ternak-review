@@ -19,17 +19,12 @@ export const Route = createFileRoute('/r-status')({
 function StatusPage() {
   const search = Route.useSearch()
   const inactive = search.state === 'inactive'
-  const unpaired = search.state === 'unpaired'
 
   return (
     <AuthShell>
       <AuthTitle
         title={
-          unpaired ? (
-            <>
-              Belum <em className="text-pine italic">siap</em>
-            </>
-          ) : inactive ? (
+          inactive ? (
             <>
               Sedang <em className="text-pine italic">nonaktif</em>
             </>

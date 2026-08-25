@@ -24,7 +24,6 @@ import { Route as SyaratKetentuanRouteImport } from './routes/syarat-ketentuan'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminStockRouteImport } from './routes/admin.stock'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
-import { Route as NNfcIdRouteImport } from './routes/n.$nfcId'
 import { Route as RPublicIdRouteImport } from './routes/r.$publicId'
 import { Route as AdminAffiliateIndexRouteImport } from './routes/admin.affiliate.index'
 import { Route as AdminAffiliateLeadIdRouteImport } from './routes/admin.affiliate.$leadId'
@@ -109,11 +108,6 @@ const DashboardIndexRoute = DashboardIndexRouteImport.update({
   path: '/',
   getParentRoute: () => DashboardRoute,
 } as any)
-const NNfcIdRoute = NNfcIdRouteImport.update({
-  id: '/n/$nfcId',
-  path: '/n/$nfcId',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const RPublicIdRoute = RPublicIdRouteImport.update({
   id: '/r/$publicId',
   path: '/r/$publicId',
@@ -169,7 +163,6 @@ export interface FileRoutesByFullPath {
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
   '/admin/stock': typeof AdminStockRouteWithChildren
-  '/n/$nfcId': typeof NNfcIdRoute
   '/r/$publicId': typeof RPublicIdRoute
   '/admin/': typeof AdminIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
@@ -192,7 +185,6 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
-  '/n/$nfcId': typeof NNfcIdRoute
   '/r/$publicId': typeof RPublicIdRoute
   '/admin': typeof AdminIndexRoute
   '/dashboard': typeof DashboardIndexRoute
@@ -219,7 +211,6 @@ export interface FileRoutesById {
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
   '/admin/stock': typeof AdminStockRouteWithChildren
-  '/n/$nfcId': typeof NNfcIdRoute
   '/r/$publicId': typeof RPublicIdRoute
   '/admin/': typeof AdminIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
@@ -247,7 +238,6 @@ export interface FileRouteTypes {
     | '/r-status'
     | '/syarat-ketentuan'
     | '/admin/stock'
-    | '/n/$nfcId'
     | '/r/$publicId'
     | '/admin/'
     | '/dashboard/'
@@ -270,7 +260,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/r-status'
     | '/syarat-ketentuan'
-    | '/n/$nfcId'
     | '/r/$publicId'
     | '/admin'
     | '/dashboard'
@@ -296,7 +285,6 @@ export interface FileRouteTypes {
     | '/r-status'
     | '/syarat-ketentuan'
     | '/admin/stock'
-    | '/n/$nfcId'
     | '/r/$publicId'
     | '/admin/'
     | '/dashboard/'
@@ -322,7 +310,6 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   RStatusRoute: typeof RStatusRoute
   SyaratKetentuanRoute: typeof SyaratKetentuanRoute
-  NNfcIdRoute: typeof NNfcIdRoute
   RPublicIdRoute: typeof RPublicIdRoute
 }
 
@@ -432,13 +419,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/dashboard/'
       preLoaderRoute: typeof DashboardIndexRouteImport
       parentRoute: typeof DashboardRoute
-    }
-    '/n/$nfcId': {
-      id: '/n/$nfcId'
-      path: '/n/$nfcId'
-      fullPath: '/n/$nfcId'
-      preLoaderRoute: typeof NNfcIdRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/r/$publicId': {
       id: '/r/$publicId'
@@ -560,7 +540,6 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   RStatusRoute: RStatusRoute,
   SyaratKetentuanRoute: SyaratKetentuanRoute,
-  NNfcIdRoute: NNfcIdRoute,
   RPublicIdRoute: RPublicIdRoute,
 }
 export const routeTree = rootRouteImport

@@ -79,7 +79,6 @@ Hook git (`.githooks`) ikut: `pre-commit` menjalankan typecheck, `pre-push` menj
 | `/dashboard` | Ringkasan, unit, tag partner |
 | `/admin/stock` | Produksi: generate batch, cetak kartu 10×10, tempel NFC |
 | `/admin/stock/print` | Wajah kartu 100×100 mm atau A4 isi 4 |
-| `/n/$nfcId` | Kompatibilitas stiker lama (`/n/`). Produksi baru memakai `/r/` |
 | `/admin/stock/nfc` | Tulis `/r/ID` ke NTAG215 |
 | `/health` | Health check JSON |
 

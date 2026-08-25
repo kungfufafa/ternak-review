@@ -103,28 +103,6 @@ export const units = sqliteTable(
   ],
 )
 
-export const nfcTags = sqliteTable(
-  'nfc_tags',
-  {
-    id: text('id').primaryKey().$defaultFn(uuid),
-    publicId: text('public_id').notNull().unique(),
-    unitId: text('unit_id').unique().references(() => units.id, {
-      onDelete: 'set null',
-    }),
-    batchId: text('batch_id').references(() => stockBatches.id, {
-      onDelete: 'set null',
-    }),
-    batchSeq: integer('batch_seq'),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' })
-      .notNull()
-      .$defaultFn(now),
-  },
-  (t) => [
-    index('nfc_tags_batch_idx').on(t.batchId),
-    index('nfc_tags_unit_idx').on(t.unitId),
-  ],
-)
-
 export const clicks = sqliteTable(
   'clicks',
   {
@@ -186,7 +164,6 @@ export const ownersRelations = relations(owners, ({ many }) => ({
 
 export const stockBatchesRelations = relations(stockBatches, ({ many }) => ({
   units: many(units),
-  nfcTags: many(nfcTags),
 }))
 
 export const outletsRelations = relations(outlets, ({ many }) => ({
@@ -207,21 +184,6 @@ export const unitsRelations = relations(units, ({ one, many }) => ({
     references: [stockBatches.id],
   }),
   clicks: many(clicks),
-  nfcTag: one(nfcTags, {
-    fields: [units.id],
-    references: [nfcTags.unitId],
-  }),
-}))
-
-export const nfcTagsRelations = relations(nfcTags, ({ one }) => ({
-  unit: one(units, {
-    fields: [nfcTags.unitId],
-    references: [units.id],
-  }),
-  batch: one(stockBatches, {
-    fields: [nfcTags.batchId],
-    references: [stockBatches.id],
-  }),
 }))
 
 export const clicksRelations = relations(clicks, ({ one }) => ({

@@ -15,7 +15,7 @@ import {
   getBatchPrintData,
   listStockBatches,
 } from '../src/server/stock.ts'
-import { markNfcEncoded, resolveNfcRedirect } from '../src/server/nfc.ts'
+import { markNfcEncoded } from '../src/server/nfc.ts'
 import { activateUnit } from '../src/server/activation.ts'
 import { resolveRedirect, logClick } from '../src/server/redirect.ts'
 import {
@@ -67,11 +67,6 @@ async function main() {
   const encodedBatch = listedAfterEncode.find((b) => b.id === batch.batchId)
   if (!encodedBatch || encodedBatch.encoded !== 1 || encodedBatch.next !== 'nfc') {
     throw new Error('Encoded count should increment after NFC write')
-  }
-
-  const missingNfc = await resolveNfcRedirect('ZZZZZZZZZZ')
-  if (missingNfc.kind !== 'not_found') {
-    throw new Error('Unknown /n/ id must stay not_found')
   }
 
   const auto = await autocompletePlaces({ query: 'kopi susu' })
