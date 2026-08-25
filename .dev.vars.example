@@ -1,0 +1,7 @@
+# Wrangler local secrets (copy to .dev.vars — jangan di-commit)
+# Production: AUTH_SECRET minimal 32 karakter acak.
+APP_URL=http://localhost:3000
+AUTH_SECRET=change-me-to-a-long-random-string
+IP_HASH_SALT=change-me-ip-salt
+GOOGLE_MAPS_API_KEY=
+AFFILIATE_WEBHOOK_URL=

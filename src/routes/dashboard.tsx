@@ -1,0 +1,21 @@
+import { Outlet, createFileRoute, redirect } from '@tanstack/react-router'
+import { AdminShell } from '#/components/admin-shell'
+import { getCurrentOwnerFn } from '#/server/functions'
+
+export const Route = createFileRoute('/dashboard')({
+  beforeLoad: async () => {
+    const owner = await getCurrentOwnerFn()
+    if (!owner) throw redirect({ to: '/login' })
+    return { owner }
+  },
+  component: DashboardLayout,
+})
+
+function DashboardLayout() {
+  const { owner } = Route.useRouteContext()
+  return (
+    <AdminShell email={owner.email}>
+      <Outlet />
+    </AdminShell>
+  )
+}

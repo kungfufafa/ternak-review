@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Ternak Review">
+  <title>Ternak Review</title>
+  <rect width="64" height="64" fill="#0a0a0a"/>
+  <g transform="translate(5.5760 46.9000) scale(0.02000000 -0.02000000)">
+    <path fill="#fff" d="M32 1164V1490H1326V1164H878V0H480V1164Z"/>
+  </g>
+  <g transform="translate(31.4240 46.9000) scale(0.02000000 -0.02000000)">
+    <path fill="#1a73e8" d="M72 0V1490H714Q880 1490 1004.5 1429.5Q1129 1369 1198.5 1255.5Q1268 1142 1268 984Q1268 824 1197.0 714.0Q1126 604 998.0 548.0Q870 492 700 492H316V806H618Q690 806 741.0 824.0Q792 842 819.0 881.0Q846 920 846 984Q846 1048 819.0 1088.0Q792 1128 741.0 1147.0Q690 1166 618 1166H476V0ZM878 0 514 684H944L1318 0Z"/>
+  </g>
+</svg>
