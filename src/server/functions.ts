@@ -1,5 +1,4 @@
 import { createServerFn } from '@tanstack/react-start'
-import { getRequestHeader } from '@tanstack/react-start/server'
 import { z } from 'zod'
 import { activateUnit, getActivationCard } from '#/server/activation'
 import {
@@ -40,16 +39,11 @@ import {
   listStockBatches,
 } from '#/server/stock'
 import { assertRateLimit } from '#/server/rate-limit'
-
-function clientIp() {
-  try {
-    const forwarded = getRequestHeader('x-forwarded-for')
-    if (forwarded) return forwarded.split(',')[0]?.trim() ?? null
-    return getRequestHeader('x-real-ip') ?? null
-  } catch {
-    return null
-  }
-}
+import {
+  getClientFingerprint,
+  hashRateLimitIdentifier,
+} from '#/server/request'
+import { AFFILIATE_PLATFORM_KEYS } from '#/types/marketing'
 
 async function requireAdmin() {
   const owner = await getSessionOwner()
@@ -87,11 +81,19 @@ const locSchema = z.object({
   lng: z.number().gte(-180).lte(180),
 })
 
-async function limitPlaces() {
-  await assertRateLimit(`places:${clientIp() ?? 'unknown'}`, {
+async function limitPlaces(publicId: string) {
+  const card = await getActivationCard(publicId)
+  if (!card || card.status !== 'IN_STOCK') {
+    throw new Error('Kartu tidak tersedia untuk aktivasi.')
+  }
+  await assertRateLimit(`places-client:${getClientFingerprint()}`, {
     max: 40,
     windowMs: 60_000,
   })
+  await assertRateLimit(
+    `places-card:${hashRateLimitIdentifier(card.publicId)}`,
+    { max: 200, windowMs: 15 * 60_000 },
+  )
 }
 
 export const placesStatusFn = createServerFn({ method: 'GET' }).handler(
@@ -102,19 +104,22 @@ export const searchPlacesFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       query: z.string().min(2).max(200),
+      publicId: z.string().min(4).max(32),
       loc: locSchema.optional(),
       sessionToken: z.string().uuid().optional(),
     }),
   )
   .handler(async ({ data }) => {
-    await limitPlaces()
+    await limitPlaces(data.publicId)
     return autocompletePlaces(data)
   })
 
 export const nearbyPlacesFn = createServerFn({ method: 'POST' })
-  .validator(z.object({ loc: locSchema }))
+  .validator(
+    z.object({ publicId: z.string().min(4).max(32), loc: locSchema }),
+  )
   .handler(async ({ data }) => {
-    await limitPlaces()
+    await limitPlaces(data.publicId)
     return nearbyPlaces(data)
   })
 
@@ -122,11 +127,12 @@ export const placeDetailsFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       placeId: z.string().min(2).max(256),
+      publicId: z.string().min(4).max(32),
       sessionToken: z.string().uuid().optional(),
     }),
   )
   .handler(async ({ data }) => {
-    await limitPlaces()
+    await limitPlaces(data.publicId)
     return getPlaceDetails(data.placeId, data.sessionToken)
   })
 
@@ -134,39 +140,47 @@ export const activateUnitFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       publicId: z.string().min(4).max(32),
-      placeId: z.string().min(2),
+      placeId: z.string().min(2).max(256),
       partnerRef: z.string().max(80).optional(),
     }),
   )
   .handler(async ({ data }) => {
     return activateUnit({
       ...data,
-      ip: clientIp(),
+      clientKey: getClientFingerprint(),
     })
   })
 
 export const loginPasswordFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
-      email: z.string().email(),
-      password: z.string().min(8),
+      email: z.string().trim().email().max(254),
+      password: z.string().min(8).max(200),
     }),
   )
   .handler(async ({ data }) => {
-    await assertRateLimit(`login:${clientIp() ?? 'unknown'}`)
+    await assertRateLimit(`login-client:${getClientFingerprint()}`)
+    await assertRateLimit(
+      `login-account:${hashRateLimitIdentifier(data.email)}`,
+      { max: 50, windowMs: 60 * 60_000 },
+    )
     return loginWithPassword(data.email, data.password)
   })
 
 export const registerPasswordFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
-      email: z.string().email(),
-      password: z.string().min(8),
+      email: z.string().trim().email().max(254),
+      password: z.string().min(12).max(200),
+      setupToken: z.string().min(1).max(512),
     }),
   )
   .handler(async ({ data }) => {
-    await assertRateLimit(`register:${clientIp() ?? 'unknown'}`)
-    return registerWithPassword(data.email, data.password)
+    await assertRateLimit(`register-client:${getClientFingerprint()}`, {
+      max: 5,
+      windowMs: 15 * 60_000,
+    })
+    return registerWithPassword(data.email, data.password, data.setupToken)
   })
 
 export const logoutFn = createServerFn({ method: 'POST' }).handler(async () => {
@@ -272,12 +286,14 @@ export const changePasswordFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       currentPassword: z.string().min(1).max(200),
-      newPassword: z.string().min(8).max(200),
+      newPassword: z.string().min(12).max(200),
     }),
   )
   .handler(async ({ data }) => {
     const owner = await requireAdmin()
-    await assertRateLimit(`password:${owner.ownerId}`)
+    await assertRateLimit(
+      `password:${hashRateLimitIdentifier(owner.ownerId)}`,
+    )
     return changeOwnerPassword(
       owner.ownerId,
       data.currentPassword,
@@ -315,21 +331,27 @@ export const markNfcEncodedFn = createServerFn({ method: 'POST' })
   })
 
 const affiliateLeadInputSchema = z.object({
-  nama: z.string(),
-  email: z.string(),
-  whatsapp: z.string(),
-  platforms: z.array(z.string()),
-  usernames: z.record(z.string(), z.string()).optional(),
-})
+  nama: z.string().trim().min(1).max(120),
+  email: z.string().trim().email().max(254),
+  whatsapp: z.string().trim().min(9).max(32),
+  platforms: z.array(z.enum(AFFILIATE_PLATFORM_KEYS)).min(1).max(6),
+  usernames: z
+    .record(z.enum(AFFILIATE_PLATFORM_KEYS), z.string().trim().max(100))
+    .optional(),
+}).strict()
 
 export const submitAffiliateLeadFn = createServerFn({ method: 'POST' })
   .validator(affiliateLeadInputSchema)
   .handler(async ({ data }) => {
     try {
-      await assertRateLimit(`affiliate:${clientIp() ?? 'unknown'}`, {
+      await assertRateLimit(`affiliate-client:${getClientFingerprint()}`, {
         max: 8,
         windowMs: 15 * 60 * 1000,
       })
+      await assertRateLimit(
+        `affiliate-email:${hashRateLimitIdentifier(data.email)}`,
+        { max: 5, windowMs: 24 * 60 * 60 * 1000 },
+      )
     } catch (err) {
       return {
         ok: false as const,

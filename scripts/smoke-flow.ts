@@ -104,6 +104,13 @@ async function main() {
     throw new Error('Expected Google redirect after activation')
   }
   await logClick({ unitId: after.unitId, userAgent: 'test', ip: '127.0.0.1' })
+  await logClick({ unitId: after.unitId, userAgent: 'test', ip: '127.0.0.1' })
+  const clickRows = await db.query.clicks.findMany({
+    where: (click, { eq: equals }) => equals(click.unitId, after.unitId),
+  })
+  if (clickRows.length !== 1) {
+    throw new Error('Repeated clicks in one window must be deduplicated')
+  }
   console.log('click logged')
 
   const taggedRow = await db.query.units.findFirst({

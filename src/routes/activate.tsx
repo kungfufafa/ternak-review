@@ -96,7 +96,7 @@ function ActivatePage() {
     setBusy(true)
     try {
       const details = await detailsFn({
-        data: { placeId, sessionToken },
+        data: { placeId, publicId, sessionToken },
       })
       setSelectedPlaceId(details.placeId)
       setPlacePreview(details)
@@ -174,6 +174,7 @@ function ActivatePage() {
           onPick={(placeId) => {
             void onPickPlace(placeId)
           }}
+          publicId={publicId}
           sessionToken={sessionToken}
         />
       ) : null}

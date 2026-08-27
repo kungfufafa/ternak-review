@@ -1,15 +1,20 @@
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { config } from 'dotenv'
 import { resolveSqliteFilePath } from '../src/db/url.ts'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const require = createRequire(import.meta.url)
+const Database = require('better-sqlite3') as typeof import('better-sqlite3')
 config({ path: path.join(root, '.env.local') })
 config({ path: path.join(root, '.env') })
 
-const backupsDir = path.join(root, 'backups')
+const backupsDir = process.env.BACKUP_DIR
+  ? path.resolve(process.env.BACKUP_DIR)
+  : path.join(root, 'backups')
 mkdirSync(backupsDir, { recursive: true })
 
 const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
@@ -43,9 +48,20 @@ if (!existsSync(file)) {
 }
 
 const dest = path.join(backupsDir, `sqlite-${stamp}.db`)
-copyFileSync(file, dest)
-for (const suffix of ['-wal', '-shm']) {
-  const extra = `${file}${suffix}`
-  if (existsSync(extra)) copyFileSync(extra, `${dest}${suffix}`)
+const source = new Database(file, { readonly: true, fileMustExist: true })
+try {
+  await source.backup(dest)
+} finally {
+  source.close()
+}
+
+const backup = new Database(dest, { fileMustExist: true })
+try {
+  backup.pragma('wal_checkpoint(TRUNCATE)')
+  backup.pragma('journal_mode = DELETE')
+  const integrity = backup.pragma('integrity_check', { simple: true })
+  if (integrity !== 'ok') throw new Error('Integrity check backup gagal')
+} finally {
+  backup.close()
 }
 console.log(`Backup SQLite → ${dest}`)

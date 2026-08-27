@@ -1,4 +1,4 @@
-import { getGoogleMapsApiKey } from '#/lib/env'
+import { getGoogleMapsApiKey, isProduction } from '#/lib/env'
 
 const PLACES_NEW = 'https://places.googleapis.com/v1'
 const NEARBY_RADIUS_M = 1500
@@ -31,6 +31,12 @@ export type LatLng = {
 
 export function isGooglePlacesConfigured() {
   return getGoogleMapsApiKey().length > 0
+}
+
+function assertPlacesConfiguredForProduction() {
+  if (isProduction() && !isGooglePlacesConfigured()) {
+    throw new Error('Google Places belum dikonfigurasi di production.')
+  }
 }
 
 function suggestion(
@@ -105,6 +111,7 @@ export async function autocompletePlaces(input: {
   loc?: LatLng | null
   sessionToken?: string
 }): Promise<PlaceSearchResult> {
+  assertPlacesConfiguredForProduction()
   const q = input.query.trim()
   if (q.length < 2) return { source: isGooglePlacesConfigured() ? 'google' : 'stub', places: [] }
   if (!isGooglePlacesConfigured()) return stubPlaces(q)
@@ -164,6 +171,7 @@ async function autocompletePlacesNew(
 export async function nearbyPlaces(input: {
   loc: LatLng
 }): Promise<PlaceSearchResult> {
+  assertPlacesConfiguredForProduction()
   if (!isGooglePlacesConfigured()) {
     return {
       source: 'stub',
@@ -214,6 +222,11 @@ export async function getPlaceDetails(
 ): Promise<PlaceDetails> {
   const id = placeId.trim()
   if (!id) throw new Error('Place ID kosong')
+
+  assertPlacesConfiguredForProduction()
+  if (isProduction() && id.startsWith('DEV_')) {
+    throw new Error('Place ID development tidak boleh dipakai di production.')
+  }
 
   if (!isGooglePlacesConfigured() || id.startsWith('DEV_')) {
     const name = id.startsWith('DEV_')

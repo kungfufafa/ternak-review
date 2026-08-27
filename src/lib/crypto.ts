@@ -1,13 +1,12 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { customAlphabet } from 'nanoid'
-import { getDeployTarget } from './deploy-target'
 import { getAuthSecret, getIpHashSalt } from './env'
 
 const publicIdAlphabet = customAlphabet('23456789ABCDEFGHJKLMNPQRSTUVWXYZ', 10)
 const encoder = new TextEncoder()
 
 function pbkdf2Iterations() {
-  return getDeployTarget() === 'cloudflare' ? 12_000 : 100_000
+  return 600_000
 }
 
 function toHex(bytes: Uint8Array) {
@@ -68,6 +67,12 @@ export function hashToken(token: string) {
     .digest('hex')
 }
 
+export function timingSafeEqualText(a: string, b: string) {
+  const aDigest = createHash('sha256').update(a).digest()
+  const bDigest = createHash('sha256').update(b).digest()
+  return timingSafeEqual(aDigest, bDigest)
+}
+
 export function hashIp(ip: string | null | undefined) {
   if (!ip) return null
   return createHash('sha256')
@@ -80,6 +85,14 @@ export async function hashPassword(password: string) {
   const salt = crypto.getRandomValues(new Uint8Array(16))
   const hash = await pbkdf2Sha256(password, salt, iterations)
   return `pbkdf2:${iterations}:${toHex(salt)}:${toHex(hash)}`
+}
+
+export function passwordHashNeedsUpgrade(stored: string | null) {
+  if (!stored) return true
+  const [algorithm, rawIterations] = stored.split(':')
+  return (
+    algorithm !== 'pbkdf2' || Number(rawIterations) < pbkdf2Iterations()
+  )
 }
 
 export async function verifyPassword(password: string, stored: string | null) {

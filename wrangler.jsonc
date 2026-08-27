@@ -14,6 +14,7 @@
     {
       "binding": "DB",
       "database_name": "ternak-review",
+      "migrations_dir": "drizzle",
       // Ganti dengan id dari: npx wrangler d1 create ternak-review
       "database_id": "00000000-0000-0000-0000-000000000000",
     },

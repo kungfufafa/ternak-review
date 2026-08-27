@@ -150,7 +150,7 @@ export function NavUser() {
         <SheetHeader>
           <SheetTitle>Ganti password</SheetTitle>
           <SheetDescription>
-            Password baru minimal 8 karakter.
+            Password baru minimal 12 karakter. Semua sesi lama akan dicabut.
           </SheetDescription>
         </SheetHeader>
         <form className="flex flex-1 flex-col" onSubmit={onChangePassword}>
@@ -163,6 +163,7 @@ export function NavUser() {
                 <Input
                   autoComplete="current-password"
                   id="current-password"
+                  maxLength={200}
                   onChange={(event) => setCurrentPassword(event.target.value)}
                   required
                   type="password"
@@ -174,7 +175,8 @@ export function NavUser() {
                 <Input
                   autoComplete="new-password"
                   id="new-password"
-                  minLength={8}
+                  maxLength={200}
+                  minLength={12}
                   onChange={(event) => setNewPassword(event.target.value)}
                   required
                   type="password"

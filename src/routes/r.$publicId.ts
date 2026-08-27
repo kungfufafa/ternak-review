@@ -1,13 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { getRequestHeader } from '@tanstack/react-start/server'
 import { getAppUrl } from '#/lib/env'
 import { logClick, resolveRedirect } from '#/server/redirect'
-
-function clientIp() {
-  const forwarded = getRequestHeader('x-forwarded-for')
-  if (forwarded) return forwarded.split(',')[0]?.trim() ?? null
-  return getRequestHeader('x-real-ip') ?? null
-}
+import { getTrustedClientIp } from '#/server/request'
 
 export const Route = createFileRoute('/r/$publicId')({
   server: {
@@ -39,7 +33,7 @@ export const Route = createFileRoute('/r/$publicId')({
           await logClick({
             unitId: result.unitId,
             userAgent: ua,
-            ip: clientIp(),
+            ip: getTrustedClientIp(),
           })
         } catch (err) {
           console.error('[click-log]', err)

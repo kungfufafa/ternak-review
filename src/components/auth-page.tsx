@@ -2,7 +2,7 @@
 
 import { useNavigate, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
-import { AtSignIcon, LockIcon } from 'lucide-react'
+import { AtSignIcon, KeyRoundIcon, LockIcon } from 'lucide-react'
 import { useState } from 'react'
 import { AuthShell, AuthTitle } from '#/components/auth-shell'
 import { Alert } from '#/components/ui/alert'
@@ -33,6 +33,7 @@ export function AuthPage({
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [setupToken, setSetupToken] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -42,7 +43,7 @@ export function AuthPage({
     setError(null)
     try {
       if (isSetup) {
-        await registerPassword({ data: { email, password } })
+        await registerPassword({ data: { email, password, setupToken } })
       } else {
         await loginPassword({ data: { email, password } })
       }
@@ -77,6 +78,7 @@ export function AuthPage({
             <InputGroup>
               <InputGroupInput
                 autoComplete="email"
+                maxLength={254}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Email"
                 required
@@ -90,7 +92,8 @@ export function AuthPage({
             <InputGroup>
               <InputGroupInput
                 autoComplete={isSetup ? 'new-password' : 'current-password'}
-                minLength={8}
+                maxLength={200}
+                minLength={isSetup ? 12 : 8}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Kata sandi"
                 required
@@ -101,6 +104,22 @@ export function AuthPage({
                 <LockIcon />
               </InputGroupAddon>
             </InputGroup>
+            {isSetup ? (
+              <InputGroup>
+                <InputGroupInput
+                  autoComplete="one-time-code"
+                  maxLength={512}
+                  onChange={(e) => setSetupToken(e.target.value)}
+                  placeholder="Token setup dari environment"
+                  required
+                  type="password"
+                  value={setupToken}
+                />
+                <InputGroupAddon align="inline-start">
+                  <KeyRoundIcon />
+                </InputGroupAddon>
+              </InputGroup>
+            ) : null}
           </CardContent>
           <CardFooter>
             <Button className="w-full" disabled={busy} size="lg" type="submit">

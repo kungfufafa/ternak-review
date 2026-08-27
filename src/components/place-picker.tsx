@@ -36,10 +36,12 @@ function friendlyPlacesError() {
 
 export function PlacePicker({
   disabled,
+  publicId,
   sessionToken,
   onPick,
 }: {
   disabled?: boolean
+  publicId: string
   sessionToken: string
   onPick: (placeId: string) => void
 }) {
@@ -65,7 +67,7 @@ export function PlacePicker({
     setBusy(true)
     setError(null)
     try {
-      const res = await nearbyFn({ data: { loc: nextLoc } })
+      const res = await nearbyFn({ data: { loc: nextLoc, publicId } })
       if (id !== requestId.current) return
       setPlaces(res.places)
       setMode('nearby')
@@ -123,6 +125,7 @@ export function PlacePicker({
         const res = await searchFnRef.current({
           data: {
             query: q,
+            publicId,
             loc: loc ?? undefined,
             sessionToken,
           },
@@ -139,7 +142,7 @@ export function PlacePicker({
     }, 350)
 
     return () => window.clearTimeout(timeout)
-  }, [query, loc, sessionToken])
+  }, [query, loc, publicId, sessionToken])
 
   const locationLabel =
     geoState === 'asking'

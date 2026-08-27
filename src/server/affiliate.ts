@@ -12,6 +12,10 @@ import {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PLATFORM_SET = new Set<string>(AFFILIATE_PLATFORM_KEYS)
+const MAX_NAME_LENGTH = 120
+const MAX_EMAIL_LENGTH = 254
+const MAX_WHATSAPP_LENGTH = 32
+const MAX_USERNAME_LENGTH = 100
 
 export const AFFILIATE_PLATFORM_LABEL: Record<string, string> = {
   instagram: 'Instagram',
@@ -56,8 +60,11 @@ export function validateAffiliateLead(body: unknown): AffiliateValidation {
   const email = readString(body.email)
   const whatsapp = readString(body.whatsapp)
 
-  if (!nama) fields.nama = true
-  if (!EMAIL_RE.test(email)) fields.email = true
+  if (!nama || nama.length > MAX_NAME_LENGTH) fields.nama = true
+  if (email.length > MAX_EMAIL_LENGTH || !EMAIL_RE.test(email)) {
+    fields.email = true
+  }
+  if (whatsapp.length > MAX_WHATSAPP_LENGTH) fields.whatsapp = true
   if (digits(whatsapp).length < 9 || digits(whatsapp).length > 15) {
     fields.whatsapp = true
   }
@@ -67,6 +74,7 @@ export function validateAffiliateLead(body: unknown): AffiliateValidation {
     .filter((item): item is string => typeof item === 'string')
     .map((item) => item.trim())
     .filter(isPlatformKey)
+    .filter((value, index, all) => all.indexOf(value) === index)
 
   if (platforms.length === 0) fields.platforms = true
 
@@ -75,7 +83,7 @@ export function validateAffiliateLead(body: unknown): AffiliateValidation {
 
   for (const key of platforms) {
     const value = readString(rawUsernames[key])
-    if (!value) {
+    if (!value || value.length > MAX_USERNAME_LENGTH) {
       fields[`user-${key}`] = true
     } else {
       usernames[key] = value
@@ -119,7 +127,11 @@ async function forwardAffiliateWebhook(
   payload.append('whatsapp', lead.whatsapp)
 
   try {
-    const res = await fetch(url, { method: 'POST', body: payload })
+    const res = await fetch(url, {
+      method: 'POST',
+      body: payload,
+      signal: AbortSignal.timeout(5_000),
+    })
     return res.ok || res.type === 'opaque' || res.status === 0
   } catch {
     return false
@@ -151,7 +163,7 @@ export async function submitAffiliateLead(
     }
   }
 
-  void forwardAffiliateWebhook(parsed.data)
+  await forwardAffiliateWebhook(parsed.data)
   return { ok: true }
 }
 

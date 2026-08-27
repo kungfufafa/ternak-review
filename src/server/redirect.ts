@@ -1,7 +1,27 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#/db'
 import { clicks, units } from '#/db/schema'
-import { hashIp } from '#/lib/crypto'
+import { hashIp, hashToken } from '#/lib/crypto'
+
+const CLICK_DEDUPE_MS = 5 * 60 * 1000
+const MAX_RECENT_CLICK_IDS = 10_000
+const recentClickIds = new Map<string, number>()
+
+function rememberClick(id: string, now: number) {
+  const existing = recentClickIds.get(id)
+  if (existing && existing > now) return false
+
+  if (recentClickIds.size >= MAX_RECENT_CLICK_IDS) {
+    for (const [key, expiresAt] of recentClickIds) {
+      if (expiresAt <= now || recentClickIds.size >= MAX_RECENT_CLICK_IDS) {
+        recentClickIds.delete(key)
+      }
+      if (recentClickIds.size < MAX_RECENT_CLICK_IDS) break
+    }
+  }
+  recentClickIds.set(id, now + CLICK_DEDUPE_MS)
+  return true
+}
 
 export function googleReviewUrl(placeId: string) {
   return `https://search.google.com/local/writereview?placeid=${encodeURIComponent(placeId)}`
@@ -47,9 +67,23 @@ export async function logClick(input: {
   userAgent?: string | null
   ip?: string | null
 }) {
-  await db.insert(clicks).values({
-    unitId: input.unitId,
-    userAgent: input.userAgent?.slice(0, 512) ?? null,
-    ipHash: hashIp(input.ip),
-  })
+  const userAgent = input.userAgent?.slice(0, 512) ?? null
+  const ipHash = hashIp(input.ip)
+  const clientHash =
+    ipHash ?? hashToken(`anonymous:${userAgent ?? 'unknown-agent'}`)
+  const now = Date.now()
+  const bucket = Math.floor(now / CLICK_DEDUPE_MS)
+  const id = hashToken(`click:${input.unitId}:${clientHash}:${bucket}`)
+
+  if (!rememberClick(id, now)) return
+
+  try {
+    await db
+      .insert(clicks)
+      .values({ id, unitId: input.unitId, userAgent, ipHash })
+      .onConflictDoNothing({ target: clicks.id })
+  } catch (error) {
+    recentClickIds.delete(id)
+    throw error
+  }
 }

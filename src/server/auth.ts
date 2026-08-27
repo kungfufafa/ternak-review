@@ -2,19 +2,30 @@ import {
   getRequestHeader,
   setResponseHeader,
 } from '@tanstack/react-start/server'
-import { and, count, eq, gt } from 'drizzle-orm'
+import { and, count, eq, gt, lt } from 'drizzle-orm'
 import { db } from '#/db'
 import { owners, sessions } from '#/db/schema'
 import {
   generateToken,
   hashPassword,
   hashToken,
+  passwordHashNeedsUpgrade,
+  timingSafeEqualText,
   verifyPassword,
 } from '#/lib/crypto'
-import { getAppUrl } from '#/lib/env'
+import { getAdminSetupToken, getAppUrl, isProduction } from '#/lib/env'
 
-const SESSION_COOKIE = 'review_session'
-const SESSION_DAYS = 30
+const DEV_SESSION_COOKIE = 'review_session'
+const PROD_SESSION_COOKIE = '__Host-review_session'
+const SESSION_HOURS = 12
+const MIN_PASSWORD_LENGTH = 12
+const PRIMARY_OWNER_ID = '00000000-0000-4000-8000-000000000001'
+const DUMMY_PASSWORD_HASH =
+  'pbkdf2:600000:c0dec0dec0dec0dec0dec0dec0dec0de:359a83837843ace257b2cf995e64abb23327222ca6745852f7ebd588016d405b'
+
+function sessionCookieName() {
+  return isProduction() ? PROD_SESSION_COOKIE : DEV_SESSION_COOKIE
+}
 
 function cookieFlags(maxAge: number) {
   const secure =
@@ -33,7 +44,7 @@ export function setSessionCookie(token: string) {
   try {
     setResponseHeader(
       'Set-Cookie',
-      `${SESSION_COOKIE}=${token}; ${cookieFlags(SESSION_DAYS * 24 * 60 * 60)}`,
+      `${sessionCookieName()}=${token}; ${cookieFlags(SESSION_HOURS * 60 * 60)}`,
     )
   } catch {
     // Outside HTTP request context
@@ -44,7 +55,7 @@ export function clearSessionCookie() {
   try {
     setResponseHeader(
       'Set-Cookie',
-      `${SESSION_COOKIE}=; ${cookieFlags(0)}`,
+      `${sessionCookieName()}=; ${cookieFlags(0)}`,
     )
   } catch {
     // Outside HTTP request context
@@ -58,7 +69,7 @@ export function readSessionToken(): string | null {
     for (const part of header.split(/;\s*/)) {
       const eqIdx = part.indexOf('=')
       if (eqIdx === -1) continue
-      if (part.slice(0, eqIdx) === SESSION_COOKIE) {
+      if (part.slice(0, eqIdx) === sessionCookieName()) {
         return decodeURIComponent(part.slice(eqIdx + 1))
       }
     }
@@ -103,13 +114,18 @@ export async function loginWithPassword(email: string, password: string) {
   const owner = await db.query.owners.findFirst({
     where: eq(owners.email, normalized),
   })
-  if (
-    !owner?.passwordHash ||
-    !(await verifyPassword(password, owner.passwordHash))
-  ) {
+  const hashToVerify = owner?.passwordHash ?? DUMMY_PASSWORD_HASH
+  const passwordMatches = await verifyPassword(password, hashToVerify)
+  if (!owner?.passwordHash || !passwordMatches) {
     throw new Error(GENERIC_LOGIN_ERROR)
   }
-  await createSessionForOwner(owner.id)
+  if (passwordHashNeedsUpgrade(owner.passwordHash)) {
+    await db
+      .update(owners)
+      .set({ passwordHash: await hashPassword(password) })
+      .where(eq(owners.id, owner.id))
+  }
+  await replaceSessionsForOwner(owner.id)
   return { ownerId: owner.id, email: owner.email }
 }
 
@@ -118,25 +134,43 @@ export async function adminExists() {
   return Number(row?.n ?? 0) > 0
 }
 
-export async function registerWithPassword(email: string, password: string) {
+export async function registerWithPassword(
+  email: string,
+  password: string,
+  setupToken: string,
+) {
   if (await adminExists()) {
     throw new Error('Pendaftaran tertutup. Hanya admin yang bisa masuk.')
+  }
+  if (!timingSafeEqualText(setupToken, getAdminSetupToken())) {
+    throw new Error('Token setup admin salah.')
   }
   const normalized = email.trim().toLowerCase()
   if (!normalized.includes('@')) {
     throw new Error('Email tidak valid')
   }
-  if (password.length < 8) {
-    throw new Error('Password minimal 8 karakter')
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    throw new Error(`Password minimal ${MIN_PASSWORD_LENGTH} karakter`)
   }
 
-  const [created] = await db
-    .insert(owners)
-    .values({
-      email: normalized,
-      passwordHash: await hashPassword(password),
-    })
-    .returning()
+  let created: typeof owners.$inferSelect | undefined
+  try {
+    const inserted = await db
+      .insert(owners)
+      .values({
+        id: PRIMARY_OWNER_ID,
+        email: normalized,
+        passwordHash: await hashPassword(password),
+      })
+      .returning()
+    created = inserted[0]
+  } catch (error) {
+    if (await adminExists()) {
+      throw new Error('Pendaftaran tertutup. Hanya admin yang bisa masuk.')
+    }
+    throw error
+  }
+  if (!created) throw new Error('Gagal membuat admin')
   await createSessionForOwner(created.id)
   return { ownerId: created.id, email: created.email }
 }
@@ -146,8 +180,8 @@ export async function changeOwnerPassword(
   currentPassword: string,
   newPassword: string,
 ) {
-  if (newPassword.length < 8) {
-    throw new Error('Password baru minimal 8 karakter')
+  if (newPassword.length < MIN_PASSWORD_LENGTH) {
+    throw new Error(`Password baru minimal ${MIN_PASSWORD_LENGTH} karakter`)
   }
   const owner = await db.query.owners.findFirst({
     where: eq(owners.id, ownerId),
@@ -162,12 +196,13 @@ export async function changeOwnerPassword(
     .update(owners)
     .set({ passwordHash: await hashPassword(newPassword) })
     .where(eq(owners.id, ownerId))
+  await replaceSessionsForOwner(ownerId)
   return { ok: true as const }
 }
 
 export async function createSessionForOwner(ownerId: string) {
   const token = generateToken()
-  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000)
+  const expiresAt = new Date(Date.now() + SESSION_HOURS * 60 * 60 * 1000)
   await db.insert(sessions).values({
     ownerId,
     tokenHash: hashToken(token),
@@ -175,6 +210,12 @@ export async function createSessionForOwner(ownerId: string) {
   })
   setSessionCookie(token)
   return token
+}
+
+async function replaceSessionsForOwner(ownerId: string) {
+  await db.delete(sessions).where(eq(sessions.ownerId, ownerId))
+  await db.delete(sessions).where(lt(sessions.expiresAt, new Date()))
+  return createSessionForOwner(ownerId)
 }
 
 export async function destroyCurrentSession() {

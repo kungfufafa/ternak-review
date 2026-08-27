@@ -29,7 +29,7 @@ Afiliasi **tidak wajib**. Field partner di aktivasi opsional. Data aktivasi (tem
 cp .env.example .env.local
 ```
 
-Lokal memakai SQLite (`DATABASE_URL=file:./data/dev.db`) — tidak perlu Postgres. Sesuaikan `AUTH_SECRET`.
+Lokal memakai SQLite (`DATABASE_URL=file:./data/dev.db`) — tidak perlu Postgres. Sesuaikan `AUTH_SECRET`, `IP_HASH_SALT`, dan `ADMIN_SETUP_TOKEN`.
 
 Untuk aktivasi pakai listing Google Maps asli, isi `GOOGLE_MAPS_API_KEY` dan aktifkan **Places API (New)** (Autocomplete, Nearby Search, Place Details) di Google Cloud. Tanpa key, UI tetap jalan dengan daftar stub lokal.
 
@@ -51,19 +51,21 @@ Buka http://localhost:3000
 
 ## CI
 
-Push dan pull request ke `main` menjalankan GitHub Actions: **typecheck**, **smoke** (SQLite stub, tanpa Google API), **build Node**, **build Cloudflare**. Job `CI` hijau hanya jika semua lolos.
+Push dan pull request ke `main` menjalankan GitHub Actions: **typecheck**, **smoke** (SQLite stub, tanpa Google API), **security regression**, **D1 migration replay**, **build Node**, **runtime security check**, dan **build Cloudflare**. Job `CI` hijau hanya jika semua lolos.
 
 Lokal, **sebelum commit/push**:
 
 ```bash
 npm run ci
+# Opsional, verifikasi artefak server dan header HTTP seperti di CI:
+npm run build:node && npm run security:runtime
 ```
 
 Hook git (`.githooks`) ikut: `pre-commit` menjalankan typecheck, `pre-push` menjalankan `npm run ci`. Aktif setelah `npm install`. Lewati sekali dengan `git commit --no-verify` / `git push --no-verify`. Smoke Places live: `SMOKE_LIVE_PLACES=1 npm run smoke`.
 
 ## Alur uji cepat
 
-1. Buka `/login` — buat admin pertama (hanya sekali), lalu masuk dashboard.
+1. Buka `/login` — buat admin pertama memakai `ADMIN_SETUP_TOKEN` dari environment (hanya sekali), lalu masuk dashboard.
 2. Buka `/admin/stock` — generate kartu. Cetak wajah 10×10 (QR = `/r/ID`). Tulis URL yang sama ke NTAG215 di `/admin/stock/nfc` dengan HP.
 3. Buka `/activate` (atau `/r/{publicId}`) — **pilih listing Google Maps** (lokasi terdekat atau ketik untuk mencari di Maps — nama tidak diketik manual). Nama sales **opsional**. Prefill tag: `/activate?id=UNIT&ref=andi`.
 4. Tap atau scan ulang `/r/{publicId}` → redirect ke Google writereview (atau stub place ID di lokal).
@@ -94,16 +96,20 @@ cp .dev.vars.example .dev.vars         # isi secret
 npm run d1:migrate:remote
 npx wrangler secret put AUTH_SECRET
 npx wrangler secret put IP_HASH_SALT
+npx wrangler secret put ADMIN_SETUP_TOKEN
 npx wrangler secret put APP_URL
-npx wrangler secret put GOOGLE_MAPS_API_KEY   # opsional
+npx wrangler secret put GOOGLE_MAPS_API_KEY
 npm run deploy:cf
 
 # VPS / Docker (SQLite di volume)
-# Isi .env (APP_URL HTTPS, AUTH_SECRET, DATABASE_URL=file:./data/prod.db)
+# Isi .env (APP_URL HTTPS, tiga secret berbeda minimal 32 karakter,
+# GOOGLE_MAPS_API_KEY, DATABASE_URL=file:./data/prod.db)
 docker compose up -d --build
 # atau tanpa Docker:
 npm run build:node && node .output/server/index.mjs
 ```
+
+> D1 lama yang pernah diisi memakai `scripts/d1-migrate.ts` versi sebelumnya tidak mempunyai ledger `d1_migrations`. Jangan langsung menjalankan `d1:migrate:remote` pada database itu. Export backup lalu lakukan baseline satu kali: cocokkan schema aktual, catat hanya file migrasi yang memang sudah terpasang, atau pindahkan **data saja** ke D1 baru yang lebih dulu diinisialisasi dengan migrasi resmi. Database D1 baru dapat memakai perintah di atas langsung.
 
 Cek setelah nyala: `GET /health` — field `target` adalah `cloudflare` atau `node`.
 
@@ -118,10 +124,14 @@ Cek setelah nyala: `GET /health` — field `target` adalah `cloudflare` atau `no
 ### Catatan produksi
 
 - Schema tetap SQLite (`sqlite-core`). Jangan port ke Postgres untuk jalur ini.
-- Set `AUTH_SECRET` (acak, minimal 32 karakter) dan `IP_HASH_SALT` kuat. Jangan pakai nilai contoh.
+- Set `AUTH_SECRET`, `IP_HASH_SALT`, dan `ADMIN_SETUP_TOKEN` ke tiga nilai acak berbeda, masing-masing minimal 32 karakter. Jangan pakai nilai contoh.
 - Wajibkan HTTPS; cookie session memakai flag `Secure` jika `APP_URL` HTTPS atau `NODE_ENV=production`.
-- Isi `GOOGLE_MAPS_API_KEY`, enable **Places API (New)**. Di Cloudflare, batasi key ke Places API (New) + kuota — IP Worker tidak tetap.
+- Isi `GOOGLE_MAPS_API_KEY`, enable **Places API (New)**. Production gagal health check bila key kosong dan menolak seluruh place ID development. Di Cloudflare, batasi key ke Places API (New) + kuota — IP Worker tidak tetap.
 - Aktivasi hanya menyimpan `place_id` resmi Google. QR dan NTAG215 mengarah ke `/r/{id}`, lalu ke `writereview?placeid=…` listing itu.
 - Set `APP_URL` HTTPS final **sebelum** cetak dan tulis chip. URL di kertas/chip tidak ikut pindah domain; yang dinamis hanya tujuan Google.
 - Hosting redirect (`/r/*`) harus uptime tinggi — ini jalur kritis produk.
-- Password admin baru memakai PBKDF2 (iterasi lebih rendah di Cloudflare agar muat CPU free). Hash `scrypt:` lama tetap diverifikasi di VPS.
+- Password admin baru minimal 12 karakter dan memakai PBKDF2-HMAC-SHA256 600.000 iterasi. Hash lama di-upgrade saat login berhasil; hash `scrypt:` lama tetap diverifikasi di VPS.
+- Session admin berlaku absolut 12 jam. Login atau ganti password mencabut semua session lama.
+- VPS yang berada di balik reverse proxy tepercaya boleh memakai `TRUST_PROXY=true` hanya bila proxy menimpa `X-Real-IP`/`X-Forwarded-For`. Jangan aktifkan pada port Node yang terekspos langsung.
+- Click berulang dari kartu/client yang sama dideduplikasi per lima menit untuk menahan write-flood dan noise analytics.
+- `npm run db:backup` memakai SQLite online backup API dan menjalankan integrity check; aman dipakai saat aplikasi hidup. Tetap lakukan restore drill berkala.

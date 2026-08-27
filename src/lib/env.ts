@@ -1,17 +1,25 @@
-const WEAK_AUTH_SECRETS = new Set([
+const WEAK_PRODUCTION_SECRETS = new Set([
   'dev-only-change-me-in-production',
   'change-me-to-a-long-random-string',
   'local-dev-auth-secret-change-in-prod',
+  'change-me-to-a-different-long-random-string',
+  'change-me-to-another-long-random-string',
+  'change-me-to-a-third-long-random-string',
+  'local-dev-admin-setup-token',
 ])
 
-function readEnv(name: string): string | undefined {
+function isWeakProductionSecret(value: string | undefined) {
+  return !value || value.length < 32 || WEAK_PRODUCTION_SECRETS.has(value)
+}
+
+export function readEnv(name: string): string | undefined {
   if (typeof process === 'undefined' || !process.env) return undefined
   const value = process.env[name]
   return value && value.length > 0 ? value : undefined
 }
 
-function isProduction() {
-  return readEnv('NODE_ENV') === 'production'
+export function isProduction() {
+  return import.meta.env?.PROD === true || readEnv('NODE_ENV') === 'production'
 }
 
 export function getAppUrl() {
@@ -56,7 +64,7 @@ export function getAppUrlInfo(): AppUrlInfo {
 export function assertAppUrlForProduction() {
   const info = getAppUrlInfo()
   if (!info.production) return info
-  if (info.isLocal || !info.isHttps) {
+  if (!info.host || info.isLocal || !info.isHttps) {
     throw new Error(
       'Set APP_URL ke HTTPS produksi sebelum generate atau tulis NFC. URL di kartu tidak bisa diubah nanti.',
     )
@@ -64,21 +72,39 @@ export function assertAppUrlForProduction() {
   return info
 }
 
-export function getAuthSecret() {
+export function getAuthSecret(): string {
   const value = readEnv('AUTH_SECRET')
   if (isProduction()) {
-    if (!value || WEAK_AUTH_SECRETS.has(value) || value.length < 32) {
+    if (isWeakProductionSecret(value)) {
       throw new Error(
         'AUTH_SECRET wajib diisi string acak minimal 32 karakter di production.',
       )
     }
-    return value
+    return value as string
   }
   return value || 'dev-only-change-me-in-production'
 }
 
-export function getIpHashSalt() {
+export function getIpHashSalt(): string {
   return readEnv('IP_HASH_SALT') ?? getAuthSecret()
+}
+
+export function getAdminSetupToken() {
+  const value = readEnv('ADMIN_SETUP_TOKEN')
+  if (isProduction()) {
+    if (isWeakProductionSecret(value)) {
+      throw new Error(
+        'ADMIN_SETUP_TOKEN wajib diisi string acak minimal 32 karakter di production.',
+      )
+    }
+    return value as string
+  }
+  return value ?? 'local-dev-admin-setup-token'
+}
+
+export function isTrustedProxyEnabled() {
+  const value = readEnv('TRUST_PROXY')?.trim().toLowerCase()
+  return value === '1' || value === 'true' || value === 'yes' || value === 'on'
 }
 
 export function getGoogleMapsApiKey() {
@@ -87,4 +113,30 @@ export function getGoogleMapsApiKey() {
 
 export function getAffiliateWebhookUrl() {
   return readEnv('AFFILIATE_WEBHOOK_URL')?.trim() ?? ''
+}
+
+export function assertProductionConfig() {
+  if (!isProduction()) return
+
+  assertAppUrlForProduction()
+  const authSecret = getAuthSecret()
+  const setupToken = getAdminSetupToken()
+  const ipSalt = readEnv('IP_HASH_SALT')
+  if (isWeakProductionSecret(ipSalt)) {
+    throw new Error(
+      'IP_HASH_SALT wajib diisi string acak minimal 32 karakter di production.',
+    )
+  }
+  if (
+    ipSalt === authSecret ||
+    setupToken === authSecret ||
+    ipSalt === setupToken
+  ) {
+    throw new Error(
+      'AUTH_SECRET, IP_HASH_SALT, dan ADMIN_SETUP_TOKEN wajib memakai nilai berbeda.',
+    )
+  }
+  if (!getGoogleMapsApiKey()) {
+    throw new Error('GOOGLE_MAPS_API_KEY wajib diisi di production.')
+  }
 }

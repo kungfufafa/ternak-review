@@ -4,6 +4,8 @@ declare module 'cloudflare:workers' {
     APP_URL?: string
     AUTH_SECRET?: string
     IP_HASH_SALT?: string
+    ADMIN_SETUP_TOKEN?: string
+    TRUST_PROXY?: string
     GOOGLE_MAPS_API_KEY?: string
     AFFILIATE_WEBHOOK_URL?: string
     NODE_ENV?: string

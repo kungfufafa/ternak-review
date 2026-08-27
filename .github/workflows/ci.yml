@@ -46,6 +46,30 @@ jobs:
       - run: npm ci
       - run: npm run smoke
 
+  security:
+    name: Security regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run security
+
+  d1_migrations:
+    name: D1 migration replay
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run d1:migrate:test
+
   build:
     name: Build (${{ matrix.target }})
     runs-on: ubuntu-latest
@@ -61,15 +85,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:${{ matrix.target }}
+      - if: matrix.target == 'node'
+        run: npm run security:runtime
 
   gate:
     name: CI
     if: always()
-    needs: [typecheck, smoke, build]
+    needs: [typecheck, smoke, security, d1_migrations, build]
     runs-on: ubuntu-latest
     steps:
       - name: Require every gate
         run: |
           test "${{ needs.typecheck.result }}" = "success"
           test "${{ needs.smoke.result }}" = "success"
+          test "${{ needs.security.result }}" = "success"
+          test "${{ needs.d1_migrations.result }}" = "success"
           test "${{ needs.build.result }}" = "success"

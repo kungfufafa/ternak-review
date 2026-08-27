@@ -71,15 +71,20 @@ export function AffiliateForm() {
     setBanner('')
 
     const nextErrors: AffiliateFieldErrors = {}
-    if (!nama.trim()) nextErrors.nama = true
+    if (!nama.trim() || nama.trim().length > 120) nextErrors.nama = true
     if (selected.length === 0) nextErrors.platforms = true
     for (const platform of selectedPlatforms) {
-      if (!usernames[platform.key]?.trim()) {
+      const username = usernames[platform.key]?.trim() ?? ''
+      if (!username || username.length > 100) {
         nextErrors[`user-${platform.key}`] = true
       }
     }
-    if (!isValidEmail(email)) nextErrors.email = true
-    if (!isValidWhatsapp(whatsapp)) nextErrors.whatsapp = true
+    if (email.trim().length > 254 || !isValidEmail(email)) {
+      nextErrors.email = true
+    }
+    if (whatsapp.trim().length > 32 || !isValidWhatsapp(whatsapp)) {
+      nextErrors.whatsapp = true
+    }
 
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) {
@@ -158,6 +163,7 @@ export function AffiliateForm() {
               type="text"
               id="nama"
               name="nama"
+              maxLength={120}
               placeholder="Nama sesuai KTP"
               autoComplete="name"
               value={nama}
@@ -218,6 +224,7 @@ export function AffiliateForm() {
                       type="text"
                       placeholder={platform.placeholder}
                       aria-label={platform.label}
+                      maxLength={100}
                       value={usernames[platform.key] ?? ''}
                       onChange={(e) => {
                         setUsername(platform.key, e.target.value)
@@ -239,6 +246,7 @@ export function AffiliateForm() {
               type="email"
               id="email"
               name="email"
+              maxLength={254}
               placeholder="email@kamu.com"
               autoComplete="email"
               value={email}
@@ -265,6 +273,7 @@ export function AffiliateForm() {
               placeholder="08xxxxxxxxxx"
               autoComplete="tel"
               inputMode="numeric"
+              maxLength={32}
               value={whatsapp}
               className={errors.whatsapp ? 'is-error' : undefined}
               onChange={(e) => {
@@ -277,7 +286,7 @@ export function AffiliateForm() {
             </div>
             {errors.whatsapp ? (
               <div className="aff-err">
-                Masukin nomor WhatsApp yang valid (10-15 digit).
+                Masukin nomor WhatsApp yang valid (9-15 digit).
               </div>
             ) : null}
           </div>
