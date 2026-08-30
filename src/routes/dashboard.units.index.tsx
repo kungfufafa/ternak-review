@@ -6,7 +6,6 @@ import { ListPager } from '#/components/list-pager'
 import { PageHeader } from '#/components/page'
 import { StatusBadge } from '#/components/ui/badge'
 import { Select } from '#/components/ui/input'
-import { useDebounced } from '#/hooks/use-debounced'
 import {
   Empty,
   EmptyContent,
@@ -103,7 +102,6 @@ function UnitsListPage() {
   const { partner, status, q, batch } = Route.useSearch()
   const navigate = useNavigate({ from: '/dashboard/units/' })
   const [draft, setDraft] = useState(q ?? '')
-  const debouncedQ = useDebounced(draft, 300)
   const hasFilters = Boolean(q || status || partner || batch)
 
   useEffect(() => {
@@ -111,17 +109,20 @@ function UnitsListPage() {
   }, [q])
 
   useEffect(() => {
-    const next = debouncedQ.trim() || undefined
+    const next = draft.trim() || undefined
     if (next === q) return
-    void navigate({
-      replace: true,
-      search: (prev) => ({
-        ...prev,
-        q: next,
-        page: undefined,
-      }),
-    })
-  }, [debouncedQ, navigate, q])
+    const timer = window.setTimeout(() => {
+      void navigate({
+        replace: true,
+        search: (prev) => ({
+          ...prev,
+          q: next,
+          page: undefined,
+        }),
+      })
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [draft, navigate, q])
 
   return (
     <>
@@ -223,6 +224,7 @@ function UnitsListPage() {
             {hasFilters ? (
               <Button asChild variant="outline">
                 <Link
+                  onClick={() => setDraft('')}
                   search={{
                     q: undefined,
                     status: undefined,

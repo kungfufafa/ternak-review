@@ -68,7 +68,7 @@ function AdminHomePage() {
   const recentStores = summary.recentStores
   const attentionCount =
     (pendingBatches.length > 1 ? 1 : 0) +
-    (summary.stockCount < 25 ? 1 : 0) +
+    (summary.readyStockCount < 25 ? 1 : 0) +
     (summary.inactiveCount > 0 ? 1 : 0)
 
   return (
@@ -181,9 +181,9 @@ function AdminHomePage() {
                   {pendingBatches.length} cetakan belum selesai
                 </AttentionLink>
               ) : null}
-              {summary.stockCount < 25 ? (
+              {summary.readyStockCount < 25 ? (
                 <AttentionLink to="/admin/stock">
-                  Stok tinggal {summary.stockCount} kartu
+                  Stok siap kirim tinggal {summary.readyStockCount} kartu
                 </AttentionLink>
               ) : null}
               {summary.inactiveCount > 0 ? (
@@ -217,7 +217,7 @@ function AdminHomePage() {
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatLine
-            detail={`${summary.clicksLast7Days} dalam 7 hari`}
+            detail={`${summary.clicksLast7Days} dalam 7 hari penuh terakhir`}
             label="Kunjungan hari ini"
             to="/dashboard/units"
             value={summary.clicksToday}
@@ -227,7 +227,7 @@ function AdminHomePage() {
               summary.clicksLast7Days,
               summary.clicksPrevious7Days,
             )}
-            label="7 hari terakhir"
+            label="7 hari penuh terakhir"
             to="/dashboard/units"
             value={summary.clicksLast7Days}
           />
@@ -239,7 +239,7 @@ function AdminHomePage() {
             value={summary.activeOutletCount}
           />
           <StatLine
-            detail="Siap dikirim atau diaktivasi"
+            detail={`${summary.readyStockCount} siap dikirim atau diaktivasi`}
             label="Kartu di gudang"
             to="/dashboard/units"
             search={{ status: 'IN_STOCK' }}

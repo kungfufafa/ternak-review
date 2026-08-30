@@ -25,8 +25,13 @@ import {
 import { eq } from 'drizzle-orm'
 import { db } from '../src/db/index.ts'
 import { units } from '../src/db/schema.ts'
+import {
+  getAdminDashboardSummary,
+  summarizeClickBuckets,
+} from '../src/server/clicks.ts'
 
 async function main() {
+  const summaryBeforeBatch = await getAdminDashboardSummary()
   const batch = await generateStockBatch({
     count: 2,
   })
@@ -49,6 +54,15 @@ async function main() {
   if (!created || created.count !== 2 || created.remaining !== 2) {
     throw new Error('Expected stock batch in list')
   }
+  const summaryAfterBatch = await getAdminDashboardSummary()
+  if (summaryAfterBatch.stockCount !== summaryBeforeBatch.stockCount + 2) {
+    throw new Error('Generated cards must increase total warehouse stock')
+  }
+  if (
+    summaryAfterBatch.readyStockCount !== summaryBeforeBatch.readyStockCount
+  ) {
+    throw new Error('Unencoded cards must not increase ready stock')
+  }
   if (created.encoded !== 0 || created.next !== 'print') {
     throw new Error('New batch should have no encoded chips')
   }
@@ -62,6 +76,13 @@ async function main() {
   const marked = await markNfcEncoded(tagged.publicId)
   if (marked.nfcUrl !== tagged.redirectUrl || !marked.nfcEncodedAt) {
     throw new Error('Encoding must stamp the card /r/ URL')
+  }
+  const summaryAfterEncode = await getAdminDashboardSummary()
+  if (
+    summaryAfterEncode.readyStockCount !==
+    summaryBeforeBatch.readyStockCount + 1
+  ) {
+    throw new Error('Encoded warehouse cards must increase ready stock')
   }
   const listedAfterEncode = await listStockBatches()
   const encodedBatch = listedAfterEncode.find((b) => b.id === batch.batchId)
@@ -92,6 +113,13 @@ async function main() {
     publicId: plain.publicId,
     placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
   })
+  const summaryAfterActivation = await getAdminDashboardSummary()
+  if (
+    summaryAfterActivation.readyStockCount !==
+    summaryBeforeBatch.readyStockCount
+  ) {
+    throw new Error('Activated cards must leave ready warehouse stock')
+  }
   console.log('activated', {
     tagged: { publicId: withPartner.publicId, partner: withPartner.partnerRef },
     plain: { publicId: withoutPartner.publicId, partner: withoutPartner.partnerRef },
@@ -140,6 +168,28 @@ async function main() {
   const readyBatch = (await listStockBatches()).find((b) => b.id === leftover.batchId)
   if (!readyBatch || readyBatch.remaining !== 1 || readyBatch.next !== 'ready') {
     throw new Error('Batch must be ready when remaining cards are encoded')
+  }
+
+  const buckets = Array.from({ length: 15 }, (_, index) => ({
+    date: `day-${index + 1}`,
+    count: index + 1,
+  }))
+  const windows = summarizeClickBuckets(buckets)
+  if (windows.clicksToday !== 15) {
+    throw new Error('Today must use the newest reporting bucket')
+  }
+  if (windows.clicksLast7Days !== 77) {
+    throw new Error('Current trend window must use seven completed days')
+  }
+  if (windows.clicksPrevious7Days !== 28) {
+    throw new Error('Previous trend window must use the prior seven days')
+  }
+  if (
+    windows.daily.length !== 14 ||
+    windows.daily[0]?.date !== 'day-2' ||
+    windows.daily.at(-1)?.date !== 'day-15'
+  ) {
+    throw new Error('Dashboard chart must retain exactly 14 latest buckets')
   }
 }
 

@@ -35,14 +35,15 @@ function stamp(value: Date | number | null | undefined) {
 }
 
 export async function getAdminDashboardSummary() {
-  const monthStart = reportingMonthStart()
+  const generatedAt = Date.now()
+  const monthStart = reportingMonthStart(generatedAt)
 
   const [clickRow] = await db
     .select({ total: count() })
     .from(clicks)
     .where(gte(clicks.at, monthStart))
 
-  const daily = await getDailyClicks(14)
+  const clickBuckets = await getDailyClicks(15, generatedAt)
 
   const [unitCountRow] = await db.select({ total: count() }).from(units)
   const [activeRow] = await db
@@ -54,7 +55,10 @@ export async function getAdminDashboardSummary() {
     .from(units)
     .where(and(eq(units.status, 'ACTIVE'), isNotNull(units.outletId)))
   const [stockRow] = await db
-    .select({ total: count() })
+    .select({
+      total: count(),
+      ready: count(units.nfcEncodedAt),
+    })
     .from(units)
     .where(eq(units.status, 'IN_STOCK'))
   const [inactiveRow] = await db
@@ -69,21 +73,21 @@ export async function getAdminDashboardSummary() {
     limit: 8,
   })
 
-  const clicksToday = daily.at(-1)?.count ?? 0
-  const clicksLast7Days = daily
-    .slice(-7)
-    .reduce((total, row) => total + row.count, 0)
-  const clicksPrevious7Days = daily
-    .slice(0, 7)
-    .reduce((total, row) => total + row.count, 0)
+  const {
+    clicksToday,
+    clicksLast7Days,
+    clicksPrevious7Days,
+    daily,
+  } = summarizeClickBuckets(clickBuckets)
 
   return {
-    generatedAt: Date.now(),
+    generatedAt,
     reportingTimeZone: REPORTING_TIME_ZONE,
     unitCount: Number(unitCountRow?.total ?? 0),
     activeCount: Number(activeRow?.total ?? 0),
     activeOutletCount: Number(activeOutletRow?.total ?? 0),
     stockCount: Number(stockRow?.total ?? 0),
+    readyStockCount: Number(stockRow?.ready ?? 0),
     inactiveCount: Number(inactiveRow?.total ?? 0),
     clicksThisMonth: Number(clickRow?.total ?? 0),
     clicksToday,
@@ -217,8 +221,8 @@ export async function deleteUnit(unitId: string) {
   return { ok: true as const }
 }
 
-export async function getDailyClicks(days = 14) {
-  const today = reportingDayKey()
+export async function getDailyClicks(days = 14, now = Date.now()) {
+  const today = reportingDayKey(now)
   const firstDay = shiftReportingDay(today, -(days - 1))
   const since = reportingDayStart(firstDay)
 
@@ -244,6 +248,20 @@ export async function getDailyClicks(days = 14) {
     ...row,
     count: map.get(row.date) ?? 0,
   }))
+}
+
+export function summarizeClickBuckets(
+  buckets: Array<{ date: string; count: number }>,
+) {
+  const total = (rows: Array<{ count: number }>) =>
+    rows.reduce((sum, row) => sum + row.count, 0)
+
+  return {
+    clicksToday: buckets.at(-1)?.count ?? 0,
+    clicksLast7Days: total(buckets.slice(-8, -1)),
+    clicksPrevious7Days: total(buckets.slice(-15, -8)),
+    daily: buckets.slice(-14),
+  }
 }
 
 export async function getUnitDetail(unitId: string) {
