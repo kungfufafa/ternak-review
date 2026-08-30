@@ -86,6 +86,17 @@ function assertSecurityHeaders(response: Response) {
       throw new Error(`Header keamanan ${name} tidak ada`)
     }
   }
+
+  const csp = response.headers.get('content-security-policy') ?? ''
+  for (const directive of [
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "frame-src 'self' https://www.google.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  ]) {
+    if (!csp.includes(directive)) {
+      throw new Error(`CSP production tidak memuat: ${directive}`)
+    }
+  }
 }
 
 async function runValidConfig() {

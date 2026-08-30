@@ -25,13 +25,14 @@ export const securityHeadersMiddleware = createMiddleware().server(
         "default-src 'self'",
         "base-uri 'self'",
         "connect-src 'self'",
-        "font-src 'self' data:",
+        "font-src 'self' data: https://fonts.gstatic.com",
         "form-action 'self'",
+        "frame-src 'self' https://www.google.com",
         "frame-ancestors 'none'",
         "img-src 'self' data: https:",
         "object-src 'none'",
         "script-src 'self' 'unsafe-inline'",
-        "style-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       ].join('; ')
       headers['Strict-Transport-Security'] =
         'max-age=63072000; includeSubDomains'

@@ -1,8 +1,25 @@
-import { and, count, desc, eq, gte, or, sql } from 'drizzle-orm'
+import {
+  and,
+  count,
+  countDistinct,
+  desc,
+  eq,
+  gte,
+  isNotNull,
+  or,
+  sql,
+} from 'drizzle-orm'
 import { db } from '#/db'
 import { clicks, outlets, stockBatches, units } from '#/db/schema'
 import { sqlDayBucket } from '#/db/sql'
 import { getAppUrl } from '#/lib/env'
+import {
+  REPORTING_TIME_ZONE,
+  reportingDayKey,
+  reportingDayStart,
+  reportingMonthStart,
+  shiftReportingDay,
+} from '#/lib/reporting-time'
 
 export type UnitStatus = 'IN_STOCK' | 'ACTIVE' | 'INACTIVE'
 
@@ -18,9 +35,7 @@ function stamp(value: Date | number | null | undefined) {
 }
 
 export async function getAdminDashboardSummary() {
-  const monthStart = new Date()
-  monthStart.setDate(1)
-  monthStart.setHours(0, 0, 0, 0)
+  const monthStart = reportingMonthStart()
 
   const [clickRow] = await db
     .select({ total: count() })
@@ -34,10 +49,18 @@ export async function getAdminDashboardSummary() {
     .select({ total: count() })
     .from(units)
     .where(eq(units.status, 'ACTIVE'))
+  const [activeOutletRow] = await db
+    .select({ total: countDistinct(units.outletId) })
+    .from(units)
+    .where(and(eq(units.status, 'ACTIVE'), isNotNull(units.outletId)))
   const [stockRow] = await db
     .select({ total: count() })
     .from(units)
     .where(eq(units.status, 'IN_STOCK'))
+  const [inactiveRow] = await db
+    .select({ total: count() })
+    .from(units)
+    .where(eq(units.status, 'INACTIVE'))
 
   const recent = await db.query.units.findMany({
     where: eq(units.status, 'ACTIVE'),
@@ -46,11 +69,26 @@ export async function getAdminDashboardSummary() {
     limit: 8,
   })
 
+  const clicksToday = daily.at(-1)?.count ?? 0
+  const clicksLast7Days = daily
+    .slice(-7)
+    .reduce((total, row) => total + row.count, 0)
+  const clicksPrevious7Days = daily
+    .slice(0, 7)
+    .reduce((total, row) => total + row.count, 0)
+
   return {
+    generatedAt: Date.now(),
+    reportingTimeZone: REPORTING_TIME_ZONE,
     unitCount: Number(unitCountRow?.total ?? 0),
     activeCount: Number(activeRow?.total ?? 0),
+    activeOutletCount: Number(activeOutletRow?.total ?? 0),
     stockCount: Number(stockRow?.total ?? 0),
+    inactiveCount: Number(inactiveRow?.total ?? 0),
     clicksThisMonth: Number(clickRow?.total ?? 0),
+    clicksToday,
+    clicksLast7Days,
+    clicksPrevious7Days,
     recentStores: recent
       .filter((unit) => unit.outlet?.name)
       .map((unit) => ({
@@ -180,16 +218,15 @@ export async function deleteUnit(unitId: string) {
 }
 
 export async function getDailyClicks(days = 14) {
-  const since = new Date()
-  since.setDate(since.getDate() - (days - 1))
-  since.setHours(0, 0, 0, 0)
+  const today = reportingDayKey()
+  const firstDay = shiftReportingDay(today, -(days - 1))
+  const since = reportingDayStart(firstDay)
 
   const empty = () =>
-    Array.from({ length: days }, (_, i) => {
-      const d = new Date(since)
-      d.setDate(since.getDate() + i)
-      return { date: d.toISOString().slice(0, 10), count: 0 }
-    })
+    Array.from({ length: days }, (_, i) => ({
+      date: shiftReportingDay(firstDay, i),
+      count: 0,
+    }))
 
   const day = sqlDayBucket(clicks.at)
   const rows = await db
@@ -216,9 +253,9 @@ export async function getUnitDetail(unitId: string) {
   })
   if (!unit) return null
 
-  const since = new Date()
-  since.setDate(since.getDate() - 29)
-  since.setHours(0, 0, 0, 0)
+  const today = reportingDayKey()
+  const firstDay = shiftReportingDay(today, -29)
+  const since = reportingDayStart(firstDay)
 
   const [totalRow] = await db
     .select({ total: count() })
@@ -238,10 +275,8 @@ export async function getUnitDetail(unitId: string) {
 
   const map = new Map(dailyRows.map((r) => [r.day, Number(r.total)]))
   const daily = Array.from({ length: 30 }, (_, i) => {
-    const d = new Date(since)
-    d.setDate(since.getDate() + i)
-    const key = d.toISOString().slice(0, 10)
-    return { date: key, count: map.get(key) ?? 0 }
+    const date = shiftReportingDay(firstDay, i)
+    return { date, count: map.get(date) ?? 0 }
   })
 
   return {

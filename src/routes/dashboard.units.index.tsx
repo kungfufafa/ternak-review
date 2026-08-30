@@ -9,10 +9,12 @@ import { Select } from '#/components/ui/input'
 import { useDebounced } from '#/hooks/use-debounced'
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
 } from '#/components/ui/empty'
+import { Button } from '#/components/ui/button'
 import {
   InputGroup,
   InputGroupAddon,
@@ -102,6 +104,7 @@ function UnitsListPage() {
   const navigate = useNavigate({ from: '/dashboard/units/' })
   const [draft, setDraft] = useState(q ?? '')
   const debouncedQ = useDebounced(draft, 300)
+  const hasFilters = Boolean(q || status || partner || batch)
 
   useEffect(() => {
     setDraft(q ?? '')
@@ -208,48 +211,132 @@ function UnitsListPage() {
         <Empty>
           <EmptyHeader>
             <EmptyTitle>
-              {q || status || partner || batch ? 'Tidak ada yang cocok' : 'Belum ada kartu'}
+              {hasFilters ? 'Tidak ada yang cocok' : 'Belum ada kartu'}
             </EmptyTitle>
             <EmptyDescription>
-              {q || status || partner || batch
+              {hasFilters
                 ? 'Ubah kata kunci atau filter.'
                 : 'Generate QR dulu di menu Produksi.'}
             </EmptyDescription>
           </EmptyHeader>
+          <EmptyContent>
+            {hasFilters ? (
+              <Button asChild variant="outline">
+                <Link
+                  search={{
+                    q: undefined,
+                    status: undefined,
+                    partner: undefined,
+                    batch: undefined,
+                    page: undefined,
+                  }}
+                  to="/dashboard/units"
+                >
+                  Reset pencarian &amp; filter
+                </Link>
+              </Button>
+            ) : (
+              <Button asChild>
+                <Link to="/admin/stock">Mulai produksi</Link>
+              </Button>
+            )}
+          </EmptyContent>
         </Empty>
       ) : (
         <div className="flex flex-col gap-4">
-          <DataTable>
-            <DataTableHead
-              columns={['Kode', 'Tempat', 'Cetakan', 'Rekanan', 'Status', 'Aktivasi']}
-            />
-            <tbody>
-              {list.units.map((u) => (
-                <tr key={u.id}>
-                  <DataTableCell>
-                    <Link
-                      className="font-medium hover:underline"
-                      params={{ unitId: u.id }}
-                      to="/dashboard/units/$unitId"
-                    >
-                      {u.publicId}
-                    </Link>
-                  </DataTableCell>
-                  <DataTableCell>{u.outletName ?? '—'}</DataTableCell>
-                  <DataTableCell muted>{u.batchLabel ?? '—'}</DataTableCell>
-                  <DataTableCell muted>{u.partnerRef ?? '—'}</DataTableCell>
-                  <DataTableCell>
+          <ul className="grid gap-2 md:hidden">
+            {list.units.map((u) => (
+              <li key={u.id}>
+                <Link
+                  className="block rounded-2xl bg-card p-4 ring-1 ring-border transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                  params={{ unitId: u.id }}
+                  to="/dashboard/units/$unitId"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-mono text-xs text-muted-foreground">
+                        {u.publicId}
+                      </p>
+                      <p className="mt-1 truncate font-medium">
+                        {u.outletName ?? 'Belum diaktivasi'}
+                      </p>
+                    </div>
                     <StatusBadge status={u.status} />
-                  </DataTableCell>
-                  <DataTableCell muted>
-                    {u.activatedAt
-                      ? new Date(u.activatedAt).toLocaleDateString('id-ID')
-                      : '—'}
-                  </DataTableCell>
-                </tr>
-              ))}
-            </tbody>
-          </DataTable>
+                  </div>
+
+                  <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-xs">
+                    <div className="min-w-0">
+                      <dt className="text-muted-foreground">Cetakan</dt>
+                      <dd
+                        className="mt-0.5 truncate"
+                        title={u.batchLabel ?? undefined}
+                      >
+                        {u.batchLabel ?? '—'}
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-muted-foreground">Rekanan</dt>
+                      <dd
+                        className="mt-0.5 truncate"
+                        title={u.partnerRef ?? undefined}
+                      >
+                        {u.partnerRef ?? '—'}
+                      </dd>
+                    </div>
+                    <div className="col-span-2 flex items-baseline justify-between gap-3">
+                      <dt className="text-muted-foreground">Aktivasi</dt>
+                      <dd className="tabular-nums">
+                        {u.activatedAt
+                          ? new Date(u.activatedAt).toLocaleDateString('id-ID')
+                          : 'Belum'}
+                      </dd>
+                    </div>
+                  </dl>
+                </Link>
+              </li>
+            ))}
+          </ul>
+
+          <div className="hidden md:block">
+            <DataTable>
+              <DataTableHead
+                columns={[
+                  'Kode',
+                  'Tempat',
+                  'Cetakan',
+                  'Rekanan',
+                  'Status',
+                  'Aktivasi',
+                ]}
+              />
+              <tbody>
+                {list.units.map((u) => (
+                  <tr key={u.id}>
+                    <DataTableCell>
+                      <Link
+                        className="font-medium hover:underline"
+                        params={{ unitId: u.id }}
+                        to="/dashboard/units/$unitId"
+                      >
+                        {u.publicId}
+                      </Link>
+                    </DataTableCell>
+                    <DataTableCell>{u.outletName ?? '—'}</DataTableCell>
+                    <DataTableCell muted>{u.batchLabel ?? '—'}</DataTableCell>
+                    <DataTableCell muted>{u.partnerRef ?? '—'}</DataTableCell>
+                    <DataTableCell>
+                      <StatusBadge status={u.status} />
+                    </DataTableCell>
+                    <DataTableCell muted>
+                      {u.activatedAt
+                        ? new Date(u.activatedAt).toLocaleDateString('id-ID')
+                        : '—'}
+                    </DataTableCell>
+                  </tr>
+                ))}
+              </tbody>
+            </DataTable>
+          </div>
           <ListPager
             onPage={(next) => {
               void navigate({

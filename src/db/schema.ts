@@ -115,6 +115,7 @@ export const clicks = sqliteTable(
     ipHash: text('ip_hash'),
   },
   (t) => [
+    index('clicks_at_idx').on(t.at),
     index('clicks_unit_idx').on(t.unitId),
     index('clicks_unit_at_idx').on(t.unitId, t.at),
   ],

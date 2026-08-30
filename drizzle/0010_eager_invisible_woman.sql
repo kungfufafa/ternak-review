@@ -1,0 +1,1 @@
+CREATE INDEX `clicks_at_idx` ON `clicks` (`at`);
