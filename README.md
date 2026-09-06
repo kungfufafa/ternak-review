@@ -108,23 +108,30 @@ Baileys. Stub menolak `APP_URL` non-localhost dan `NODE_ENV=production`.
 | `/admin/logs` | Log kiriman email dan WhatsApp (observabilitas) |
 | `/health` | Health check JSON |
 
-## Deploy (Cloudflare atau VPS)
+## Deploy (satu jalur: GitHub → Cloudflare)
 
-Satu repo, satu domain, **satu yang nulis**. Pilih target saat build. Jangan Cloudflare dan VPS sama-sama nulis ke database berbeda.
+Push ke `main` adalah pintu produksi. GitHub Actions menjalankan tes, apply migrasi D1, lalu `wrangler deploy` ke Worker `ternak-review` (`ternakreview.com`). Jangan `npm run deploy:cf` dari laptop kecuali Actions down.
+
+Satu kali, isi secret repo (`Settings → Secrets and variables → Actions`):
+
+1. `CLOUDFLARE_ACCOUNT_ID` — Account ID Cloudflare
+2. `CLOUDFLARE_API_TOKEN` — [Create Token](https://dash.cloudflare.com/profile/api-tokens) → template **Edit Cloudflare Workers**, scope ke akun yang sama
+
+Secret aplikasi (`AUTH_SECRET`, `IP_HASH_SALT`, `ADMIN_SETUP_TOKEN`, `GOOGLE_MAPS_API_KEY`, `WHATSAPP_GATEWAY_TOKEN`) tetap di Cloudflare (`wrangler secret put`), bukan di GitHub.
 
 ```bash
-# Cloudflare Workers + D1
+# Bootstrap Cloudflare (sekali): D1, secret Worker, DNS/route
 npx wrangler login
 npx wrangler d1 create ternak-review   # tempel database_id ke wrangler.jsonc
-cp .dev.vars.example .dev.vars         # isi secret
-npm run d1:migrate:remote
 npx wrangler secret put AUTH_SECRET
 npx wrangler secret put IP_HASH_SALT
 npx wrangler secret put ADMIN_SETUP_TOKEN
-npx wrangler secret put APP_URL
 npx wrangler secret put GOOGLE_MAPS_API_KEY
 npx wrangler secret put WHATSAPP_GATEWAY_TOKEN  # jika Pro/gateway diaktifkan
+
+# Darurat saja, kalau GitHub Actions tidak bisa deploy:
 npm run deploy:cf
+```
 
 # VPS / Docker (SQLite di volume)
 # Isi .env (APP_URL HTTPS, tiga secret berbeda minimal 32 karakter,
