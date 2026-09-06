@@ -85,13 +85,15 @@ function ActivatePage() {
   const verifyPinFn = useServerFn(verifyActivationAccessFn)
 
   const publicId = (card?.publicId ?? prefillId).toUpperCase()
+  const isAdmin = session?.role === 'ADMIN'
   const isHolder = Boolean(session?.ownerId && session.ownerId === card?.ownerId)
+  const skipPin = isAdmin || isHolder
   const otherAccount = Boolean(
-    session?.role === 'USER' && session.ownerId !== card?.ownerId,
+    session?.role === 'USER' &&
+      card?.ownerId &&
+      session.ownerId !== card.ownerId,
   )
-  const [step, setStep] = useState<Step>(() =>
-    isHolder ? 'outlet' : 'pin',
-  )
+  const [step, setStep] = useState<Step>(() => (skipPin ? 'outlet' : 'pin'))
   const [pin, setPin] = useState('')
   const [partnerRef, setPartnerRef] = useState(prefillRef)
   const [sessionToken, setSessionToken] = useState(() => crypto.randomUUID())
@@ -153,7 +155,7 @@ function ActivatePage() {
           publicId,
           placeId: selectedPlaceId,
           partnerRef: partnerRef.trim() || undefined,
-          pin: isHolder ? undefined : pin,
+          pin: skipPin ? undefined : pin,
         },
       })
       setResult({
@@ -178,27 +180,6 @@ function ActivatePage() {
             </>
           }
         />
-      </AuthShell>
-    )
-  }
-
-  if (!card.ownerId) {
-    return (
-      <AuthShell center>
-        <AuthTitle
-          title={
-            <>
-              Kartu belum <em className="text-pine italic">di-assign</em>
-            </>
-          }
-        />
-        <Alert>
-          Kartu ini belum disiapkan ke akun. Minta penjual memasangkannya, atau
-          masuk kalau akunmu sudah ada.
-        </Alert>
-        <Button asChild className="w-full" size="lg" variant="outline">
-          <Link to="/login">Masuk dashboard</Link>
-        </Button>
       </AuthShell>
     )
   }
@@ -233,12 +214,18 @@ function ActivatePage() {
           pakai akun yang memegangnya.
         </Alert>
       ) : null}
+      {isAdmin && (step === 'outlet' || step === 'confirm') ? (
+        <p className="text-sm text-muted-foreground">
+          Masuk sebagai admin — kartu dipasang tanpa PIN, sudah ada pemegang atau belum.
+        </p>
+      ) : null}
 
       {step === 'pin' ? (
         <form className="flex flex-col gap-4" onSubmit={onVerifyPin}>
           <p className="text-sm text-muted-foreground">
-            PIN 4 digit dari penjual. Kalau ini kartumu, lebih gampang masuk
-            dashboard — tidak perlu PIN.
+            {card.ownerId
+              ? 'PIN 4 digit pemegang. Admin yang sudah login tidak perlu PIN.'
+              : 'Kartu belum di-assign. Isi PIN pemegang untuk klaim, atau masuk sebagai admin untuk pasang tanpa PIN.'}
           </p>
           <InputGroup>
             <InputGroupInput
@@ -346,7 +333,16 @@ function ActivatePage() {
             </p>
           </CardContent>
           <CardFooter className="flex flex-col gap-2">
-            {isHolder ? (
+            {isAdmin ? (
+              <>
+                <Button asChild className="w-full" size="lg">
+                  <Link to="/dashboard/units">Lihat kartu</Link>
+                </Button>
+                <Button asChild className="w-full" size="lg" variant="outline">
+                  <a href={`/r/${result.publicId}`}>Coba sebagai tamu</a>
+                </Button>
+              </>
+            ) : isHolder ? (
               <>
                 <Button asChild className="w-full" size="lg">
                   <Link to="/app">Pasang kartu berikutnya</Link>

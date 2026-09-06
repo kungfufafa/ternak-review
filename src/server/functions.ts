@@ -238,6 +238,7 @@ export const verifyActivationAccessFn = createServerFn({ method: 'POST' })
     return verifyActivationAccess({
       ...data,
       sessionOwnerId: session?.ownerId ?? null,
+      sessionRole: session?.role ?? null,
     })
   })
 
@@ -260,6 +261,7 @@ export const activateUnitFn = createServerFn({ method: 'POST' })
       ...data,
       clientKey: getClientFingerprint(),
       sessionOwnerId: session?.ownerId ?? null,
+      sessionRole: session?.role ?? null,
     })
   })
 
@@ -902,6 +904,7 @@ export const activateMyUnitFn = createServerFn({ method: 'POST' })
     return activateUnit({
       ...data,
       sessionOwnerId: owner.ownerId,
+      sessionRole: owner.role,
       clientKey: getClientFingerprint(),
     })
   })

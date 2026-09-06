@@ -310,10 +310,71 @@ async function checkHolderAccounts() {
       activateUnit({
         publicId: cardC.publicId,
         placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
-        pin: '2580',
       }),
-    'Unassigned card with a valid PIN',
+    'Unassigned card without PIN',
   )
+  await expectReject(
+    () =>
+      activateUnit({
+        publicId: cardC.publicId,
+        placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+        pin: '2468',
+      }),
+    'Unassigned card with unknown PIN',
+  )
+  await verifyActivationAccess({
+    publicId: cardA.publicId,
+    sessionRole: 'ADMIN',
+  })
+  await verifyActivationAccess({
+    publicId: cardC.publicId,
+    sessionRole: 'ADMIN',
+  })
+
+  const claimBatch = await generateStockBatch({ count: 3, label: 'QA-CLAIM' })
+  const claimCard = claimBatch.units[0]
+  const adminFreeCard = claimBatch.units[1]
+  const adminAssignedCard = claimBatch.units[2]
+  if (!claimCard || !adminFreeCard || !adminAssignedCard) {
+    throw new Error('Expected unassigned claim cards')
+  }
+  const claimer = await createHolder({
+    email: `claimer-${claimCard.publicId.toLowerCase()}@smoke.test`,
+    password: 'smoke-holder-12',
+    name: 'Claimer',
+    pin: '1357',
+  })
+  await activateUnit({
+    publicId: claimCard.publicId,
+    placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+    pin: '1357',
+  })
+  const claimed = await getActivationCard(claimCard.publicId)
+  if (claimed?.status !== 'ACTIVE' || claimed.ownerId !== claimer.id) {
+    throw new Error('Unassigned card + holder PIN must claim that holder')
+  }
+  await activateUnit({
+    publicId: adminFreeCard.publicId,
+    placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+    sessionRole: 'ADMIN',
+  })
+  const adminFree = await getActivationCard(adminFreeCard.publicId)
+  if (adminFree?.status !== 'ACTIVE' || adminFree.ownerId !== null) {
+    throw new Error('Admin must activate unassigned cards without PIN or owner')
+  }
+  await assignUnitToHolder({
+    ownerId: holder.id,
+    publicId: adminAssignedCard.publicId,
+  })
+  await activateUnit({
+    publicId: adminAssignedCard.publicId,
+    placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+    sessionRole: 'ADMIN',
+  })
+  const adminAssigned = await getActivationCard(adminAssignedCard.publicId)
+  if (adminAssigned?.status !== 'ACTIVE' || adminAssigned.ownerId !== holder.id) {
+    throw new Error('Admin activating an assigned card must keep the holder')
+  }
 
   await activateUnit({
     publicId: cardA.publicId,
@@ -653,9 +714,17 @@ async function main() {
       activateUnit({
         publicId: tagged.publicId,
         placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+      }),
+    'Activating an unassigned card without PIN',
+  )
+  await expectReject(
+    () =>
+      activateUnit({
+        publicId: tagged.publicId,
+        placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
         pin: '2580',
       }),
-    'Activating an unassigned card',
+    'Activating an unassigned card before a holder exists',
   )
 
   const holder = await createHolder({
@@ -665,12 +734,20 @@ async function main() {
     pin: '2580',
   })
   if (holder.pin !== '2580') throw new Error('Requested holder PIN must be stored')
-  await assignUnitToHolder({ ownerId: holder.id, publicId: tagged.publicId })
+  const withPartner = await activateUnit({
+    publicId: tagged.publicId,
+    placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+    partnerRef: 'smoke-sales',
+    pin: '2580',
+  })
+  if ((await getActivationCard(tagged.publicId))?.ownerId !== holder.id) {
+    throw new Error('Unassigned activation with PIN must claim the holder')
+  }
   await assignUnitToHolder({ ownerId: holder.id, publicId: plain.publicId })
   await expectReject(
     () =>
       activateUnit({
-        publicId: tagged.publicId,
+        publicId: plain.publicId,
         placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
         pin: '2581',
       }),
@@ -681,12 +758,6 @@ async function main() {
     'Trivial holder PIN',
   )
 
-  const withPartner = await activateUnit({
-    publicId: tagged.publicId,
-    placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
-    partnerRef: 'smoke-sales',
-    pin: '2580',
-  })
   const withoutPartner = await activateUnit({
     publicId: plain.publicId,
     placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',

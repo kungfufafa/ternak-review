@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '#/db'
-import { outlets, units } from '#/db/schema'
-import { pinMatches } from '#/lib/pin'
+import { outlets, owners, units } from '#/db/schema'
+import { hashPin, normalizePin, pinMatches } from '#/lib/pin'
 import { getPlaceDetails } from './places'
 import { assertRateLimit, consumeRateLimit } from './rate-limit'
 import { hashRateLimitIdentifier } from './request'
@@ -40,6 +40,7 @@ export async function verifyActivationAccess(input: {
   publicId: string
   pin?: string
   sessionOwnerId?: string | null
+  sessionRole?: 'ADMIN' | 'USER' | null
 }) {
   const publicId = input.publicId.trim().toUpperCase()
   const unit = await db.query.units.findFirst({
@@ -62,6 +63,7 @@ export async function activateUnit(input: {
   clientKey?: string | null
   pin?: string
   sessionOwnerId?: string | null
+  sessionRole?: 'ADMIN' | 'USER' | null
 }) {
   const publicId = input.publicId.trim().toUpperCase()
   await assertRateLimit(
@@ -83,7 +85,7 @@ export async function activateUnit(input: {
   if (unit.status !== 'IN_STOCK') {
     throw new Error('Kartu ini sudah terpasang ke toko.')
   }
-  await assertHolderMayActivate(unit, input)
+  const actor = await assertHolderMayActivate(unit, input)
 
   const settings = normalizeReviewSettings({
     serviceTier: unit.serviceTier as ServiceTier,
@@ -120,6 +122,7 @@ export async function activateUnit(input: {
     .set({
       status: 'ACTIVE',
       outletId,
+      ownerId: unit.ownerId ?? actor.holderOwnerId,
       partnerRef,
       ...settings,
       activatedAt: new Date(),
@@ -180,6 +183,38 @@ export async function rebindUnitOutlet(input: {
   return { outlet: details }
 }
 
+async function rejectBadPin(publicId: string): Promise<never> {
+  const limit = await consumeRateLimit(
+    `pin-fail:${hashRateLimitIdentifier(publicId)}`,
+    { max: 5, windowMs: 15 * 60_000 },
+  )
+  if (limit.limited || limit.remaining === 0) {
+    throw new Error(
+      'Terlalu banyak PIN yang tidak cocok. Istirahat sebentar, atau masuk sebagai admin supaya tidak perlu PIN.',
+    )
+  }
+  throw new Error(
+    `PIN belum cocok. Masih ${limit.remaining} kesempatan. Admin yang sudah login tidak perlu PIN.`,
+  )
+}
+
+async function findHolderByPin(pin: string) {
+  let pinHash: string
+  try {
+    pinHash = hashPin(normalizePin(pin))
+  } catch {
+    return []
+  }
+  return db.query.owners.findMany({
+    where: and(
+      eq(owners.role, 'USER'),
+      eq(owners.status, 'ACTIVE'),
+      eq(owners.pinHash, pinHash),
+    ),
+    columns: { id: true },
+  })
+}
+
 async function assertHolderMayActivate(
   unit: {
     publicId: string
@@ -191,33 +226,41 @@ async function assertHolderMayActivate(
       pinHash: string | null
     } | null
   },
-  input: { pin?: string; sessionOwnerId?: string | null },
-) {
-  if (!unit.ownerId || !unit.owner || unit.owner.role !== 'USER') {
-    throw new Error(
-      'Kartu ini belum disiapkan. Minta penjual memasangkannya ke akunmu, atau masuk kalau akunmu sudah ada.',
-    )
+  input: {
+    pin?: string
+    sessionOwnerId?: string | null
+    sessionRole?: 'ADMIN' | 'USER' | null
+  },
+): Promise<{ holderOwnerId: string | null }> {
+  if (input.sessionRole === 'ADMIN') {
+    return { holderOwnerId: unit.ownerId }
   }
-  if (unit.owner.status !== 'ACTIVE') {
-    throw new Error(
-      'Akun pemegang sedang istirahat. Hubungi penjual supaya diaktifkan lagi.',
-    )
-  }
-  if (input.sessionOwnerId && input.sessionOwnerId === unit.ownerId) {
-    return
-  }
-  if (!input.pin || !pinMatches(input.pin, unit.owner.pinHash)) {
-    const limit = await consumeRateLimit(
-      `pin-fail:${hashRateLimitIdentifier(unit.publicId)}`,
-      { max: 5, windowMs: 15 * 60_000 },
-    )
-    if (limit.limited || limit.remaining === 0) {
+  if (unit.ownerId && unit.owner?.role === 'USER') {
+    if (unit.owner.status !== 'ACTIVE') {
       throw new Error(
-        'Terlalu banyak PIN yang tidak cocok. Istirahat sebentar, atau masuk dashboard supaya tidak perlu PIN.',
+        'Akun pemegang sedang istirahat. Hubungi penjual supaya diaktifkan lagi.',
       )
     }
+    if (input.sessionOwnerId && input.sessionOwnerId === unit.ownerId) {
+      return { holderOwnerId: unit.ownerId }
+    }
+    if (!input.pin || !pinMatches(input.pin, unit.owner.pinHash)) {
+      await rejectBadPin(unit.publicId)
+    }
+    return { holderOwnerId: unit.ownerId }
+  }
+  if (!input.pin) {
     throw new Error(
-      `PIN belum cocok. Masih ${limit.remaining} kesempatan. Kalau ini kartumu, masuk dashboard biar langsung pasang.`,
+      'Masukkan PIN pemegang, atau masuk sebagai admin untuk pasang tanpa PIN.',
     )
   }
+  const matches = await findHolderByPin(input.pin)
+  if (matches.length > 1) {
+    throw new Error('PIN bentrok di beberapa akun. Masuk dashboard, jangan pakai PIN.')
+  }
+  const holder = matches[0]
+  if (!holder) {
+    await rejectBadPin(unit.publicId)
+  }
+  return { holderOwnerId: holder.id }
 }
