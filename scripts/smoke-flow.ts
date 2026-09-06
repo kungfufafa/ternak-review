@@ -6,8 +6,8 @@ config({ path: '.env.local' })
 if (process.env.CI || process.env.SMOKE_LIVE_PLACES !== '1') {
   process.env.GOOGLE_MAPS_API_KEY = ''
 }
-if (process.env.CI) {
-  process.env.DATABASE_URL ??= 'file:./data/ci.db'
+if (process.env.SMOKE_USE_APP_DB !== '1') {
+  process.env.DATABASE_URL = 'file:./data/ci.db'
 }
 
 import {
