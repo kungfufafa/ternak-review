@@ -356,8 +356,8 @@ function NfcPage() {
             <div className="flex w-full flex-col gap-3">
               <p className="text-sm text-muted-foreground">
                 {ios
-                  ? 'iPhone tidak bisa nulis NFC dari Safari. Scan di sini, salin URL, tulis di aplikasi NFC Tools. Atau pakai Android Chrome biar sekali tempel.'
-                  : 'Nulis stiker dari browser cuma di Chrome Android. Salin URL ini, atau buka halaman ini di HP Android.'}
+                  ? 'iPhone tidak bisa nulis NFC dari Safari. Pakai app Ternak Review (folder mobile/), atau salin URL ke NFC Tools. Android Chrome tetap bisa nulis langsung dari halaman ini.'
+                  : 'Nulis stiker dari browser cuma di Chrome Android. Salin URL ini, buka halaman ini di HP Android, atau pakai app Ternak Review.'}
               </p>
               <p className="break-all font-mono text-xs text-muted-foreground">
                 {card.redirectUrl}

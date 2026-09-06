@@ -38,15 +38,27 @@ export const securityHeadersMiddleware = createMiddleware().server(
         'max-age=63072000; includeSubDomains'
     }
 
+    if (pathname.startsWith('/api/mobile/')) {
+      headers['Cache-Control'] = 'no-store'
+      headers['Access-Control-Allow-Origin'] = '*'
+      headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
+      headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    }
+
     if (
+      pathname === '/' ||
       pathname === '/health' ||
       pathname === '/login' ||
       pathname === '/activate' ||
+      pathname === '/affiliate' ||
+      pathname === '/r-status' ||
       pathname.startsWith('/r/') ||
       pathname.startsWith('/feedback/') ||
       pathname.startsWith('/api/internal/') ||
+      pathname.startsWith('/api/mobile/') ||
       pathname.startsWith('/admin') ||
       pathname.startsWith('/dashboard') ||
+      pathname.startsWith('/app') ||
       pathname.startsWith('/_serverFn/')
     ) {
       headers['Cache-Control'] = 'no-store'

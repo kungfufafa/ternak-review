@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { AnnounceBar } from '#/components/marketing/AnnounceBar'
 import { marketingHead } from '#/components/marketing/content'
 import { FaqSection } from '#/components/marketing/FaqSection'
@@ -8,8 +8,13 @@ import { MarketingShell } from '#/components/marketing/MarketingShell'
 import { ProductsSection } from '#/components/marketing/ProductsSection'
 import { SiteFooter } from '#/components/marketing/SiteFooter'
 import { SiteHeader } from '#/components/marketing/SiteHeader'
+import { getPublicSiteFlagsFn } from '#/server/functions'
 
 export const Route = createFileRoute('/')({
+  beforeLoad: async () => {
+    const flags = await getPublicSiteFlagsFn()
+    if (!flags.homeEnabled) throw redirect({ to: '/login' })
+  },
   component: HomePage,
   head: () =>
     marketingHead(

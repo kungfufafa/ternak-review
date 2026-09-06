@@ -107,12 +107,20 @@ export function isTrustedProxyEnabled() {
   return value === '1' || value === 'true' || value === 'yes' || value === 'on'
 }
 
-export function getGoogleMapsApiKey() {
+export function getGoogleMapsApiKeyFromEnv() {
   return readEnv('GOOGLE_MAPS_API_KEY') ?? ''
 }
 
-export function getAffiliateWebhookUrl() {
+export function getGoogleMapsApiKey() {
+  return getGoogleMapsApiKeyFromEnv()
+}
+
+export function getAffiliateWebhookUrlFromEnv() {
   return readEnv('AFFILIATE_WEBHOOK_URL')?.trim() ?? ''
+}
+
+export function getAffiliateWebhookUrl() {
+  return getAffiliateWebhookUrlFromEnv()
 }
 
 export function getWhatsappGatewayToken() {
@@ -143,8 +151,5 @@ export function assertProductionConfig() {
     throw new Error(
       'AUTH_SECRET, IP_HASH_SALT, dan ADMIN_SETUP_TOKEN wajib memakai nilai berbeda.',
     )
-  }
-  if (!getGoogleMapsApiKey()) {
-    throw new Error('GOOGLE_MAPS_API_KEY wajib diisi di production.')
   }
 }

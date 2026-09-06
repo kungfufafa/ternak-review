@@ -23,7 +23,7 @@ async function reservePort() {
   return port
 }
 
-function startServer(port: number, googleKey: string) {
+function startServer(port: number, overrides: Record<string, string> = {}) {
   const child = spawn(process.execPath, ['.output/server/index.mjs'], {
     cwd: root,
     env: {
@@ -36,7 +36,8 @@ function startServer(port: number, googleKey: string) {
       AUTH_SECRET: 'runtime-auth-secret-0000000000000001',
       IP_HASH_SALT: 'runtime-ip-hash-salt-00000000000002',
       ADMIN_SETUP_TOKEN: 'runtime-admin-setup-token-0000000003',
-      GOOGLE_MAPS_API_KEY: googleKey,
+      GOOGLE_MAPS_API_KEY: 'runtime-google-key',
+      ...overrides,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -101,7 +102,7 @@ function assertSecurityHeaders(response: Response) {
 
 async function runValidConfig() {
   const port = await reservePort()
-  const child = startServer(port, 'runtime-google-key')
+  const child = startServer(port)
   const base = `http://127.0.0.1:${port}`
   try {
     const health = await waitForServer(child, `${base}/health`)
@@ -126,7 +127,7 @@ async function runValidConfig() {
 
 async function runInvalidConfig() {
   const port = await reservePort()
-  const child = startServer(port, '')
+  const child = startServer(port, { AUTH_SECRET: 'short' })
   const base = `http://127.0.0.1:${port}`
   try {
     const health = await waitForServer(child, `${base}/health`)

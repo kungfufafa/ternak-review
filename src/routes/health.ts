@@ -4,6 +4,7 @@ import { db } from '#/db'
 import { owners } from '#/db/schema'
 import { getDeployTarget } from '#/lib/deploy-target'
 import { assertProductionConfig } from '#/lib/env'
+import { isGooglePlacesConfigured } from '#/server/google'
 
 export const Route = createFileRoute('/health')({
   server: {
@@ -17,6 +18,7 @@ export const Route = createFileRoute('/health')({
             ok: true,
             service: 'review-kit',
             target: getDeployTarget(),
+            googlePlaces: await isGooglePlacesConfigured(),
             ts: new Date().toISOString(),
           })
         } catch (error) {

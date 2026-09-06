@@ -26,9 +26,14 @@ import {
 import {
   autocompletePlaces,
   getPlaceDetails,
-  isGooglePlacesConfigured,
   nearbyPlaces,
 } from '#/server/places'
+import {
+  clearGooglePlacesKey,
+  getGooglePlacesPublicSettings,
+  saveGooglePlacesKey,
+  testGooglePlacesKey,
+} from '#/server/google'
 import {
   deleteAffiliateLead,
   getAffiliateLead,
@@ -36,6 +41,13 @@ import {
   submitAffiliateLead,
   updateAffiliateLead,
 } from '#/server/affiliate'
+import {
+  clearAffiliateWebhookUrl,
+  getAffiliateWebhookPublicSettings,
+  saveAffiliateWebhookUrl,
+  testAffiliateWebhookUrl,
+} from '#/server/affiliate-settings'
+import { getPublicSiteFlags, saveSiteFlags } from '#/server/site'
 import { lookupQr, markNfcEncoded } from '#/server/nfc'
 import {
   deleteStockBatch,
@@ -161,7 +173,54 @@ async function limitPlaces(publicId: string) {
 }
 
 export const placesStatusFn = createServerFn({ method: 'GET' }).handler(
-  async () => ({ configured: isGooglePlacesConfigured() }),
+  async () => {
+    try {
+      const settings = await getGooglePlacesPublicSettings()
+      return { configured: settings.configured }
+    } catch {
+      return { configured: false }
+    }
+  },
+)
+
+export const getGooglePlacesSettingsFn = createServerFn({
+  method: 'GET',
+}).handler(async () => {
+  await requireAdmin()
+  return getGooglePlacesPublicSettings()
+})
+
+export const saveGooglePlacesKeyFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ apiKey: z.string().trim().min(20).max(200) }))
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    await assertRateLimit(`google-key:${getClientFingerprint()}`, {
+      max: 20,
+      windowMs: 15 * 60_000,
+    })
+    return saveGooglePlacesKey(data.apiKey)
+  })
+
+export const testGooglePlacesKeyFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ apiKey: z.string().max(200).optional() }))
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    await assertRateLimit(`google-key:${getClientFingerprint()}`, {
+      max: 20,
+      windowMs: 15 * 60_000,
+    })
+    return testGooglePlacesKey(data.apiKey)
+  })
+
+export const clearGooglePlacesKeyFn = createServerFn({ method: 'POST' }).handler(
+  async () => {
+    await requireAdmin()
+    await assertRateLimit(`google-key:${getClientFingerprint()}`, {
+      max: 20,
+      windowMs: 15 * 60_000,
+    })
+    return clearGooglePlacesKey()
+  },
 )
 
 export const searchPlacesFn = createServerFn({ method: 'POST' })
@@ -712,6 +771,73 @@ const affiliateListSchema = z.object({
   q: z.string().max(200).optional(),
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
+})
+
+export const getPublicSiteFlagsFn = createServerFn({ method: 'GET' }).handler(
+  async () => getPublicSiteFlags(),
+)
+
+export const getSiteSettingsFn = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    await requireAdmin()
+    return getPublicSiteFlags()
+  },
+)
+
+export const saveSiteSettingsFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      homeEnabled: z.boolean(),
+      affiliateEnabled: z.boolean(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    await assertRateLimit(`site-flags:${getClientFingerprint()}`, {
+      max: 40,
+      windowMs: 15 * 60_000,
+    })
+    return saveSiteFlags(data)
+  })
+
+export const getAffiliateWebhookSettingsFn = createServerFn({
+  method: 'GET',
+}).handler(async () => {
+  await requireAdmin()
+  return getAffiliateWebhookPublicSettings()
+})
+
+export const saveAffiliateWebhookUrlFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ url: z.string().trim().min(8).max(500) }))
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    await assertRateLimit(`affiliate-webhook:${getClientFingerprint()}`, {
+      max: 20,
+      windowMs: 15 * 60_000,
+    })
+    return saveAffiliateWebhookUrl(data.url)
+  })
+
+export const testAffiliateWebhookUrlFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ url: z.string().max(500).optional() }))
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    await assertRateLimit(`affiliate-webhook:${getClientFingerprint()}`, {
+      max: 20,
+      windowMs: 15 * 60_000,
+    })
+    return testAffiliateWebhookUrl(data.url)
+  })
+
+export const clearAffiliateWebhookUrlFn = createServerFn({
+  method: 'POST',
+}).handler(async () => {
+  await requireAdmin()
+  await assertRateLimit(`affiliate-webhook:${getClientFingerprint()}`, {
+    max: 20,
+    windowMs: 15 * 60_000,
+  })
+  return clearAffiliateWebhookUrl()
 })
 
 export const listAffiliateLeadsFn = createServerFn({ method: 'GET' })

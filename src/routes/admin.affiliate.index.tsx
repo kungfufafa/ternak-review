@@ -7,15 +7,27 @@ import {
 } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
 import { EllipsisVerticalIcon, SearchIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { z } from 'zod'
 import { ConfirmDelete } from '#/components/confirm-delete'
 import { DataTable, DataTableCell, DataTableHead } from '#/components/data-table'
 import { ListPager } from '#/components/list-pager'
 import { affiliatePlatforms } from '#/components/marketing/affiliate/content'
 import { PageHeader } from '#/components/page'
+import { Alert } from '#/components/ui/alert'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '#/components/ui/card'
+import { Field, FieldDescription, FieldLabel } from '#/components/ui/field'
+import { Input } from '#/components/ui/input'
+import { Spinner } from '#/components/ui/spinner'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,9 +49,14 @@ import {
 } from '#/components/ui/input-group'
 import { formatDay } from '#/lib/utils'
 import {
+  clearAffiliateWebhookUrlFn,
   deleteAffiliateLeadFn,
+  getAffiliateWebhookSettingsFn,
   listAffiliateLeadsFn,
+  saveAffiliateWebhookUrlFn,
+  testAffiliateWebhookUrlFn,
 } from '#/server/functions'
+import type { AffiliateWebhookPublicSettings } from '#/server/affiliate-settings'
 import { useDebounced } from '#/hooks/use-debounced'
 import type { SerializedAffiliateLead } from '#/server/affiliate'
 
@@ -55,9 +72,13 @@ export const Route = createFileRoute('/admin/affiliate/')({
   },
   loaderDeps: ({ search }) => ({ q: search.q, page: search.page }),
   loader: async ({ deps }) => {
-    return listAffiliateLeadsFn({
-      data: { q: deps.q, page: deps.page ?? 1, pageSize: 20 },
-    })
+    const [leads, webhook] = await Promise.all([
+      listAffiliateLeadsFn({
+        data: { q: deps.q, page: deps.page ?? 1, pageSize: 20 },
+      }),
+      getAffiliateWebhookSettingsFn(),
+    ])
+    return { ...leads, webhook }
   },
   component: AffiliateLeadsPage,
   head: () => ({
@@ -70,7 +91,8 @@ function platformLabel(key: string) {
 }
 
 function AffiliateLeadsPage() {
-  const { leads, total, page, pageSize, pageCount } = Route.useLoaderData()
+  const { leads, total, page, pageSize, pageCount, webhook } =
+    Route.useLoaderData()
   const { q } = Route.useSearch()
   const navigate = useNavigate({ from: '/admin/affiliate/' })
   const [draft, setDraft] = useState(q ?? '')
@@ -108,6 +130,8 @@ function AffiliateLeadsPage() {
         description="Cari, lihat, ubah, atau hapus orang yang daftar dari halaman affiliate."
         title="Pendaftar affiliate"
       />
+
+      <AffiliateWebhookCard settings={webhook} />
 
       <InputGroup className="max-w-md">
         <InputGroupInput
@@ -254,5 +278,153 @@ function AffiliateLeadsPage() {
         title="Hapus pendaftar?"
       />
     </div>
+  )
+}
+
+function AffiliateWebhookCard({
+  settings,
+}: {
+  settings: AffiliateWebhookPublicSettings
+}) {
+  const saveFn = useServerFn(saveAffiliateWebhookUrlFn)
+  const testFn = useServerFn(testAffiliateWebhookUrlFn)
+  const clearFn = useServerFn(clearAffiliateWebhookUrlFn)
+  const router = useRouter()
+  const [url, setUrl] = useState(settings.url)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
+  const [tested, setTested] = useState(false)
+
+  useEffect(() => {
+    setUrl(settings.url)
+  }, [settings.url])
+
+  async function refresh() {
+    await router.invalidate({ sync: true })
+  }
+
+  async function onSave(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    setSaved(false)
+    setTested(false)
+    try {
+      await saveFn({ data: { url } })
+      await refresh()
+      setSaved(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menyimpan webhook.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onTest() {
+    setBusy(true)
+    setError(null)
+    setSaved(false)
+    setTested(false)
+    try {
+      await testFn({ data: url.trim() ? { url } : {} })
+      await refresh()
+      setTested(true)
+      setSaved(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Tes webhook gagal.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onClear() {
+    setBusy(true)
+    setError(null)
+    setSaved(false)
+    setTested(false)
+    try {
+      await clearFn()
+      await refresh()
+      setSaved(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menghapus webhook UI.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Webhook Sheets</CardTitle>
+        <CardDescription>
+          URL Apps Script / webhook. Lead baru ikut terkirim ke sini. Ganti dari
+          halaman ini, tanpa redeploy.
+        </CardDescription>
+      </CardHeader>
+      <form onSubmit={(event) => void onSave(event)}>
+        <CardContent className="flex flex-col gap-3">
+          {error ? <Alert variant="danger">{error}</Alert> : null}
+          {tested ? (
+            <Alert variant="success">
+              Webhook merespons. Cek sheet — ada baris tes yang bisa dihapus.
+            </Alert>
+          ) : saved ? (
+            <Alert variant="success">Webhook disimpan.</Alert>
+          ) : null}
+          {settings.source === 'env' && !settings.hasUiUrl ? (
+            <Alert>
+              Masih ada URL lama di secret server. Simpan di sini supaya yang
+              dipakai hanya webhook UI.
+            </Alert>
+          ) : null}
+          {!settings.configured ? (
+            <Alert>
+              Belum ada webhook. Pendaftaran tetap masuk database, tanpa kirim
+              ke Sheets.
+            </Alert>
+          ) : null}
+          <Field>
+            <FieldLabel htmlFor="affiliate-webhook">URL webhook</FieldLabel>
+            <Input
+              autoComplete="off"
+              id="affiliate-webhook"
+              onChange={(event) => setUrl(event.target.value)}
+              placeholder="https://script.google.com/macros/s/…/exec"
+              spellCheck={false}
+              value={url}
+            />
+            <FieldDescription>
+              HTTPS. Tes kirim menulis satu baris “[TES]” ke tujuan itu.
+            </FieldDescription>
+          </Field>
+        </CardContent>
+        <CardFooter className="flex flex-wrap gap-2">
+          <Button disabled={busy || url.trim().length < 8} type="submit">
+            {busy ? <Spinner data-icon="inline-start" /> : null}
+            Simpan
+          </Button>
+          <Button
+            disabled={busy || (url.trim().length < 8 && !settings.configured)}
+            onClick={() => void onTest()}
+            type="button"
+            variant="outline"
+          >
+            Tes kirim
+          </Button>
+          {settings.hasUiUrl ? (
+            <Button
+              disabled={busy}
+              onClick={() => void onClear()}
+              type="button"
+              variant="ghost"
+            >
+              Hapus URL UI
+            </Button>
+          ) : null}
+        </CardFooter>
+      </form>
+    </Card>
   )
 }

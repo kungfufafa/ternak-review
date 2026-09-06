@@ -1,10 +1,12 @@
 import type { ReactNode } from "react"
 import {
   FactoryIcon,
+  GlobeIcon,
   HandshakeIcon,
   HouseIcon,
   MessageCircleIcon,
   MailIcon,
+  MapPinIcon,
   ScrollTextIcon,
   Settings2Icon,
   StoreIcon,
@@ -87,6 +89,12 @@ export function getNavGroups(pathname: string): SidebarNavGroup[] {
       label: "Pengaturan",
       items: [
         {
+          title: "Halaman publik",
+          path: "/admin/site",
+          icon: <GlobeIcon />,
+          isActive: pathname.startsWith("/admin/site"),
+        },
+        {
           title: "Paket review",
           path: "/admin/packages",
           icon: <Settings2Icon />,
@@ -97,6 +105,12 @@ export function getNavGroups(pathname: string): SidebarNavGroup[] {
           path: "/admin/whatsapp",
           icon: <MessageCircleIcon />,
           isActive: pathname.startsWith("/admin/whatsapp"),
+        },
+        {
+          title: "Google Maps",
+          path: "/admin/google",
+          icon: <MapPinIcon />,
+          isActive: pathname.startsWith("/admin/google"),
         },
         {
           title: "Email",

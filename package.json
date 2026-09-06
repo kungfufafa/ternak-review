@@ -23,7 +23,8 @@
     "db:backup": "tsx scripts/backup-db.ts",
     "db:backup:d1": "tsx scripts/backup-db.ts --d1 --remote",
     "typecheck": "tsc --noEmit",
-    "ci": "npm run typecheck && npm run smoke && npm run security && npm run d1:migrate:test",
+    "typecheck:mobile": "npm --prefix mobile run typecheck",
+    "ci": "npm run typecheck && npm run typecheck:mobile && npm run smoke && npm run security && npm run d1:migrate:test",
     "prepare": "git config core.hooksPath .githooks",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -33,7 +34,10 @@
     "smoke": "tsx scripts/smoke-flow.ts",
     "gateway:stub": "tsx scripts/whatsapp-stub.ts",
     "security": "tsx scripts/security-flow.ts",
-    "security:runtime": "tsx scripts/runtime-security-flow.ts"
+    "security:runtime": "tsx scripts/runtime-security-flow.ts",
+    "mobile": "npm --prefix mobile start",
+    "mobile:ios": "npm --prefix mobile run ios",
+    "mobile:android": "npm --prefix mobile run android"
   },
   "dependencies": {
     "@tanstack/react-query": "5.101.4",

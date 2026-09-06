@@ -1,4 +1,8 @@
-import { getGoogleMapsApiKey, isProduction } from '#/lib/env'
+import { isProduction } from '#/lib/env'
+import {
+  isGooglePlacesConfigured,
+  resolveGoogleMapsApiKey,
+} from '#/server/google'
 
 const PLACES_NEW = 'https://places.googleapis.com/v1'
 const NEARBY_RADIUS_M = 1500
@@ -29,13 +33,13 @@ export type LatLng = {
   lng: number
 }
 
-export function isGooglePlacesConfigured() {
-  return getGoogleMapsApiKey().length > 0
-}
+export { isGooglePlacesConfigured }
 
-function assertPlacesConfiguredForProduction() {
-  if (isProduction() && !isGooglePlacesConfigured()) {
-    throw new Error('Google Places belum dikonfigurasi di production.')
+async function assertPlacesConfiguredForProduction() {
+  if (isProduction() && !(await isGooglePlacesConfigured())) {
+    throw new Error(
+      'Google Places belum dikonfigurasi. Isi API key di Pengaturan → Google Maps.',
+    )
   }
 }
 
@@ -64,7 +68,7 @@ function stubPlaces(query: string): PlaceSearchResult {
       suggestion(
         `DEV_${Buffer.from(q).toString('base64url').slice(0, 24)}`,
         q,
-        'Alamat uji (GOOGLE_MAPS_API_KEY belum diisi)',
+        'Alamat uji (API key Google belum diisi)',
       ),
     ],
   }
@@ -78,7 +82,7 @@ async function placesNew<T>(
   path: string,
   init: { method?: 'GET' | 'POST'; fieldMask: string; body?: unknown },
 ): Promise<T> {
-  const apiKey = getGoogleMapsApiKey()
+  const apiKey = await resolveGoogleMapsApiKey()
   const res = await fetch(`${PLACES_NEW}${path}`, {
     method: init.method ?? (init.body ? 'POST' : 'GET'),
     headers: {
@@ -111,10 +115,11 @@ export async function autocompletePlaces(input: {
   loc?: LatLng | null
   sessionToken?: string
 }): Promise<PlaceSearchResult> {
-  assertPlacesConfiguredForProduction()
+  await assertPlacesConfiguredForProduction()
   const q = input.query.trim()
-  if (q.length < 2) return { source: isGooglePlacesConfigured() ? 'google' : 'stub', places: [] }
-  if (!isGooglePlacesConfigured()) return stubPlaces(q)
+  const configured = await isGooglePlacesConfigured()
+  if (q.length < 2) return { source: configured ? 'google' : 'stub', places: [] }
+  if (!configured) return stubPlaces(q)
   return autocompletePlacesNew(q, input.loc, input.sessionToken)
 }
 
@@ -171,15 +176,15 @@ async function autocompletePlacesNew(
 export async function nearbyPlaces(input: {
   loc: LatLng
 }): Promise<PlaceSearchResult> {
-  assertPlacesConfiguredForProduction()
-  if (!isGooglePlacesConfigured()) {
+  await assertPlacesConfiguredForProduction()
+  if (!(await isGooglePlacesConfigured())) {
     return {
       source: 'stub',
       places: [
         suggestion(
           `DEV_${Buffer.from('nearby').toString('base64url').slice(0, 24)}`,
           'Outlet terdekat (uji)',
-          'Nyalakan GOOGLE_MAPS_API_KEY untuk daftar Google Maps asli',
+          'Isi API key Google di Admin → Google Maps',
         ),
       ],
     }
@@ -223,19 +228,20 @@ export async function getPlaceDetails(
   const id = placeId.trim()
   if (!id) throw new Error('Place ID kosong')
 
-  assertPlacesConfiguredForProduction()
+  await assertPlacesConfiguredForProduction()
   if (isProduction() && id.startsWith('DEV_')) {
     throw new Error('Place ID development tidak boleh dipakai di production.')
   }
 
-  if (!isGooglePlacesConfigured() || id.startsWith('DEV_')) {
+  const configured = await isGooglePlacesConfigured()
+  if (!configured || id.startsWith('DEV_')) {
     const name = id.startsWith('DEV_')
       ? Buffer.from(id.slice(4), 'base64url').toString('utf8') || 'Outlet Uji'
       : 'Outlet Uji'
     return {
       placeId: id,
       name,
-      formattedAddress: isGooglePlacesConfigured()
+      formattedAddress: configured
         ? null
         : 'Alamat uji (tanpa Google API key)',
       photoUrl: null,

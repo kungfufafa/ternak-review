@@ -1,7 +1,8 @@
 import { count, desc, eq, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import { affiliateLeads } from '#/db/schema'
-import { getAffiliateWebhookUrl } from '#/lib/env'
+import { resolveAffiliateWebhookUrl } from '#/server/affiliate-settings'
+import { getPublicSiteFlags } from '#/server/site'
 import {
   AFFILIATE_PLATFORM_KEYS,
   type AffiliateFieldErrors,
@@ -108,7 +109,7 @@ export function validateAffiliateLead(body: unknown): AffiliateValidation {
 async function forwardAffiliateWebhook(
   lead: AffiliateLeadInput,
 ): Promise<boolean> {
-  const url = getAffiliateWebhookUrl()
+  const url = await resolveAffiliateWebhookUrl()
   if (!url) return false
 
   const payload = new FormData()
@@ -131,8 +132,9 @@ async function forwardAffiliateWebhook(
       method: 'POST',
       body: payload,
       signal: AbortSignal.timeout(5_000),
+      redirect: 'manual',
     })
-    return res.ok || res.type === 'opaque' || res.status === 0
+    return res.ok
   } catch {
     return false
   }
@@ -141,6 +143,14 @@ async function forwardAffiliateWebhook(
 export async function submitAffiliateLead(
   body: unknown,
 ): Promise<AffiliateSubmitResult> {
+  const flags = await getPublicSiteFlags()
+  if (!flags.affiliateEnabled) {
+    return {
+      ok: false,
+      error: 'Program affiliate sedang ditutup.',
+      fields: {},
+    }
+  }
   const parsed = validateAffiliateLead(body)
   if (!parsed.ok) {
     return { ok: false, error: parsed.error, fields: parsed.fields }

@@ -353,6 +353,38 @@ export const whatsappOutbox = sqliteTable(
   ],
 )
 
+export const siteSettings = sqliteTable('site_settings', {
+  id: text('id').primaryKey().default('primary'),
+  homeEnabled: integer('home_enabled', { mode: 'boolean' })
+    .notNull()
+    .default(true),
+  affiliateEnabled: integer('affiliate_enabled', { mode: 'boolean' })
+    .notNull()
+    .default(true),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(now),
+})
+
+export const affiliateSettings = sqliteTable('affiliate_settings', {
+  id: text('id').primaryKey().default('primary'),
+  webhookCipher: text('webhook_cipher'),
+  verifiedAt: integer('verified_at', { mode: 'timestamp_ms' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(now),
+})
+
+export const googleSettings = sqliteTable('google_settings', {
+  id: text('id').primaryKey().default('primary'),
+  apiKeyCipher: text('api_key_cipher'),
+  last4: text('last4'),
+  verifiedAt: integer('verified_at', { mode: 'timestamp_ms' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(now),
+})
+
 export const smtpSettings = sqliteTable('smtp_settings', {
   id: text('id').primaryKey().default('primary'),
   provider: text('provider', { enum: ['smtp', 'resend'] })

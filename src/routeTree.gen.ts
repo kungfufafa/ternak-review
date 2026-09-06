@@ -23,8 +23,10 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as RStatusRouteImport } from './routes/r-status'
 import { Route as SyaratKetentuanRouteImport } from './routes/syarat-ketentuan'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as AdminGoogleRouteImport } from './routes/admin.google'
 import { Route as AdminLogsRouteImport } from './routes/admin.logs'
 import { Route as AdminPackagesRouteImport } from './routes/admin.packages'
+import { Route as AdminSiteRouteImport } from './routes/admin.site'
 import { Route as AdminSmtpRouteImport } from './routes/admin.smtp'
 import { Route as AdminStockRouteImport } from './routes/admin.stock'
 import { Route as AdminWhatsappRouteImport } from './routes/admin.whatsapp'
@@ -39,11 +41,19 @@ import { Route as AdminStockNfcRouteImport } from './routes/admin.stock.nfc'
 import { Route as AdminStockPrintRouteImport } from './routes/admin.stock.print'
 import { Route as AdminUsersIndexRouteImport } from './routes/admin.users.index'
 import { Route as AdminUsersUserIdRouteImport } from './routes/admin.users.$userId'
+import { Route as ApiMobileLoginRouteImport } from './routes/api.mobile.login'
+import { Route as ApiMobileLogoutRouteImport } from './routes/api.mobile.logout'
+import { Route as ApiMobileMeRouteImport } from './routes/api.mobile.me'
 import { Route as AppUnitsUnitIdRouteImport } from './routes/app.units.$unitId'
 import { Route as DashboardUnitsIndexRouteImport } from './routes/dashboard.units.index'
 import { Route as DashboardUnitsUnitIdRouteImport } from './routes/dashboard.units.$unitId'
 import { Route as ApiInternalWhatsappPollRouteImport } from './routes/api.internal.whatsapp.poll'
 import { Route as ApiInternalWhatsappReportRouteImport } from './routes/api.internal.whatsapp.report'
+import { Route as ApiMobileNfcBatchesRouteImport } from './routes/api.mobile.nfc.batches'
+import { Route as ApiMobileNfcLookupRouteImport } from './routes/api.mobile.nfc.lookup'
+import { Route as ApiMobileNfcMarkRouteImport } from './routes/api.mobile.nfc.mark'
+import { Route as ApiMobileStockDeleteRouteImport } from './routes/api.mobile.stock.delete'
+import { Route as ApiMobileStockGenerateRouteImport } from './routes/api.mobile.stock.generate'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -115,6 +125,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminGoogleRoute = AdminGoogleRouteImport.update({
+  id: '/google',
+  path: '/google',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminLogsRoute = AdminLogsRouteImport.update({
   id: '/logs',
   path: '/logs',
@@ -123,6 +138,11 @@ const AdminLogsRoute = AdminLogsRouteImport.update({
 const AdminPackagesRoute = AdminPackagesRouteImport.update({
   id: '/packages',
   path: '/packages',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminSiteRoute = AdminSiteRouteImport.update({
+  id: '/site',
+  path: '/site',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminSmtpRoute = AdminSmtpRouteImport.update({
@@ -195,6 +215,21 @@ const AdminUsersUserIdRoute = AdminUsersUserIdRouteImport.update({
   path: '/users/$userId',
   getParentRoute: () => AdminRoute,
 } as any)
+const ApiMobileLoginRoute = ApiMobileLoginRouteImport.update({
+  id: '/api/mobile/login',
+  path: '/api/mobile/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileLogoutRoute = ApiMobileLogoutRouteImport.update({
+  id: '/api/mobile/logout',
+  path: '/api/mobile/logout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileMeRoute = ApiMobileMeRouteImport.update({
+  id: '/api/mobile/me',
+  path: '/api/mobile/me',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppUnitsUnitIdRoute = AppUnitsUnitIdRouteImport.update({
   id: '/units/$unitId',
   path: '/units/$unitId',
@@ -221,6 +256,31 @@ const ApiInternalWhatsappReportRoute =
     path: '/api/internal/whatsapp/report',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiMobileNfcBatchesRoute = ApiMobileNfcBatchesRouteImport.update({
+  id: '/api/mobile/nfc/batches',
+  path: '/api/mobile/nfc/batches',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileNfcLookupRoute = ApiMobileNfcLookupRouteImport.update({
+  id: '/api/mobile/nfc/lookup',
+  path: '/api/mobile/nfc/lookup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileNfcMarkRoute = ApiMobileNfcMarkRouteImport.update({
+  id: '/api/mobile/nfc/mark',
+  path: '/api/mobile/nfc/mark',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileStockDeleteRoute = ApiMobileStockDeleteRouteImport.update({
+  id: '/api/mobile/stock/delete',
+  path: '/api/mobile/stock/delete',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMobileStockGenerateRoute = ApiMobileStockGenerateRouteImport.update({
+  id: '/api/mobile/stock/generate',
+  path: '/api/mobile/stock/generate',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -236,8 +296,10 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/packages': typeof AdminPackagesRoute
+  '/admin/site': typeof AdminSiteRoute
   '/admin/smtp': typeof AdminSmtpRoute
   '/admin/stock': typeof AdminStockRouteWithChildren
   '/admin/whatsapp': typeof AdminWhatsappRoute
@@ -250,6 +312,9 @@ export interface FileRoutesByFullPath {
   '/admin/stock/nfc': typeof AdminStockNfcRoute
   '/admin/stock/print': typeof AdminStockPrintRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
+  '/api/mobile/login': typeof ApiMobileLoginRoute
+  '/api/mobile/logout': typeof ApiMobileLogoutRoute
+  '/api/mobile/me': typeof ApiMobileMeRoute
   '/app/units/$unitId': typeof AppUnitsUnitIdRoute
   '/dashboard/units/$unitId': typeof DashboardUnitsUnitIdRoute
   '/admin/affiliate/': typeof AdminAffiliateIndexRoute
@@ -258,6 +323,11 @@ export interface FileRoutesByFullPath {
   '/dashboard/units/': typeof DashboardUnitsIndexRoute
   '/api/internal/whatsapp/poll': typeof ApiInternalWhatsappPollRoute
   '/api/internal/whatsapp/report': typeof ApiInternalWhatsappReportRoute
+  '/api/mobile/nfc/batches': typeof ApiMobileNfcBatchesRoute
+  '/api/mobile/nfc/lookup': typeof ApiMobileNfcLookupRoute
+  '/api/mobile/nfc/mark': typeof ApiMobileNfcMarkRoute
+  '/api/mobile/stock/delete': typeof ApiMobileStockDeleteRoute
+  '/api/mobile/stock/generate': typeof ApiMobileStockGenerateRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -270,8 +340,10 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/packages': typeof AdminPackagesRoute
+  '/admin/site': typeof AdminSiteRoute
   '/admin/smtp': typeof AdminSmtpRoute
   '/admin/whatsapp': typeof AdminWhatsappRoute
   '/feedback/$publicId': typeof FeedbackPublicIdRoute
@@ -283,6 +355,9 @@ export interface FileRoutesByTo {
   '/admin/stock/nfc': typeof AdminStockNfcRoute
   '/admin/stock/print': typeof AdminStockPrintRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
+  '/api/mobile/login': typeof ApiMobileLoginRoute
+  '/api/mobile/logout': typeof ApiMobileLogoutRoute
+  '/api/mobile/me': typeof ApiMobileMeRoute
   '/app/units/$unitId': typeof AppUnitsUnitIdRoute
   '/dashboard/units/$unitId': typeof DashboardUnitsUnitIdRoute
   '/admin/affiliate': typeof AdminAffiliateIndexRoute
@@ -291,6 +366,11 @@ export interface FileRoutesByTo {
   '/dashboard/units': typeof DashboardUnitsIndexRoute
   '/api/internal/whatsapp/poll': typeof ApiInternalWhatsappPollRoute
   '/api/internal/whatsapp/report': typeof ApiInternalWhatsappReportRoute
+  '/api/mobile/nfc/batches': typeof ApiMobileNfcBatchesRoute
+  '/api/mobile/nfc/lookup': typeof ApiMobileNfcLookupRoute
+  '/api/mobile/nfc/mark': typeof ApiMobileNfcMarkRoute
+  '/api/mobile/stock/delete': typeof ApiMobileStockDeleteRoute
+  '/api/mobile/stock/generate': typeof ApiMobileStockGenerateRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -307,8 +387,10 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/packages': typeof AdminPackagesRoute
+  '/admin/site': typeof AdminSiteRoute
   '/admin/smtp': typeof AdminSmtpRoute
   '/admin/stock': typeof AdminStockRouteWithChildren
   '/admin/whatsapp': typeof AdminWhatsappRoute
@@ -321,6 +403,9 @@ export interface FileRoutesById {
   '/admin/stock/nfc': typeof AdminStockNfcRoute
   '/admin/stock/print': typeof AdminStockPrintRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
+  '/api/mobile/login': typeof ApiMobileLoginRoute
+  '/api/mobile/logout': typeof ApiMobileLogoutRoute
+  '/api/mobile/me': typeof ApiMobileMeRoute
   '/app/units/$unitId': typeof AppUnitsUnitIdRoute
   '/dashboard/units/$unitId': typeof DashboardUnitsUnitIdRoute
   '/admin/affiliate/': typeof AdminAffiliateIndexRoute
@@ -329,6 +414,11 @@ export interface FileRoutesById {
   '/dashboard/units/': typeof DashboardUnitsIndexRoute
   '/api/internal/whatsapp/poll': typeof ApiInternalWhatsappPollRoute
   '/api/internal/whatsapp/report': typeof ApiInternalWhatsappReportRoute
+  '/api/mobile/nfc/batches': typeof ApiMobileNfcBatchesRoute
+  '/api/mobile/nfc/lookup': typeof ApiMobileNfcLookupRoute
+  '/api/mobile/nfc/mark': typeof ApiMobileNfcMarkRoute
+  '/api/mobile/stock/delete': typeof ApiMobileStockDeleteRoute
+  '/api/mobile/stock/generate': typeof ApiMobileStockGenerateRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -346,8 +436,10 @@ export interface FileRouteTypes {
     | '/login'
     | '/r-status'
     | '/syarat-ketentuan'
+    | '/admin/google'
     | '/admin/logs'
     | '/admin/packages'
+    | '/admin/site'
     | '/admin/smtp'
     | '/admin/stock'
     | '/admin/whatsapp'
@@ -360,6 +452,9 @@ export interface FileRouteTypes {
     | '/admin/stock/nfc'
     | '/admin/stock/print'
     | '/admin/users/$userId'
+    | '/api/mobile/login'
+    | '/api/mobile/logout'
+    | '/api/mobile/me'
     | '/app/units/$unitId'
     | '/dashboard/units/$unitId'
     | '/admin/affiliate/'
@@ -368,6 +463,11 @@ export interface FileRouteTypes {
     | '/dashboard/units/'
     | '/api/internal/whatsapp/poll'
     | '/api/internal/whatsapp/report'
+    | '/api/mobile/nfc/batches'
+    | '/api/mobile/nfc/lookup'
+    | '/api/mobile/nfc/mark'
+    | '/api/mobile/stock/delete'
+    | '/api/mobile/stock/generate'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -380,8 +480,10 @@ export interface FileRouteTypes {
     | '/login'
     | '/r-status'
     | '/syarat-ketentuan'
+    | '/admin/google'
     | '/admin/logs'
     | '/admin/packages'
+    | '/admin/site'
     | '/admin/smtp'
     | '/admin/whatsapp'
     | '/feedback/$publicId'
@@ -393,6 +495,9 @@ export interface FileRouteTypes {
     | '/admin/stock/nfc'
     | '/admin/stock/print'
     | '/admin/users/$userId'
+    | '/api/mobile/login'
+    | '/api/mobile/logout'
+    | '/api/mobile/me'
     | '/app/units/$unitId'
     | '/dashboard/units/$unitId'
     | '/admin/affiliate'
@@ -401,6 +506,11 @@ export interface FileRouteTypes {
     | '/dashboard/units'
     | '/api/internal/whatsapp/poll'
     | '/api/internal/whatsapp/report'
+    | '/api/mobile/nfc/batches'
+    | '/api/mobile/nfc/lookup'
+    | '/api/mobile/nfc/mark'
+    | '/api/mobile/stock/delete'
+    | '/api/mobile/stock/generate'
   id:
     | '__root__'
     | '/'
@@ -416,8 +526,10 @@ export interface FileRouteTypes {
     | '/login'
     | '/r-status'
     | '/syarat-ketentuan'
+    | '/admin/google'
     | '/admin/logs'
     | '/admin/packages'
+    | '/admin/site'
     | '/admin/smtp'
     | '/admin/stock'
     | '/admin/whatsapp'
@@ -430,6 +542,9 @@ export interface FileRouteTypes {
     | '/admin/stock/nfc'
     | '/admin/stock/print'
     | '/admin/users/$userId'
+    | '/api/mobile/login'
+    | '/api/mobile/logout'
+    | '/api/mobile/me'
     | '/app/units/$unitId'
     | '/dashboard/units/$unitId'
     | '/admin/affiliate/'
@@ -438,6 +553,11 @@ export interface FileRouteTypes {
     | '/dashboard/units/'
     | '/api/internal/whatsapp/poll'
     | '/api/internal/whatsapp/report'
+    | '/api/mobile/nfc/batches'
+    | '/api/mobile/nfc/lookup'
+    | '/api/mobile/nfc/mark'
+    | '/api/mobile/stock/delete'
+    | '/api/mobile/stock/generate'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -456,8 +576,16 @@ export interface RootRouteChildren {
   SyaratKetentuanRoute: typeof SyaratKetentuanRoute
   FeedbackPublicIdRoute: typeof FeedbackPublicIdRoute
   RPublicIdRoute: typeof RPublicIdRoute
+  ApiMobileLoginRoute: typeof ApiMobileLoginRoute
+  ApiMobileLogoutRoute: typeof ApiMobileLogoutRoute
+  ApiMobileMeRoute: typeof ApiMobileMeRoute
   ApiInternalWhatsappPollRoute: typeof ApiInternalWhatsappPollRoute
   ApiInternalWhatsappReportRoute: typeof ApiInternalWhatsappReportRoute
+  ApiMobileNfcBatchesRoute: typeof ApiMobileNfcBatchesRoute
+  ApiMobileNfcLookupRoute: typeof ApiMobileNfcLookupRoute
+  ApiMobileNfcMarkRoute: typeof ApiMobileNfcMarkRoute
+  ApiMobileStockDeleteRoute: typeof ApiMobileStockDeleteRoute
+  ApiMobileStockGenerateRoute: typeof ApiMobileStockGenerateRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -560,6 +688,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/google': {
+      id: '/admin/google'
+      path: '/google'
+      fullPath: '/admin/google'
+      preLoaderRoute: typeof AdminGoogleRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/logs': {
       id: '/admin/logs'
       path: '/logs'
@@ -572,6 +707,13 @@ declare module '@tanstack/react-router' {
       path: '/packages'
       fullPath: '/admin/packages'
       preLoaderRoute: typeof AdminPackagesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/site': {
+      id: '/admin/site'
+      path: '/site'
+      fullPath: '/admin/site'
+      preLoaderRoute: typeof AdminSiteRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/smtp': {
@@ -672,6 +814,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminUsersUserIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/api/mobile/login': {
+      id: '/api/mobile/login'
+      path: '/api/mobile/login'
+      fullPath: '/api/mobile/login'
+      preLoaderRoute: typeof ApiMobileLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/logout': {
+      id: '/api/mobile/logout'
+      path: '/api/mobile/logout'
+      fullPath: '/api/mobile/logout'
+      preLoaderRoute: typeof ApiMobileLogoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/me': {
+      id: '/api/mobile/me'
+      path: '/api/mobile/me'
+      fullPath: '/api/mobile/me'
+      preLoaderRoute: typeof ApiMobileMeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/app/units/$unitId': {
       id: '/app/units/$unitId'
       path: '/units/$unitId'
@@ -707,6 +870,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiInternalWhatsappReportRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/mobile/nfc/batches': {
+      id: '/api/mobile/nfc/batches'
+      path: '/api/mobile/nfc/batches'
+      fullPath: '/api/mobile/nfc/batches'
+      preLoaderRoute: typeof ApiMobileNfcBatchesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/nfc/lookup': {
+      id: '/api/mobile/nfc/lookup'
+      path: '/api/mobile/nfc/lookup'
+      fullPath: '/api/mobile/nfc/lookup'
+      preLoaderRoute: typeof ApiMobileNfcLookupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/nfc/mark': {
+      id: '/api/mobile/nfc/mark'
+      path: '/api/mobile/nfc/mark'
+      fullPath: '/api/mobile/nfc/mark'
+      preLoaderRoute: typeof ApiMobileNfcMarkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/stock/delete': {
+      id: '/api/mobile/stock/delete'
+      path: '/api/mobile/stock/delete'
+      fullPath: '/api/mobile/stock/delete'
+      preLoaderRoute: typeof ApiMobileStockDeleteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mobile/stock/generate': {
+      id: '/api/mobile/stock/generate'
+      path: '/api/mobile/stock/generate'
+      fullPath: '/api/mobile/stock/generate'
+      preLoaderRoute: typeof ApiMobileStockGenerateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -727,8 +925,10 @@ const AdminStockRouteWithChildren = AdminStockRoute._addFileChildren(
 )
 
 interface AdminRouteChildren {
+  AdminGoogleRoute: typeof AdminGoogleRoute
   AdminLogsRoute: typeof AdminLogsRoute
   AdminPackagesRoute: typeof AdminPackagesRoute
+  AdminSiteRoute: typeof AdminSiteRoute
   AdminSmtpRoute: typeof AdminSmtpRoute
   AdminStockRoute: typeof AdminStockRouteWithChildren
   AdminWhatsappRoute: typeof AdminWhatsappRoute
@@ -740,8 +940,10 @@ interface AdminRouteChildren {
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminGoogleRoute: AdminGoogleRoute,
   AdminLogsRoute: AdminLogsRoute,
   AdminPackagesRoute: AdminPackagesRoute,
+  AdminSiteRoute: AdminSiteRoute,
   AdminSmtpRoute: AdminSmtpRoute,
   AdminStockRoute: AdminStockRouteWithChildren,
   AdminWhatsappRoute: AdminWhatsappRoute,
@@ -798,8 +1000,16 @@ const rootRouteChildren: RootRouteChildren = {
   SyaratKetentuanRoute: SyaratKetentuanRoute,
   FeedbackPublicIdRoute: FeedbackPublicIdRoute,
   RPublicIdRoute: RPublicIdRoute,
+  ApiMobileLoginRoute: ApiMobileLoginRoute,
+  ApiMobileLogoutRoute: ApiMobileLogoutRoute,
+  ApiMobileMeRoute: ApiMobileMeRoute,
   ApiInternalWhatsappPollRoute: ApiInternalWhatsappPollRoute,
   ApiInternalWhatsappReportRoute: ApiInternalWhatsappReportRoute,
+  ApiMobileNfcBatchesRoute: ApiMobileNfcBatchesRoute,
+  ApiMobileNfcLookupRoute: ApiMobileNfcLookupRoute,
+  ApiMobileNfcMarkRoute: ApiMobileNfcMarkRoute,
+  ApiMobileStockDeleteRoute: ApiMobileStockDeleteRoute,
+  ApiMobileStockGenerateRoute: ApiMobileStockGenerateRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

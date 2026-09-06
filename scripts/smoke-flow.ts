@@ -19,6 +19,28 @@ import {
   getBatchPrintData,
   listStockBatches,
 } from '../src/server/stock.ts'
+import { serializeMobileBatch } from '../src/server/mobile-stock.ts'
+import {
+  clearGooglePlacesKey,
+  getGooglePlacesPublicSettings,
+  resolveGoogleMapsApiKey,
+  saveGooglePlacesKey,
+} from '../src/server/google.ts'
+import {
+  clearAffiliateWebhookUrl,
+  getAffiliateWebhookPublicSettings,
+  normalizeAffiliateWebhookUrl,
+  resolveAffiliateWebhookUrl,
+  saveAffiliateWebhookUrl,
+} from '../src/server/affiliate-settings.ts'
+import { getPublicSiteFlags, saveSiteFlags } from '../src/server/site.ts'
+import { submitAffiliateLead } from '../src/server/affiliate.ts'
+import {
+  mobileBatchIdSchema,
+  mobileGenerateSchema,
+  mobileLoginSchema,
+  mobileRefSchema,
+} from '../src/server/mobile-api.ts'
 import { markNfcEncoded } from '../src/server/nfc.ts'
 import {
   activateUnit,
@@ -1073,6 +1095,23 @@ async function main() {
   if (!encodedBatch || encodedBatch.encoded !== 1 || encodedBatch.next !== 'nfc') {
     throw new Error('Encoded count should increment after NFC write')
   }
+  const mobileBatch = serializeMobileBatch(encodedBatch)
+  if (
+    mobileBatch.id !== encodedBatch.id ||
+    mobileBatch.encoded !== 1 ||
+    mobileBatch.next !== 'nfc' ||
+    typeof mobileBatch.createdAt !== 'string'
+  ) {
+    throw new Error('Mobile batch payload must serialize NFC progress')
+  }
+  mobileLoginSchema.parse({ email: 'admin@example.com', password: 'secret1' })
+  mobileRefSchema.parse({ ref: tagged.publicId })
+  mobileGenerateSchema.parse({ count: 25, label: 'QA' })
+  mobileBatchIdSchema.parse({ batchId: batch.batchId })
+  await expectReject(
+    () => Promise.resolve(mobileLoginSchema.parse({ email: 'bukan-email', password: 'x' })),
+    'Mobile login schema',
+  )
 
   const auto = await autocompletePlaces({ query: 'kopi susu' })
   const near = await nearbyPlaces({ loc: { lat: -6.2, lng: 106.816 } })
@@ -1413,6 +1452,54 @@ async function main() {
   await checkHolderAccounts()
   await checkBusinessQa()
   await checkStockOwnership()
+
+  const uiKey = 'AIzaSySmokeGooglePlacesKey12345678'
+  await saveGooglePlacesKey(uiKey)
+  const googleSettings = await getGooglePlacesPublicSettings()
+  if (googleSettings.source !== 'ui' || (await resolveGoogleMapsApiKey()) !== uiKey) {
+    throw new Error('Google API key from admin UI must be used for Places')
+  }
+  await clearGooglePlacesKey()
+  if ((await resolveGoogleMapsApiKey()).length > 0) {
+    throw new Error('Clearing UI Google key must drop the stored secret')
+  }
+  const hook = 'https://example.com/affiliate-hook'
+  await saveAffiliateWebhookUrl(hook)
+  const hookSettings = await getAffiliateWebhookPublicSettings()
+  if (hookSettings.source !== 'ui' || (await resolveAffiliateWebhookUrl()) !== hook) {
+    throw new Error('Affiliate webhook from admin UI must override env')
+  }
+  await clearAffiliateWebhookUrl()
+  if ((await resolveAffiliateWebhookUrl()).length > 0) {
+    throw new Error('Clearing UI affiliate webhook must drop the stored URL')
+  }
+  try {
+    normalizeAffiliateWebhookUrl('https://169.254.169.254/latest/meta-data')
+    throw new Error('Private webhook URL must be rejected')
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === 'Private webhook URL must be rejected'
+    ) {
+      throw error
+    }
+  }
+  await saveSiteFlags({ homeEnabled: false, affiliateEnabled: false })
+  const closed = await getPublicSiteFlags()
+  if (closed.homeEnabled || closed.affiliateEnabled) {
+    throw new Error('Public home and affiliate pages must be switchable off')
+  }
+  const closedLead = await submitAffiliateLead({
+    nama: 'Tes Tutup',
+    email: 'tes-tutup@example.com',
+    whatsapp: '081234567890',
+    platforms: ['instagram'],
+    usernames: { instagram: 'tes' },
+  })
+  if (closedLead.ok) {
+    throw new Error('Affiliate signup must reject when the public page is off')
+  }
+  await saveSiteFlags({ homeEnabled: true, affiliateEnabled: true })
 
   const leftover = await generateStockBatch({ count: 2, label: 'QA-READY' })
   const keep = leftover.units[0]

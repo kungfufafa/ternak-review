@@ -69,6 +69,12 @@ export function clearSessionCookie() {
 
 export function readSessionToken(): string | null {
   try {
+    const authorization = getRequestHeader('authorization')
+    if (authorization) {
+      const match = authorization.match(/^Bearer\s+(.+)$/i)
+      const bearer = match?.[1]?.trim()
+      if (bearer) return bearer
+    }
     const header = getRequestHeader('cookie')
     if (!header) return null
     for (const part of header.split(/;\s*/)) {
@@ -124,7 +130,7 @@ export async function getSessionOwner(): Promise<SessionOwner | null> {
 
 const GENERIC_LOGIN_ERROR = 'Email atau password salah'
 
-export async function loginWithPassword(email: string, password: string) {
+export async function verifyPasswordLogin(email: string, password: string) {
   const normalized = email.trim().toLowerCase()
   const owner = await db.query.owners.findFirst({
     where: eq(owners.email, normalized),
@@ -143,7 +149,12 @@ export async function loginWithPassword(email: string, password: string) {
       .set({ passwordHash: await hashPassword(password) })
       .where(eq(owners.id, owner.id))
   }
-  await replaceSessionsForOwner(owner.id)
+  return owner
+}
+
+export async function loginWithPassword(email: string, password: string) {
+  const owner = await verifyPasswordLogin(email, password)
+  await createSessionForOwner(owner.id)
   return {
     ownerId: owner.id,
     email: owner.email,
@@ -231,7 +242,11 @@ export async function replaceHolderSessions(ownerId: string) {
   await db.delete(sessions).where(eq(sessions.ownerId, ownerId))
 }
 
-export async function createSessionForOwner(ownerId: string) {
+export async function createSessionForOwner(
+  ownerId: string,
+  options?: { cookie?: boolean },
+) {
+  await db.delete(sessions).where(lt(sessions.expiresAt, new Date()))
   const token = generateToken()
   const expiresAt = new Date(Date.now() + SESSION_HOURS * 60 * 60 * 1000)
   await db.insert(sessions).values({
@@ -239,13 +254,12 @@ export async function createSessionForOwner(ownerId: string) {
     tokenHash: hashToken(token),
     expiresAt,
   })
-  setSessionCookie(token)
+  if (options?.cookie !== false) setSessionCookie(token)
   return token
 }
 
 export async function replaceSessionsForOwner(ownerId: string) {
   await db.delete(sessions).where(eq(sessions.ownerId, ownerId))
-  await db.delete(sessions).where(lt(sessions.expiresAt, new Date()))
   return createSessionForOwner(ownerId)
 }
 

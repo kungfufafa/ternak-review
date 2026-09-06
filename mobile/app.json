@@ -1,0 +1,67 @@
+{
+  "expo": {
+    "name": "Ternak Review",
+    "slug": "ternak-nfc",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "ternaknfc",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#f4f4f5"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.ternakreview.nfc",
+      "infoPlist": {
+        "NFCReaderUsageDescription": "App menulis dan menimpa URL review Google ke stiker NFC.",
+        "NSCameraUsageDescription": "Kamera untuk scan QR di kartu review.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true,
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    },
+    "android": {
+      "package": "com.ternakreview.nfc",
+      "adaptiveIcon": {
+        "backgroundColor": "#f4f4f5",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.NFC",
+        "android.permission.CAMERA"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-dev-client",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Kamera untuk scan QR kartu review."
+        }
+      ],
+      [
+        "react-native-nfc-manager",
+        {
+          "nfcPermission": "App menulis dan menimpa URL review ke stiker NFC.",
+          "includeNdefEntitlement": false
+        }
+      ],
+      "expo-splash-screen",
+      "expo-font"
+    ],
+    "extra": {
+      "apiUrl": "https://ternakreview.com"
+    }
+  }
+}

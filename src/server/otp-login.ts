@@ -3,7 +3,7 @@ import { db } from '#/db'
 import { emailOtps, loginOtps, owners } from '#/db/schema'
 import { hashToken, timingSafeEqualText } from '#/lib/crypto'
 import { normalizeWhatsapp } from '#/server/review'
-import { replaceSessionsForOwner, type OwnerRole } from './auth'
+import { createSessionForOwner, type OwnerRole } from './auth'
 import { isSmtpReady, sendAppEmail } from './smtp'
 import { isWhatsappGatewayOpen, queueWhatsappOutbox } from './whatsapp'
 
@@ -116,7 +116,7 @@ export async function verifyLoginOtp(whatsappRaw: string, codeRaw: string) {
     .update(loginOtps)
     .set({ consumedAt: new Date() })
     .where(eq(loginOtps.id, otp.id))
-  await replaceSessionsForOwner(owner.id)
+  await createSessionForOwner(owner.id)
   return {
     ownerId: owner.id,
     email: owner.email,
@@ -214,7 +214,7 @@ export async function verifyEmailLoginOtp(emailRaw: string, codeRaw: string) {
     .update(emailOtps)
     .set({ consumedAt: new Date() })
     .where(eq(emailOtps.id, otp.id))
-  await replaceSessionsForOwner(owner.id)
+  await createSessionForOwner(owner.id)
   return {
     ownerId: owner.id,
     email: owner.email,

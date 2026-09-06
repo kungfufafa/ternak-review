@@ -29,6 +29,19 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
 
+  mobile:
+    name: Mobile typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci --prefix mobile
+      - run: npm --prefix mobile run typecheck
+
   smoke:
     name: Smoke
     runs-on: ubuntu-latest
@@ -92,12 +105,13 @@ jobs:
   gate:
     name: CI
     if: always()
-    needs: [typecheck, smoke, security, d1_migrations, build]
+    needs: [typecheck, mobile, smoke, security, d1_migrations, build]
     runs-on: ubuntu-latest
     steps:
       - name: Require every gate
         run: |
           test "${{ needs.typecheck.result }}" = "success"
+          test "${{ needs.mobile.result }}" = "success"
           test "${{ needs.smoke.result }}" = "success"
           test "${{ needs.security.result }}" = "success"
           test "${{ needs.d1_migrations.result }}" = "success"

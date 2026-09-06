@@ -127,6 +127,27 @@
       "when": 1788670832242,
       "tag": "0018_email_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1788706956060,
+      "tag": "0019_google_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1788708397943,
+      "tag": "0020_affiliate_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1788709027270,
+      "tag": "0021_site_settings",
+      "breakpoints": true
     }
   ]
 }

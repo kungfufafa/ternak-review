@@ -14,6 +14,7 @@ import TanStackQueryDevtools from '../integrations/tanstack-query/devtools'
 import appCss from '../styles.css?url'
 
 import type { QueryClient } from '@tanstack/react-query'
+import { getPublicSiteFlagsFn } from '#/server/functions'
 
 interface MyRouterContext {
   queryClient: QueryClient
@@ -22,6 +23,7 @@ interface MyRouterContext {
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({
+  loader: () => getPublicSiteFlagsFn(),
   head: () => ({
     meta: [
       {
@@ -62,6 +64,8 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 })
 
 function NotFound() {
+  const flags = Route.useLoaderData()
+  const homeTo = flags.homeEnabled ? '/' : '/login'
   return (
     <main className="mx-auto flex w-full max-w-sm flex-col items-center px-6 py-24 text-center">
       <p className="font-mono text-sm text-muted-foreground">404</p>
@@ -72,7 +76,7 @@ function NotFound() {
         URL ini tidak ada. Kembali ke beranda atau aktivasi unit.
       </p>
       <Button asChild className="mt-6 w-full">
-        <Link to="/">Beranda</Link>
+        <Link to={homeTo}>{flags.homeEnabled ? 'Beranda' : 'Masuk'}</Link>
       </Button>
     </main>
   )

@@ -1,10 +1,14 @@
-import { Link } from '@tanstack/react-router'
+import { getRouteApi, Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { MenuIcon } from '#/components/marketing/icons'
 import { Wordmark } from '#/components/marketing/Wordmark'
 
+const rootRoute = getRouteApi('__root__')
+
 export function SiteHeader() {
+  const flags = rootRoute.useLoaderData()
   const [menuOpen, setMenuOpen] = useState(false)
+  const homeTo = flags.homeEnabled ? '/' : '/login'
 
   function closeMenu() {
     setMenuOpen(false)
@@ -14,26 +18,38 @@ export function SiteHeader() {
     <nav>
       <div className="nav-inner">
         <div className="nav-links">
-          <Link to="/" hash="produk">
-            Produk
-          </Link>
-          <Link to="/" hash="cara-kerja">
-            Cara Kerja
-          </Link>
-          <Link to="/" hash="faq">
-            FAQ
-          </Link>
+          {flags.homeEnabled ? (
+            <>
+              <Link hash="produk" to="/">
+                Produk
+              </Link>
+              <Link hash="cara-kerja" to="/">
+                Cara Kerja
+              </Link>
+              <Link hash="faq" to="/">
+                FAQ
+              </Link>
+            </>
+          ) : null}
         </div>
-        <Link className="logo" to="/" aria-label="Ternak Review">
+        <Link aria-label="Ternak Review" className="logo" to={homeTo}>
           <Wordmark />
         </Link>
         <div className="nav-right">
-          <Link to="/affiliate" className="nav-link-affiliate">
-            Affiliate
-          </Link>
-          <Link to="/" hash="produk" className="nav-cta">
-            Cek paketnya
-          </Link>
+          {flags.affiliateEnabled ? (
+            <Link className="nav-link-affiliate" to="/affiliate">
+              Affiliate
+            </Link>
+          ) : null}
+          {flags.homeEnabled ? (
+            <Link className="nav-cta" hash="produk" to="/">
+              Cek paketnya
+            </Link>
+          ) : (
+            <Link className="nav-cta" to="/login">
+              Masuk
+            </Link>
+          )}
           <button
             type="button"
             className="nav-burger"
@@ -45,25 +61,37 @@ export function SiteHeader() {
         </div>
       </div>
       <div className={menuOpen ? 'nav-mobile-menu open' : 'nav-mobile-menu'}>
-        <Link to="/" hash="produk" onClick={closeMenu}>
-          Produk
-        </Link>
-        <Link to="/" hash="cara-kerja" onClick={closeMenu}>
-          Cara Kerja
-        </Link>
-        <Link to="/" hash="faq" onClick={closeMenu}>
-          FAQ
-        </Link>
-        <Link
-          to="/affiliate"
-          className="nav-link-affiliate"
-          onClick={closeMenu}
-        >
-          Jadi Affiliate (Komisi 20%)
-        </Link>
-        <Link to="/" hash="produk" onClick={closeMenu}>
-          Cek paketnya
-        </Link>
+        {flags.homeEnabled ? (
+          <>
+            <Link hash="produk" onClick={closeMenu} to="/">
+              Produk
+            </Link>
+            <Link hash="cara-kerja" onClick={closeMenu} to="/">
+              Cara Kerja
+            </Link>
+            <Link hash="faq" onClick={closeMenu} to="/">
+              FAQ
+            </Link>
+          </>
+        ) : null}
+        {flags.affiliateEnabled ? (
+          <Link
+            className="nav-link-affiliate"
+            onClick={closeMenu}
+            to="/affiliate"
+          >
+            Jadi Affiliate (Komisi 20%)
+          </Link>
+        ) : null}
+        {flags.homeEnabled ? (
+          <Link hash="produk" onClick={closeMenu} to="/">
+            Cek paketnya
+          </Link>
+        ) : (
+          <Link onClick={closeMenu} to="/login">
+            Masuk
+          </Link>
+        )}
       </div>
     </nav>
   )
