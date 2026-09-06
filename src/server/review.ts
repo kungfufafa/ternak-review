@@ -2,12 +2,16 @@ import { and, desc, eq, lt, or } from 'drizzle-orm'
 import { db } from '#/db'
 import { reviewFeedbacks, units } from '#/db/schema'
 import {
-  modeAllowed,
+  liveReviewMode,
+  packageNeedsOwnerWhatsapp,
+  PRO_NEEDS_GATEWAY,
   ratingRangeLabel,
+  reviewModeForPackage,
   type ReviewMode,
   type ServiceTier,
 } from '#/lib/review-settings'
 import { getServicePackage } from './service-packages'
+import { isWhatsappGatewayOpen } from './whatsapp-status'
 
 export { modeAllowed } from '#/lib/review-settings'
 export type { ReviewMode, ServiceTier } from '#/lib/review-settings'
@@ -34,21 +38,40 @@ export function normalizeWhatsapp(raw?: string | null) {
 
 export function normalizeReviewSettings(input: {
   serviceTier: ServiceTier
-  reviewMode: ReviewMode
+  reviewMode?: ReviewMode
   ownerWhatsapp?: string | null
+  whatsappGatewayOpen: boolean
+  requireLivePro?: boolean
 }) {
   const { serviceTier } = input
-  const reviewMode = modeAllowed(serviceTier, input.reviewMode)
-    ? input.reviewMode
-    : 'GOOGLE_DIRECT'
-  const ownerWhatsapp =
-    reviewMode === 'GOOGLE_DIRECT'
-      ? null
-      : normalizeWhatsapp(input.ownerWhatsapp)
-  if (reviewMode !== 'GOOGLE_DIRECT' && !ownerWhatsapp) {
-    throw new Error('Nomor WhatsApp owner wajib diisi untuk mode ini.')
+  if (
+    input.requireLivePro &&
+    serviceTier === 'PRO' &&
+    !input.whatsappGatewayOpen
+  ) {
+    throw new Error(PRO_NEEDS_GATEWAY)
+  }
+  const reviewMode = reviewModeForPackage(serviceTier)
+  const ownerWhatsapp = packageNeedsOwnerWhatsapp(serviceTier)
+    ? normalizeWhatsapp(input.ownerWhatsapp)
+    : null
+  if (packageNeedsOwnerWhatsapp(serviceTier) && !ownerWhatsapp) {
+    throw new Error(
+      'Nomor WhatsApp owner wajib diisi untuk Plus/Pro. Tamu tidak melihat nomor ini.',
+    )
   }
   return { serviceTier, reviewMode, ownerWhatsapp }
+}
+
+async function liveModeForUnit(unit: {
+  serviceTier: string
+  ownerWhatsapp?: string | null
+}) {
+  return liveReviewMode(
+    unit.serviceTier as ServiceTier,
+    await isWhatsappGatewayOpen(),
+    Boolean(normalizeWhatsapp(unit.ownerWhatsapp)),
+  )
 }
 
 export async function getPublicFeedbackCard(publicId: string) {
@@ -59,15 +82,12 @@ export async function getPublicFeedbackCard(publicId: string) {
   if (!unit || unit.status !== 'ACTIVE' || !unit.outlet?.googlePlaceId) {
     return null
   }
-  if (
-    unit.serviceTier === 'BASIC' ||
-    unit.reviewMode === 'GOOGLE_DIRECT' ||
-    !modeAllowed(unit.serviceTier, unit.reviewMode)
-  ) return null
+  const reviewMode = await liveModeForUnit(unit)
+  if (reviewMode === 'GOOGLE_DIRECT') return null
   const servicePackage = await getServicePackage(unit.serviceTier)
   return {
     publicId: unit.publicId,
-    reviewMode: unit.reviewMode as ReviewMode,
+    reviewMode,
     serviceTier: unit.serviceTier as ServiceTier,
     interceptMaxRating: servicePackage.interceptMaxRating,
     outletName: unit.outlet.name,
@@ -97,15 +117,14 @@ export async function resolveFeedbackDestination(input: {
   const unit = await getActiveUnit(input.publicId)
   const servicePackage = await getServicePackage(unit.serviceTier)
   const reviewUrl = googleReviewUrl(unit.outlet!.googlePlaceId)
+  const reviewMode = await liveModeForUnit(unit)
   if (
-    unit.serviceTier === 'BASIC' ||
-    unit.reviewMode === 'GOOGLE_DIRECT' ||
-    !modeAllowed(unit.serviceTier, unit.reviewMode) ||
+    reviewMode === 'GOOGLE_DIRECT' ||
     input.rating > servicePackage.interceptMaxRating
   ) {
     return { kind: 'google' as const, url: reviewUrl }
   }
-  if (unit.reviewMode === 'OWNER_WHATSAPP') {
+  if (reviewMode === 'OWNER_WHATSAPP') {
     const phone = normalizeWhatsapp(unit.ownerWhatsapp)
     if (!phone) throw new Error('Nomor WhatsApp owner belum siap.')
     const text = `Halo, saya ingin menyampaikan masukan untuk ${unit.outlet!.name}. Rating: ${input.rating}/5.`
@@ -148,11 +167,10 @@ export async function submitAnonymousFeedback(input: {
   }
   const unit = await getActiveUnit(input.publicId)
   const servicePackage = await getServicePackage(unit.serviceTier)
-  if (
-    unit.reviewMode !== 'ANONYMOUS_WHATSAPP' ||
-    !modeAllowed(unit.serviceTier, unit.reviewMode)
-  ) {
-    throw new Error('Mode anonim tidak aktif untuk kartu ini.')
+  if ((await liveModeForUnit(unit)) !== 'ANONYMOUS_WHATSAPP') {
+    throw new Error(
+      'Mode anonim tidak aktif. WhatsApp platform harus OPEN, atau pilih jalur lain.',
+    )
   }
   if (input.rating > servicePackage.interceptMaxRating) {
     throw new Error(
@@ -218,12 +236,15 @@ export async function listUnitFeedback(unitId: string) {
 export async function updateUnitReviewSettings(input: {
   unitId: string
   serviceTier: ServiceTier
-  reviewMode: ReviewMode
+  reviewMode?: ReviewMode
   ownerWhatsapp?: string | null
 }) {
   const unit = await db.query.units.findFirst({ where: eq(units.id, input.unitId) })
   if (!unit) return { ok: false as const, error: 'Kartu tidak ditemukan.' }
-  const settings = normalizeReviewSettings(input)
+  const settings = normalizeReviewSettings({
+    ...input,
+    whatsappGatewayOpen: await isWhatsappGatewayOpen(),
+  })
   await db
     .update(units)
     .set(settings)

@@ -53,7 +53,11 @@ function UserDetailPage() {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [revealedPin, setRevealedPin] = useState<string | null>(null)
+  const [revealedPin, setRevealedPin] = useState<{
+    pin: string
+    email: { status: string; reason?: string }
+    whatsapp: { status: string; reason?: string }
+  } | null>(null)
   const [saved, setSaved] = useState(false)
 
   async function run(action: () => Promise<void>) {
@@ -102,8 +106,18 @@ function UserDetailPage() {
       {saved ? <Alert variant="success">Perubahan disimpan.</Alert> : null}
       {revealedPin ? (
         <Alert variant="success">
-          PIN baru: <strong>{revealedPin}</strong>. Catat sekarang, tidak
-          ditampilkan lagi.
+          PIN baru: <strong>{revealedPin.pin}</strong>. Catat sekarang, tidak
+          ditampilkan lagi.{' '}
+          {revealedPin.email.status === 'SENT'
+            ? 'Email: terkirim.'
+            : revealedPin.email.status === 'FAILED'
+              ? `Email: gagal${revealedPin.email.reason ? ` — ${revealedPin.email.reason}` : '.'}`
+              : `Email: tidak dikirim${revealedPin.email.reason ? ` — ${revealedPin.email.reason}` : '.'}`}{' '}
+          {revealedPin.whatsapp.status === 'QUEUED'
+            ? 'WhatsApp: masuk antrean.'
+            : revealedPin.whatsapp.status === 'FAILED'
+              ? `WhatsApp: gagal${revealedPin.whatsapp.reason ? ` — ${revealedPin.whatsapp.reason}` : '.'}`
+              : `WhatsApp: tidak dikirim${revealedPin.whatsapp.reason ? ` — ${revealedPin.whatsapp.reason}` : '.'}`}
         </Alert>
       ) : null}
 
@@ -159,8 +173,8 @@ function UserDetailPage() {
         <CardHeader>
           <CardTitle>PIN &amp; password</CardTitle>
           <CardDescription>
-            PIN untuk aktivasi publik. Password untuk dashboard. Reset
-            password mencabut sesi yang sedang jalan.
+            PIN untuk aktivasi. Reset PIN dikirim lewat email dan WhatsApp
+            yang sama dengan pengaturan kirim. Password untuk dashboard.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -169,7 +183,11 @@ function UserDetailPage() {
             onClick={() =>
               void run(async () => {
                 const result = await resetPin({ data: { userId: user.id } })
-                setRevealedPin(result.pin)
+                setRevealedPin({
+                  pin: result.pin,
+                  email: result.notify.email,
+                  whatsapp: result.notify.whatsapp,
+                })
               })
             }
             type="button"
@@ -201,7 +219,7 @@ function UserDetailPage() {
               />
               <FieldDescription>Minimal 6 karakter.</FieldDescription>
             </Field>
-            <Button disabled={busy || password.length < 12} type="submit">
+            <Button disabled={busy || password.length < 6} type="submit">
               Reset password
             </Button>
           </form>

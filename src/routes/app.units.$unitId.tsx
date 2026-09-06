@@ -15,15 +15,8 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
-import { Field, FieldDescription, FieldLabel } from '#/components/ui/field'
-import { Input, Select } from '#/components/ui/input'
+import { ReviewPathFields } from '#/components/review-path-fields'
 import { Spinner } from '#/components/ui/spinner'
-import {
-  interceptFlowCopy,
-  interceptedPathLabel,
-  modeAllowed,
-  type ReviewMode,
-} from '#/lib/review-settings'
 import {
   getMyUnitDetailFn,
   placeDetailsFn,
@@ -61,11 +54,6 @@ function MyUnitPage() {
     placeId: string
     name: string
   } | null>(null)
-  const [reviewMode, setReviewMode] = useState<ReviewMode>(() =>
-    modeAllowed(detail.serviceTier, detail.reviewMode)
-      ? detail.reviewMode
-      : 'GOOGLE_DIRECT',
-  )
   const [ownerWhatsapp, setOwnerWhatsapp] = useState(detail.ownerWhatsapp ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -122,12 +110,10 @@ function MyUnitPage() {
       const result = await updateReview({
         data: {
           unitId: detail.id,
-          reviewMode,
           ownerWhatsapp: ownerWhatsapp.trim() || undefined,
         },
       })
       if (result.ok) {
-        setReviewMode(result.reviewMode)
         setOwnerWhatsapp(result.ownerWhatsapp ?? '')
         setSaved(true)
       } else {
@@ -215,64 +201,22 @@ function MyUnitPage() {
           </div>
           <Card>
             <CardHeader>
-              <CardTitle>Jalur review</CardTitle>
+              <CardTitle>Tindak lanjut</CardTitle>
               <CardDescription>
-                Mode mengikuti paket kartu. Paket diatur admin.
+                Tamu hanya nulis review. Nomor owner untuk Plus/Pro.
               </CardDescription>
             </CardHeader>
             <form onSubmit={onSaveReview}>
               <CardContent className="flex flex-col gap-4">
-                <Field>
-                  <FieldLabel htmlFor="my-review-mode">Mode aktif</FieldLabel>
-                  <Select
-                    id="my-review-mode"
-                    onChange={(event) =>
-                      setReviewMode(event.target.value as ReviewMode)
-                    }
-                    value={reviewMode}
-                  >
-                    <option value="GOOGLE_DIRECT">Google langsung</option>
-                    <option
-                      disabled={detail.serviceTier === 'BASIC'}
-                      value="OWNER_WHATSAPP"
-                    >
-                      WhatsApp owner
-                    </option>
-                    <option
-                      disabled={detail.serviceTier !== 'PRO'}
-                      value="ANONYMOUS_WHATSAPP"
-                    >
-                      Masukan anonim
-                    </option>
-                  </Select>
-                </Field>
-                {servicePackage ? (
-                  <p className="text-sm text-muted-foreground">
-                    {reviewMode === 'GOOGLE_DIRECT'
-                      ? 'Setiap scan langsung membuka halaman tulis Google Review di Google Maps.'
-                      : interceptFlowCopy(
-                          servicePackage.interceptMaxRating,
-                          interceptedPathLabel(reviewMode),
-                        )}
-                  </p>
-                ) : null}
-                {reviewMode !== 'GOOGLE_DIRECT' ? (
-                  <Field>
-                    <FieldLabel htmlFor="my-whatsapp">WhatsApp owner</FieldLabel>
-                    <Input
-                      id="my-whatsapp"
-                      inputMode="tel"
-                      maxLength={32}
-                      onChange={(event) => setOwnerWhatsapp(event.target.value)}
-                      placeholder="08xxxxxxxxxx"
-                      required
-                      value={ownerWhatsapp}
-                    />
-                    <FieldDescription>
-                      Nomor tujuan masukan kartu ini.
-                    </FieldDescription>
-                  </Field>
-                ) : null}
+                <ReviewPathFields
+                  allowTierChange={false}
+                  onTierChange={() => {}}
+                  onWhatsappChange={setOwnerWhatsapp}
+                  ownerWhatsapp={ownerWhatsapp}
+                  packages={detail.servicePackages}
+                  serviceTier={detail.serviceTier}
+                  whatsappGatewayOpen={detail.whatsappGatewayOpen}
+                />
               </CardContent>
               <CardFooter className="mt-5">
                 <Button disabled={busy} type="submit">

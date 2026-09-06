@@ -81,6 +81,7 @@ import {
   testSmtp,
 } from '#/server/smtp'
 import { getOutboundLogSummary, listOutboundLogs } from '#/server/outbox'
+import { getHolderNotifyStatus } from '#/server/holder-notify'
 import {
   assignUnitToHolder,
   createHolder,
@@ -248,6 +249,7 @@ export const activateUnitFn = createServerFn({ method: 'POST' })
       publicId: z.string().min(4).max(32),
       placeId: z.string().min(2).max(256),
       partnerRef: z.string().max(80).optional(),
+      serviceTier: z.enum(['BASIC', 'PLUS', 'PRO']).optional(),
       reviewMode: z
         .enum(['GOOGLE_DIRECT', 'OWNER_WHATSAPP', 'ANONYMOUS_WHATSAPP'])
         .optional(),
@@ -531,11 +533,9 @@ export const updateUnitReviewSettingsFn = createServerFn({ method: 'POST' })
     z.object({
       unitId: z.string().uuid(),
       serviceTier: z.enum(['BASIC', 'PLUS', 'PRO']),
-      reviewMode: z.enum([
-        'GOOGLE_DIRECT',
-        'OWNER_WHATSAPP',
-        'ANONYMOUS_WHATSAPP',
-      ]),
+      reviewMode: z
+        .enum(['GOOGLE_DIRECT', 'OWNER_WHATSAPP', 'ANONYMOUS_WHATSAPP'])
+        .optional(),
       ownerWhatsapp: z.string().trim().max(32).optional(),
     }),
   )
@@ -777,6 +777,13 @@ export const getHolderFn = createServerFn({ method: 'GET' })
     return getHolder(data.userId)
   })
 
+export const getHolderNotifyStatusFn = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    await requireAdmin()
+    return getHolderNotifyStatus()
+  },
+)
+
 export const createHolderFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
@@ -893,6 +900,7 @@ export const activateMyUnitFn = createServerFn({ method: 'POST' })
     z.object({
       publicId: z.string().min(4).max(32),
       placeId: z.string().min(2).max(256),
+      serviceTier: z.enum(['BASIC', 'PLUS', 'PRO']).optional(),
       reviewMode: z
         .enum(['GOOGLE_DIRECT', 'OWNER_WHATSAPP', 'ANONYMOUS_WHATSAPP'])
         .optional(),
@@ -913,11 +921,6 @@ export const updateMyUnitReviewSettingsFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       unitId: z.string().uuid(),
-      reviewMode: z.enum([
-        'GOOGLE_DIRECT',
-        'OWNER_WHATSAPP',
-        'ANONYMOUS_WHATSAPP',
-      ]),
       ownerWhatsapp: z.string().trim().max(32).optional(),
     }),
   )
@@ -930,7 +933,6 @@ export const updateMyUnitReviewSettingsFn = createServerFn({ method: 'POST' })
     return updateUnitReviewSettings({
       unitId: data.unitId,
       serviceTier: detail.serviceTier,
-      reviewMode: data.reviewMode,
       ownerWhatsapp: data.ownerWhatsapp,
     })
   })

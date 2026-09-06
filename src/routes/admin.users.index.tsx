@@ -30,7 +30,11 @@ import {
   InputGroupInput,
 } from '#/components/ui/input-group'
 import { Spinner } from '#/components/ui/spinner'
-import { createHolderFn, listHoldersFn } from '#/server/functions'
+import {
+  createHolderFn,
+  getHolderNotifyStatusFn,
+  listHoldersFn,
+} from '#/server/functions'
 
 export const Route = createFileRoute('/admin/users/')({
   validateSearch: (search: Record<string, unknown>): { q?: string; page?: number } => {
@@ -42,18 +46,35 @@ export const Route = createFileRoute('/admin/users/')({
     return { ...(q ? { q } : {}), ...(page ? { page } : {}) }
   },
   loaderDeps: ({ search }) => ({ q: search.q, page: search.page }),
-  loader: ({ deps }) =>
-    listHoldersFn({
-      data: { q: deps.q, page: deps.page ?? 1, pageSize: 20 },
-    }),
+  loader: async ({ deps }) => {
+    const [list, notify] = await Promise.all([
+      listHoldersFn({
+        data: { q: deps.q, page: deps.page ?? 1, pageSize: 20 },
+      }),
+      getHolderNotifyStatusFn(),
+    ])
+    return { list, notify }
+  },
   component: UsersPage,
   head: () => ({
     meta: [{ title: 'Pengguna — Ternak Review' }],
   }),
 })
 
+function notifyLine(
+  label: string,
+  result: { status: string; reason?: string },
+) {
+  if (result.status === 'SENT') return `${label}: terkirim.`
+  if (result.status === 'QUEUED') return `${label}: masuk antrean.`
+  if (result.status === 'FAILED') {
+    return `${label}: gagal${result.reason ? ` — ${result.reason}` : '.'}`
+  }
+  return `${label}: tidak dikirim${result.reason ? ` — ${result.reason}` : '.'}`
+}
+
 function UsersPage() {
-  const list = Route.useLoaderData()
+  const { list, notify } = Route.useLoaderData()
   const { q } = Route.useSearch()
   const navigate = useNavigate({ from: '/admin/users/' })
   const router = useRouter()
@@ -66,7 +87,11 @@ function UsersPage() {
   const [pin, setPin] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [createdPin, setCreatedPin] = useState<string | null>(null)
+  const [created, setCreated] = useState<{
+    pin: string
+    email: { status: string; reason?: string }
+    whatsapp: { status: string; reason?: string }
+  } | null>(null)
 
   useEffect(() => {
     setDraft(q ?? '')
@@ -88,7 +113,7 @@ function UsersPage() {
     event.preventDefault()
     setBusy(true)
     setError(null)
-    setCreatedPin(null)
+    setCreated(null)
     try {
       const result = await createHolder({
         data: {
@@ -99,7 +124,11 @@ function UsersPage() {
           pin: pin.trim() || undefined,
         },
       })
-      setCreatedPin(result.pin)
+      setCreated({
+        pin: result.pin,
+        email: result.notify.email,
+        whatsapp: result.notify.whatsapp,
+      })
       setName('')
       setEmail('')
       setPassword('')
@@ -124,8 +153,8 @@ function UsersPage() {
         <CardHeader>
           <CardTitle>Pengguna baru</CardTitle>
           <CardDescription>
-            WhatsApp untuk masuk OTP (kalau gateway aktif). Email + password
-            cadangan. PIN 4 digit untuk aktivasi publik.
+            PIN dikirim lewat email (Resend/SMTP) dan WhatsApp platform, kalau
+            saluran itu aktif di pengaturan. Tamu tidak mengisi nomor ini.
           </CardDescription>
         </CardHeader>
         <form onSubmit={onCreate}>
@@ -149,7 +178,10 @@ function UsersPage() {
                 placeholder="08xxxxxxxxxx"
                 value={whatsapp}
               />
-              <FieldDescription>Untuk masuk OTP kalau gateway nyala.</FieldDescription>
+              <FieldDescription>
+                Untuk OTP masuk dan kirim PIN. Sekarang:{' '}
+                {notify.whatsapp ? 'WhatsApp OPEN' : 'WhatsApp belum OPEN'}.
+              </FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="user-email">Email (opsional)</FieldLabel>
@@ -159,6 +191,10 @@ function UsersPage() {
                 type="email"
                 value={email}
               />
+              <FieldDescription>
+                Untuk kirim PIN. Sekarang:{' '}
+                {notify.email ? 'Resend/SMTP aktif' : 'Resend/SMTP belum aktif'}.
+              </FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="user-password">Password cadangan</FieldLabel>
@@ -183,10 +219,11 @@ function UsersPage() {
               />
             </Field>
             {error ? <Alert className="md:col-span-2" variant="danger">{error}</Alert> : null}
-            {createdPin ? (
+            {created ? (
               <Alert className="md:col-span-2" variant="success">
-                Pengguna dibuat. PIN pemegang: <strong>{createdPin}</strong>.
-                Catat sekarang, tidak ditampilkan lagi.
+                Pengguna dibuat. PIN: <strong>{created.pin}</strong>. Catat
+                sekarang, tidak ditampilkan lagi. {notifyLine('Email', created.email)}{' '}
+                {notifyLine('WhatsApp', created.whatsapp)}
               </Alert>
             ) : null}
           </CardContent>

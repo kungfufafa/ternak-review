@@ -23,7 +23,7 @@ export type OutboundLogItem = {
 function previewOf(value: string) {
   return value
     .replace(/\b\d{6}\b/g, '••••••')
-    .replace(/PIN aktivasi kartumu: \d{4}/gi, 'PIN aktivasi kartumu: ••••')
+    .replace(/PIN(?: aktivasi(?: kartumu)?)?: \d{4}/gi, 'PIN: ••••')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 140)

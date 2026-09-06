@@ -329,25 +329,4 @@ export async function testSmtp(to: string) {
   return getSmtpPublicSettings()
 }
 
-export async function sendHolderWelcomeEmail(input: {
-  to: string
-  name?: string | null
-  pin: string
-}) {
-  if (!(await isSmtpReady())) return
-  if (input.to.endsWith('@wa.holder')) return
-  const app = getAppUrl()
-  await sendAppEmail({
-    to: input.to,
-    subject: 'Kartu Ternak Review sudah siap',
-    kind: 'WELCOME',
-    text: [
-      input.name ? `Halo ${input.name},` : 'Halo,',
-      '',
-      `PIN aktivasi kartumu: ${input.pin}`,
-      `Masuk dashboard: ${app}/login`,
-      '',
-      'Kalau WhatsApp gateway admin aktif, kamu juga bisa masuk pakai OTP WhatsApp.',
-    ].join('\n'),
-  })
-}
+

@@ -2,8 +2,9 @@ import { eq } from 'drizzle-orm'
 import { db } from '#/db'
 import { clicks, units } from '#/db/schema'
 import { hashIp, hashToken } from '#/lib/crypto'
-import { modeAllowed } from '#/lib/review-settings'
-import { googleReviewUrl } from './review'
+import { liveReviewMode, type ServiceTier } from '#/lib/review-settings'
+import { googleReviewUrl, normalizeWhatsapp } from './review'
+import { isWhatsappGatewayOpen } from './whatsapp-status'
 const CLICK_DEDUPE_MS = 5 * 60 * 1000
 const MAX_RECENT_CLICK_IDS = 10_000
 const recentClickIds = new Map<string, number>()
@@ -60,11 +61,12 @@ export async function resolveRedirect(
   }
 
   if (unit.status === 'ACTIVE' && unit.outlet?.googlePlaceId) {
-    if (
-      unit.serviceTier !== 'BASIC' &&
-      unit.reviewMode !== 'GOOGLE_DIRECT' &&
-      modeAllowed(unit.serviceTier, unit.reviewMode)
-    ) {
+    const reviewMode = liveReviewMode(
+      unit.serviceTier as ServiceTier,
+      await isWhatsappGatewayOpen(),
+      Boolean(normalizeWhatsapp(unit.ownerWhatsapp)),
+    )
+    if (reviewMode !== 'GOOGLE_DIRECT') {
       return {
         kind: 'feedback',
         publicId: unit.publicId,

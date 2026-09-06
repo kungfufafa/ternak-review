@@ -22,6 +22,7 @@ import {
 } from '#/lib/reporting-time'
 import { listUnitFeedback } from './review'
 import { getServicePackages } from './service-packages'
+import { isWhatsappGatewayOpen } from './whatsapp-status'
 
 export type UnitStatus = 'IN_STOCK' | 'ACTIVE' | 'INACTIVE'
 
@@ -298,9 +299,10 @@ export async function getUnitDetail(unitId: string) {
     const date = shiftReportingDay(firstDay, i)
     return { date, count: map.get(date) ?? 0 }
   })
-  const [feedback, servicePackages] = await Promise.all([
+  const [feedback, servicePackages, whatsappGatewayOpen] = await Promise.all([
     listUnitFeedback(unit.id),
     getServicePackages(),
+    isWhatsappGatewayOpen(),
   ])
 
   return {
@@ -310,6 +312,7 @@ export async function getUnitDetail(unitId: string) {
     status: unit.status,
     serviceTier: unit.serviceTier,
     servicePackages,
+    whatsappGatewayOpen,
     reviewMode: unit.reviewMode,
     ownerWhatsapp: unit.ownerWhatsapp,
     partnerRef: unit.partnerRef,

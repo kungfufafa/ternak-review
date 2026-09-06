@@ -44,10 +44,43 @@ export const DEFAULT_SERVICE_PACKAGES: ServicePackage[] = [
 ]
 
 export function modeAllowed(tier: ServiceTier, mode: ReviewMode) {
-  if (mode === 'GOOGLE_DIRECT') return true
-  if (mode === 'OWNER_WHATSAPP') return tier === 'PLUS' || tier === 'PRO'
+  if (mode === 'GOOGLE_DIRECT') return tier === 'BASIC'
+  if (mode === 'OWNER_WHATSAPP') return tier === 'PLUS'
   return mode === 'ANONYMOUS_WHATSAPP' && tier === 'PRO'
 }
+
+export function packageNeedsOwnerWhatsapp(tier: ServiceTier) {
+  return tier === 'PLUS' || tier === 'PRO'
+}
+
+export function packageAvailable(
+  serviceTier: ServiceTier,
+  whatsappGatewayOpen: boolean,
+) {
+  if (serviceTier === 'PRO') return whatsappGatewayOpen
+  return true
+}
+
+export function reviewModeForPackage(serviceTier: ServiceTier): ReviewMode {
+  if (serviceTier === 'PLUS') return 'OWNER_WHATSAPP'
+  if (serviceTier === 'PRO') return 'ANONYMOUS_WHATSAPP'
+  return 'GOOGLE_DIRECT'
+}
+
+export function liveReviewMode(
+  serviceTier: ServiceTier,
+  whatsappGatewayOpen: boolean,
+  hasOwnerWhatsapp = true,
+): ReviewMode {
+  if (!packageNeedsOwnerWhatsapp(serviceTier) || !hasOwnerWhatsapp) {
+    return 'GOOGLE_DIRECT'
+  }
+  if (serviceTier === 'PRO' && !whatsappGatewayOpen) return 'GOOGLE_DIRECT'
+  return reviewModeForPackage(serviceTier)
+}
+
+export const PRO_NEEDS_GATEWAY =
+  'Paket Pro butuh WhatsApp platform OPEN. Pilih Plus atau Basic, atau nyalakan gateway.'
 
 export function ratingRangeLabel(maxRating: number) {
   return maxRating === 1 ? '1' : `1–${maxRating}`
@@ -70,4 +103,23 @@ export function interceptFlowCopy(maxRating: number, intercepted: string) {
     return `Rating ${ratingRangeLabel(maxRating)} ${intercepted}. Semua rating mengikuti jalur ini.`
   }
   return `Rating ${ratingRangeLabel(maxRating)} ${intercepted}. Rating ${google} langsung membuka Google Review.`
+}
+
+export function packageSetupCopy(
+  serviceTier: ServiceTier,
+  maxRating: number,
+) {
+  if (serviceTier === 'BASIC') {
+    return 'Tamu hanya nulis review di Google. Tidak perlu nomor owner.'
+  }
+  const low = ratingRangeLabel(maxRating)
+  const high = googleRangeLabel(maxRating)
+  if (serviceTier === 'PLUS') {
+    return high
+      ? `Tamu pilih bintang. ${low} lanjut ke WhatsApp owner. ${high} ke Google Review. Nomor owner untuk tindak lanjut — tamu tidak mengisi nomor.`
+      : 'Tamu pilih bintang, lalu lanjut ke WhatsApp owner. Nomor owner untuk tindak lanjut — tamu tidak mengisi nomor.'
+  }
+  return high
+    ? `Tamu pilih bintang. ${low} isi form; sistem kirim ke WhatsApp owner. ${high} ke Google Review. Nomor owner untuk tindak lanjut — tamu tidak lihat nomor ini.`
+    : 'Tamu pilih bintang lalu isi form; sistem kirim ke WhatsApp owner. Nomor owner untuk tindak lanjut — tamu tidak lihat nomor ini.'
 }

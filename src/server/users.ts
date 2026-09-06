@@ -4,8 +4,8 @@ import { owners, units } from '#/db/schema'
 import { hashPassword } from '#/lib/crypto'
 import { generatePin, hashPin, normalizePin } from '#/lib/pin'
 import { replaceHolderSessions } from './auth'
+import { notifyHolderCredentials } from './holder-notify'
 import { normalizeWhatsapp } from './review'
-import { sendHolderWelcomeEmail } from './smtp'
 
 const MIN_PASSWORD_LENGTH = 6
 
@@ -66,12 +66,14 @@ export async function createHolder(input: {
         status: owners.status,
       })
     if (!created) throw new Error('Gagal membuat pengguna.')
-    void sendHolderWelcomeEmail({
-      to: created.email,
+    const notify = await notifyHolderCredentials({
       name: created.name,
+      email: created.email,
+      whatsapp: created.whatsapp,
       pin,
-    }).catch(() => {})
-    return { ...created, pin }
+      kind: 'WELCOME',
+    })
+    return { ...created, pin, notify }
   } catch (error) {
     const existingEmail = await db.query.owners.findFirst({
       where: eq(owners.email, email),
@@ -202,9 +204,21 @@ export async function resetHolderPin(userId: string, pin?: string) {
     .update(owners)
     .set({ pinHash: hashPin(nextPin) })
     .where(and(eq(owners.id, userId), eq(owners.role, 'USER')))
-    .returning({ id: owners.id })
+    .returning({
+      id: owners.id,
+      email: owners.email,
+      name: owners.name,
+      whatsapp: owners.whatsapp,
+    })
   if (!row) throw new Error('Pengguna tidak ditemukan.')
-  return { id: row.id, pin: nextPin }
+  const notify = await notifyHolderCredentials({
+    name: row.name,
+    email: row.email,
+    whatsapp: row.whatsapp,
+    pin: nextPin,
+    kind: 'NOTICE',
+  })
+  return { id: row.id, pin: nextPin, notify }
 }
 
 export async function resetHolderPassword(userId: string, password: string) {

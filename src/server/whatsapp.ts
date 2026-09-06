@@ -14,6 +14,9 @@ import {
   claimFeedbackJob,
   normalizeWhatsapp,
 } from '#/server/review'
+import { isWhatsappGatewayOpen } from './whatsapp-status'
+
+export { isWhatsappGatewayOpen } from './whatsapp-status'
 
 type GatewayStatus = 'OFFLINE' | 'CONNECTING' | 'QR' | 'OPEN' | 'LOGGED_OUT'
 type GatewayCommand = 'CONNECT' | 'RECONNECT' | 'LOGOUT'
@@ -190,16 +193,6 @@ export async function reportWhatsappGateway(input: {
     if (!outbox) await applyFeedbackDelivery(input.job)
   }
   return { ok: true }
-}
-
-export async function isWhatsappGatewayOpen() {
-  const state = await db.query.whatsappGatewayState.findFirst({
-    where: eq(whatsappGatewayState.id, 'primary'),
-  })
-  const heartbeat = state?.lastHeartbeatAt?.getTime() ?? 0
-  return (
-    state?.status === 'OPEN' && heartbeat > Date.now() - 45_000
-  )
 }
 
 export async function queueWhatsappOutbox(input: {

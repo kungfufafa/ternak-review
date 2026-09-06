@@ -24,15 +24,11 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import { ReviewPathFields } from '#/components/review-path-fields'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '#/components/ui/field'
-import { Input } from '#/components/ui/input'
-import { Select } from '#/components/ui/input'
+import { Input, Select } from '#/components/ui/input'
 import { Spinner } from '#/components/ui/spinner'
-import {
-  interceptFlowCopy,
-  interceptedPathLabel,
-  modeAllowed,
-} from '#/lib/review-settings'
+
 import type { getUnitDetail } from '#/server/clicks'
 import {
   assignUnitToHolderFn,
@@ -85,11 +81,6 @@ function UnitDetailEditor({
   const router = useRouter()
   const [partnerRef, setPartnerRef] = useState(detail.partnerRef ?? '')
   const [serviceTier, setServiceTier] = useState(detail.serviceTier)
-  const [reviewMode, setReviewMode] = useState(() =>
-    modeAllowed(detail.serviceTier, detail.reviewMode)
-      ? detail.reviewMode
-      : 'GOOGLE_DIRECT',
-  )
   const [ownerWhatsapp, setOwnerWhatsapp] = useState(detail.ownerWhatsapp ?? '')
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -103,9 +94,6 @@ function UnitDetailEditor({
   const [holderId, setHolderId] = useState(detail.holder?.id ?? '')
   const [holderBusy, setHolderBusy] = useState(false)
   const willDeactivate = detail.status === 'ACTIVE'
-  const servicePackage = detail.servicePackages.find(
-    (item) => item.serviceTier === serviceTier,
-  )!
 
   async function onSavePartner(event: FormEvent) {
     event.preventDefault()
@@ -142,7 +130,6 @@ function UnitDetailEditor({
         data: {
           unitId: detail.id,
           serviceTier,
-          reviewMode,
           ownerWhatsapp: ownerWhatsapp.trim() || undefined,
         },
       })
@@ -151,7 +138,6 @@ function UnitDetailEditor({
         return
       }
       setServiceTier(result.serviceTier)
-      setReviewMode(result.reviewMode)
       setOwnerWhatsapp(result.ownerWhatsapp ?? '')
       setSaved(true)
       await router.invalidate()
@@ -401,92 +387,34 @@ function UnitDetailEditor({
 
         <Card>
           <CardHeader>
-            <CardTitle>Jalur review</CardTitle>
+            <CardTitle>Paket kartu</CardTitle>
             <CardDescription>
-              Pilih paket dan mode untuk kartu ini. Jika mode tidak tersedia pada
-              paket baru, jalur otomatis menjadi Google langsung.
+              Tamu hanya nulis review. Nomor owner untuk tindak lanjut Plus/Pro.
             </CardDescription>
           </CardHeader>
           <form onSubmit={onSaveReviewSettings}>
             <CardContent className="flex flex-col gap-4">
-              <Field>
-                <FieldLabel htmlFor="unit-tier">Paket</FieldLabel>
-                <Select
-                  id="unit-tier"
-                  onChange={(event) => {
-                    const nextPackage = detail.servicePackages.find(
-                      (item) => item.serviceTier === event.target.value,
-                    )
-                    if (!nextPackage) return
-                    setServiceTier(nextPackage.serviceTier)
-                    if (!modeAllowed(nextPackage.serviceTier, reviewMode)) {
-                      setReviewMode('GOOGLE_DIRECT')
-                    }
-                    setSaved(false)
-                  }}
-                  value={serviceTier}
-                >
-                  {detail.servicePackages.map((item) => (
-                    <option key={item.serviceTier} value={item.serviceTier}>
-                      {item.name}
-                    </option>
-                  ))}
-                </Select>
-                <FieldDescription>
-                  Nama dan batas intersep mengikuti pengaturan paket.{' '}
-                  <Link className="text-pine underline underline-offset-4" to="/admin/packages">
-                    Atur paket
-                  </Link>
-                </FieldDescription>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="unit-review-mode">Mode aktif</FieldLabel>
-                <Select
-                  id="unit-review-mode"
-                  onChange={(event) =>
-                    setReviewMode(event.target.value as typeof reviewMode)
-                  }
-                  value={reviewMode}
-                >
-                  <option value="GOOGLE_DIRECT">Google langsung</option>
-                  <option disabled={serviceTier === 'BASIC'} value="OWNER_WHATSAPP">
-                    WhatsApp owner
-                  </option>
-                  <option disabled={serviceTier !== 'PRO'} value="ANONYMOUS_WHATSAPP">
-                    Masukan anonim
-                  </option>
-                </Select>
-              </Field>
-              <div className="rounded-xl bg-muted/50 p-3 text-sm">
-                <p className="font-medium">Alur paket {servicePackage.name}</p>
-                <p className="mt-1 text-muted-foreground">
-                  {reviewMode === 'GOOGLE_DIRECT'
-                    ? 'Setiap scan langsung membuka halaman tulis Google Review di Google Maps.'
-                    : interceptFlowCopy(
-                        servicePackage.interceptMaxRating,
-                        interceptedPathLabel(reviewMode),
-                      )}
-                </p>
-              </div>
-              {reviewMode !== 'GOOGLE_DIRECT' ? (
-                <Field>
-                  <FieldLabel htmlFor="unit-owner-whatsapp">
-                    WhatsApp owner
-                  </FieldLabel>
-                  <Input
-                    id="unit-owner-whatsapp"
-                    inputMode="tel"
-                    maxLength={32}
-                    onChange={(event) => setOwnerWhatsapp(event.target.value)}
-                    placeholder="08xxxxxxxxxx"
-                    required
-                    value={ownerWhatsapp}
-                  />
-                  <FieldDescription>
-                    Nomor akan dinormalisasi ke format internasional.
-                  </FieldDescription>
-                </Field>
-              ) : null}
+              <ReviewPathFields
+                onTierChange={(tier) => {
+                  setServiceTier(tier)
+                  setSaved(false)
+                }}
+                onWhatsappChange={(value) => {
+                  setOwnerWhatsapp(value)
+                  setSaved(false)
+                }}
+                ownerWhatsapp={ownerWhatsapp}
+                packages={detail.servicePackages}
+                serviceTier={serviceTier}
+                whatsappGatewayOpen={detail.whatsappGatewayOpen}
+              />
+              <p className="text-sm text-muted-foreground">
+                Nama paket dan batas bintang di{' '}
+                <Link className="text-pine underline underline-offset-4" to="/admin/packages">
+                  Pengaturan paket
+                </Link>
+                .
+              </p>
               {error ? (
                 <p className="text-sm text-destructive">{error}</p>
               ) : null}
@@ -497,7 +425,7 @@ function UnitDetailEditor({
             <CardFooter>
               <Button disabled={reviewBusy} type="submit">
                 {reviewBusy ? <Spinner data-icon="inline-start" /> : null}
-                {reviewBusy ? 'Menyimpan…' : 'Simpan jalur review'}
+                {reviewBusy ? 'Menyimpan…' : 'Simpan paket'}
               </Button>
             </CardFooter>
           </form>

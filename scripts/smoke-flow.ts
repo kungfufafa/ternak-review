@@ -83,14 +83,32 @@ async function expectReject(run: () => Promise<unknown>, label: string) {
   throw new Error(`${label} must be rejected`)
 }
 
-async function checkServicePackages(unitId: string, publicId: string) {
-  const modes = [
-    { serviceTier: 'PLUS', reviewMode: 'OWNER_WHATSAPP', kind: 'owner_whatsapp' },
-    { serviceTier: 'PRO', reviewMode: 'OWNER_WHATSAPP', kind: 'owner_whatsapp' },
-    { serviceTier: 'PRO', reviewMode: 'ANONYMOUS_WHATSAPP', kind: 'anonymous' },
-  ] as const
+async function setSmokeGateway(status: 'OPEN' | 'OFFLINE') {
+  const now = new Date()
+  const lastHeartbeatAt =
+    status === 'OPEN' ? now : new Date(now.getTime() - 120_000)
+  await db
+    .insert(whatsappGatewayState)
+    .values({
+      id: 'primary',
+      status,
+      lastHeartbeatAt,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: whatsappGatewayState.id,
+      set: { status, lastHeartbeatAt, updatedAt: now },
+    })
+}
 
-  for (const { serviceTier, reviewMode, kind } of modes) {
+async function checkServicePackages(unitId: string, publicId: string) {
+  await setSmokeGateway('OPEN')
+  const modes = [
+    { serviceTier: 'PLUS' as const, kind: 'owner_whatsapp' as const },
+    { serviceTier: 'PRO' as const, kind: 'anonymous' as const },
+  ]
+
+  for (const { serviceTier, kind } of modes) {
     const name = serviceTier === 'PLUS' ? 'Pendamping' : 'Masukan Privat'
     const saved = await updateServicePackage({
       serviceTier,
@@ -104,7 +122,6 @@ async function checkServicePackages(unitId: string, publicId: string) {
     await updateUnitReviewSettings({
       unitId,
       serviceTier,
-      reviewMode,
       ownerWhatsapp: '081234567890',
     })
     const activation = await getActivationCard(publicId)
@@ -129,7 +146,7 @@ async function checkServicePackages(unitId: string, publicId: string) {
         const destination = await resolveFeedbackDestination({ publicId, rating })
         const expected = rating <= interceptMaxRating ? kind : 'google'
         if (destination.kind !== expected) {
-          throw new Error(`${serviceTier}/${reviewMode}: rating ${rating} at threshold ${interceptMaxRating} must resolve to ${expected}`)
+          throw new Error(`${serviceTier}: rating ${rating} at threshold ${interceptMaxRating} must resolve to ${expected}`)
         }
       }
       if (kind === 'anonymous') {
@@ -225,35 +242,35 @@ async function checkServicePackages(unitId: string, publicId: string) {
     throw new Error('Basic package name must be configurable')
   }
 
-  for (const serviceTier of ['PLUS', 'PRO', 'BASIC'] as const) {
-    const settings = await updateUnitReviewSettings({
-      unitId,
-      serviceTier,
-      // Downgrading an anonymous card to Basic must normalize it to direct.
-      reviewMode: serviceTier === 'BASIC' ? 'ANONYMOUS_WHATSAPP' : 'GOOGLE_DIRECT',
-      ownerWhatsapp: '081234567890',
-    })
-    if (!settings.ok || settings.reviewMode !== 'GOOGLE_DIRECT') {
-      throw new Error('Direct selection and Basic downgrade must persist Google Direct')
-    }
-    if ((await resolveRedirect(publicId)).kind !== 'google' || await getPublicFeedbackCard(publicId)) {
-      throw new Error(`${serviceTier} in direct mode must skip the rating page`)
-    }
-    for (let rating = 1; rating <= 5; rating++) {
-      if ((await resolveFeedbackDestination({ publicId, rating })).kind !== 'google') {
-        throw new Error(`${serviceTier} in direct mode must send every rating to Google`)
-      }
-    }
-    await expectReject(
-      () => submitAnonymousFeedback({
-        publicId,
-        rating: 1,
-        message: 'Stale anonymous form after a mode change',
-        submissionId: crypto.randomUUID(),
-      }),
-      'Anonymous submission after switching to direct mode',
-    )
+  const basicSettings = await updateUnitReviewSettings({
+    unitId,
+    serviceTier: 'BASIC',
+    ownerWhatsapp: '081234567890',
+  })
+  if (
+    !basicSettings.ok ||
+    basicSettings.reviewMode !== 'GOOGLE_DIRECT' ||
+    basicSettings.ownerWhatsapp !== null
+  ) {
+    throw new Error('Basic must drop owner WhatsApp and stay on Google Review')
   }
+  if ((await resolveRedirect(publicId)).kind !== 'google' || await getPublicFeedbackCard(publicId)) {
+    throw new Error('Basic must skip the rating page')
+  }
+  for (let rating = 1; rating <= 5; rating++) {
+    if ((await resolveFeedbackDestination({ publicId, rating })).kind !== 'google') {
+      throw new Error('Basic must send every rating to Google')
+    }
+  }
+  await expectReject(
+    () => submitAnonymousFeedback({
+      publicId,
+      rating: 1,
+      message: 'Stale anonymous form after switching to Basic',
+      submissionId: crypto.randomUUID(),
+    }),
+    'Anonymous submission after switching to Basic',
+  )
   for (const defaults of DEFAULT_SERVICE_PACKAGES) {
     await updateServicePackage(defaults)
   }
@@ -284,6 +301,12 @@ async function checkHolderAccounts() {
     name: 'Holder B',
     pin: '2580',
   })
+  if (
+    holder.notify.email.status !== 'SKIPPED' ||
+    holder.notify.whatsapp.status !== 'SKIPPED'
+  ) {
+    throw new Error('PIN notify must follow mail/WhatsApp settings, not a side channel')
+  }
   const other = await createHolder({
     email: `holder-c-${cardB.publicId.toLowerCase()}@smoke.test`,
     password: 'smoke-holder-12',
@@ -539,6 +562,20 @@ async function checkHolderAccounts() {
     () => verifyLoginOtp(waNumber, code),
     'Reusing a spent OTP',
   )
+  const waPin = await resetHolderPin(waHolder.id)
+  if (
+    waPin.notify.whatsapp.status !== 'QUEUED' ||
+    waPin.notify.email.status !== 'SKIPPED'
+  ) {
+    throw new Error('PIN reset must use the open WhatsApp gateway and skip placeholder email')
+  }
+  const waPinLogs = await listOutboundLogs({ channel: 'whatsapp', pageSize: 50 })
+  const pinNotice = waPinLogs.items.find(
+    (item) => item.kind === 'NOTICE' && item.to === expectedWa,
+  )
+  if (!pinNotice || pinNotice.preview.includes(waPin.pin)) {
+    throw new Error('WhatsApp PIN notice must appear in outbound logs without the PIN')
+  }
 
   if (await isSmtpReady()) {
     throw new Error('SMTP must stay off until admin enables it')
@@ -657,6 +694,17 @@ async function checkHolderAccounts() {
   ) {
     throw new Error('Unknown email must not enqueue an OTP message')
   }
+  const pinMail = await resetHolderPin(holder.id)
+  if (pinMail.notify.email.status !== 'FAILED') {
+    throw new Error('PIN email must go through the configured Resend/SMTP path')
+  }
+  const pinMailLogs = await listOutboundLogs({ channel: 'email', pageSize: 20 })
+  const pinMailItem = pinMailLogs.items.find(
+    (item) => item.kind === 'NOTICE' && item.to === holder.email,
+  )
+  if (!pinMailItem || pinMailItem.preview.includes(pinMail.pin)) {
+    throw new Error('PIN email must appear in outbound logs without the PIN')
+  }
   await saveSmtpSettings({
     provider: 'resend',
     host: '',
@@ -666,6 +714,197 @@ async function checkHolderAccounts() {
     enabled: false,
   })
   console.log('holder accounts passed')
+}
+
+async function checkBusinessQa() {
+  await setSmokeGateway('OFFLINE')
+  await saveSmtpSettings({
+    provider: 'resend',
+    host: '',
+    port: 465,
+    secure: true,
+    fromEmail: 'noreply@example.com',
+    enabled: false,
+  })
+
+  const batch = await generateStockBatch({ count: 3, label: 'QA-BIZ' })
+  const plusCard = batch.units[0]
+  const proCard = batch.units[1]
+  const basicCard = batch.units[2]
+  if (!plusCard || !proCard || !basicCard) throw new Error('Expected business QA cards')
+
+  const holder = await createHolder({
+    email: `biz-${plusCard.publicId.toLowerCase()}@smoke.test`,
+    password: 'smoke-holder-12',
+    whatsapp: '081298711111',
+    name: 'Biz Holder',
+    pin: '8642',
+  })
+  if (
+    holder.notify.email.status !== 'SKIPPED' ||
+    holder.notify.whatsapp.status !== 'SKIPPED'
+  ) {
+    throw new Error('QA: PIN notify must skip when email and WhatsApp settings are off')
+  }
+
+  await expectReject(
+    () =>
+      activateUnit({
+        publicId: plusCard.publicId,
+        placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+        pin: '8642',
+        serviceTier: 'PLUS',
+      }),
+    'QA Plus without owner number',
+  )
+  await expectReject(
+    () =>
+      activateUnit({
+        publicId: proCard.publicId,
+        placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+        pin: '8642',
+        serviceTier: 'PRO',
+        ownerWhatsapp: '081234567890',
+      }),
+    'QA Pro while WhatsApp is down',
+  )
+
+  await activateUnit({
+    publicId: plusCard.publicId,
+    placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+    pin: '8642',
+    serviceTier: 'PLUS',
+    ownerWhatsapp: '081234567890',
+  })
+  const plusState = await getActivationCard(plusCard.publicId)
+  if (plusState?.serviceTier !== 'PLUS') {
+    throw new Error('QA Plus activation must store the package')
+  }
+  if ((await resolveRedirect(plusCard.publicId)).kind !== 'feedback') {
+    throw new Error('QA Plus guest must open the rating page, not jump to Google')
+  }
+  const plusLow = await resolveFeedbackDestination({
+    publicId: plusCard.publicId,
+    rating: 3,
+  })
+  if (plusLow.kind !== 'owner_whatsapp') {
+    throw new Error('QA Plus rating 3 must open owner WhatsApp')
+  }
+  const plusHigh = await resolveFeedbackDestination({
+    publicId: plusCard.publicId,
+    rating: 5,
+  })
+  if (plusHigh.kind !== 'google') {
+    throw new Error('QA Plus rating 5 must go to Google Review')
+  }
+
+  await activateUnit({
+    publicId: basicCard.publicId,
+    placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+    pin: '8642',
+    serviceTier: 'BASIC',
+    ownerWhatsapp: '081234567890',
+  })
+  const basicState = await getActivationCard(basicCard.publicId)
+  if (!basicState) throw new Error('Expected basic card')
+  const basicSaved = await updateUnitReviewSettings({
+    unitId: basicState.id,
+    serviceTier: 'BASIC',
+    ownerWhatsapp: '081298700000',
+  })
+  if (
+    !basicSaved.ok ||
+    basicSaved.ownerWhatsapp !== null ||
+    (await resolveRedirect(basicCard.publicId)).kind !== 'google'
+  ) {
+    throw new Error('QA Basic must ignore owner number and stay on Google Review')
+  }
+
+  await setSmokeGateway('OPEN')
+  await activateUnit({
+    publicId: proCard.publicId,
+    placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+    pin: '8642',
+    serviceTier: 'PRO',
+    ownerWhatsapp: '081234567890',
+  })
+  const proLow = await resolveFeedbackDestination({
+    publicId: proCard.publicId,
+    rating: 3,
+  })
+  if (proLow.kind !== 'anonymous') {
+    throw new Error('QA Pro rating 3 must open the private form')
+  }
+  const proHigh = await resolveFeedbackDestination({
+    publicId: proCard.publicId,
+    rating: 5,
+  })
+  if (proHigh.kind !== 'google') {
+    throw new Error('QA Pro rating 5 must go to Google Review')
+  }
+
+  await setSmokeGateway('OFFLINE')
+  if ((await resolveRedirect(proCard.publicId)).kind !== 'google') {
+    throw new Error('QA Pro guests must fall back to Google when WhatsApp is down')
+  }
+  if (await getPublicFeedbackCard(proCard.publicId)) {
+    throw new Error('QA Pro form must hide when WhatsApp is down')
+  }
+  const proState = await getActivationCard(proCard.publicId)
+  if (!proState) throw new Error('Expected pro card')
+  const proUpdated = await updateUnitReviewSettings({
+    unitId: proState.id,
+    serviceTier: 'PRO',
+    ownerWhatsapp: '081298722222',
+  })
+  if (!proUpdated.ok || proUpdated.ownerWhatsapp !== '6281298722222') {
+    throw new Error('QA must still save Pro owner number while WhatsApp is down')
+  }
+
+  await setSmokeGateway('OPEN')
+  await saveSmtpSettings({
+    provider: 'resend',
+    host: '',
+    port: 465,
+    secure: true,
+    password: 're_test_key_not_for_send',
+    fromName: 'Ternak Review',
+    fromEmail: 'noreply@example.com',
+    enabled: true,
+  })
+  const both = await createHolder({
+    email: `both-${plusCard.publicId.toLowerCase()}@smoke.test`,
+    password: 'smoke-holder-12',
+    whatsapp: '081298733333',
+    pin: '1357',
+  })
+  if (both.notify.email.status !== 'FAILED' || both.notify.whatsapp.status !== 'QUEUED') {
+    throw new Error('QA: PIN notify must use both configured email and WhatsApp paths')
+  }
+  const bothLogs = await listOutboundLogs({ pageSize: 50 })
+  const emailNotice = bothLogs.items.find(
+    (item) => item.channel === 'email' && item.kind === 'WELCOME' && item.to === both.email,
+  )
+  const waNotice = bothLogs.items.find(
+    (item) => item.channel === 'whatsapp' && item.kind === 'NOTICE' && item.to === both.whatsapp,
+  )
+  if (!emailNotice || emailNotice.preview.includes('1357')) {
+    throw new Error('QA email PIN notice must use Resend/SMTP outbox without exposing PIN')
+  }
+  if (!waNotice || waNotice.preview.includes('1357')) {
+    throw new Error('QA WhatsApp PIN notice must use gateway outbox without exposing PIN')
+  }
+
+  await saveSmtpSettings({
+    provider: 'resend',
+    host: '',
+    port: 465,
+    secure: true,
+    fromEmail: 'noreply@example.com',
+    enabled: false,
+  })
+  await setSmokeGateway('OFFLINE')
+  console.log('business QA passed')
 }
 
 async function main() {
@@ -741,6 +980,13 @@ async function main() {
 
   const before = await resolveRedirect(tagged.publicId)
   console.log('before activate', before)
+  const stockCard = await getActivationCard(tagged.publicId)
+  if (!stockCard || stockCard.servicePackages.length !== 3) {
+    throw new Error('Activation must load package settings')
+  }
+  if (typeof stockCard.whatsappGatewayOpen !== 'boolean') {
+    throw new Error('Activation must know whether WhatsApp platform is OPEN')
+  }
 
   await expectReject(
     () =>
@@ -767,6 +1013,27 @@ async function main() {
     pin: '2580',
   })
   if (holder.pin !== '2580') throw new Error('Requested holder PIN must be stored')
+  await expectReject(
+    () =>
+      activateUnit({
+        publicId: tagged.publicId,
+        placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+        pin: '2580',
+        serviceTier: 'PLUS',
+      }),
+    'Plus activation without owner number',
+  )
+  await expectReject(
+    () =>
+      activateUnit({
+        publicId: tagged.publicId,
+        placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+        pin: '2580',
+        serviceTier: 'PRO',
+        ownerWhatsapp: '081234567890',
+      }),
+    'Pro activation while WhatsApp is down',
+  )
   const withPartner = await activateUnit({
     publicId: tagged.publicId,
     placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
@@ -843,6 +1110,28 @@ async function main() {
   console.log('db status', taggedRow?.status, taggedRow?.outlet?.googlePlaceId)
 
   if (!plainRow) throw new Error('Expected plain unit row')
+  const basicKept = await updateUnitReviewSettings({
+    unitId: plainRow.id,
+    serviceTier: 'BASIC',
+    reviewMode: 'GOOGLE_DIRECT',
+    ownerWhatsapp: '081234567890',
+  })
+  if (
+    !basicKept.ok ||
+    basicKept.ownerWhatsapp !== null ||
+    basicKept.reviewMode !== 'GOOGLE_DIRECT'
+  ) {
+    throw new Error('Basic must ignore owner WhatsApp and stay on Google direct')
+  }
+  await expectReject(
+    () =>
+      updateUnitReviewSettings({
+        unitId: plainRow.id,
+        serviceTier: 'PLUS',
+        reviewMode: 'OWNER_WHATSAPP',
+      }),
+    'Plus WhatsApp owner without a number',
+  )
   await updateUnitReviewSettings({
     unitId: plainRow.id,
     serviceTier: 'PLUS',
@@ -863,12 +1152,19 @@ async function main() {
   if (ownerHigh.kind !== 'google') {
     throw new Error('High ratings must continue to Google Review')
   }
-  await updateUnitReviewSettings({
+  await setSmokeGateway('OFFLINE')
+  const proOffline = await updateUnitReviewSettings({
     unitId: plainRow.id,
     serviceTier: 'PRO',
-    reviewMode: 'ANONYMOUS_WHATSAPP',
     ownerWhatsapp: '6281234567890',
   })
+  if (!proOffline.ok) {
+    throw new Error('Existing Pro cards must still save while WhatsApp is down')
+  }
+  if ((await resolveRedirect(plain.publicId)).kind !== 'google') {
+    throw new Error('Pro guests must fall back to Google while WhatsApp is down')
+  }
+  await setSmokeGateway('OPEN')
   const anonymous = await resolveFeedbackDestination({
     publicId: plain.publicId,
     rating: 2,
@@ -876,6 +1172,14 @@ async function main() {
   if (anonymous.kind !== 'anonymous') {
     throw new Error('Pro low ratings must open anonymous feedback')
   }
+  await setSmokeGateway('OFFLINE')
+  if ((await resolveRedirect(plain.publicId)).kind !== 'google') {
+    throw new Error('Anonymous cards must fall back to Google when WhatsApp is down')
+  }
+  if (await getPublicFeedbackCard(plain.publicId)) {
+    throw new Error('Anonymous form must hide when WhatsApp is down')
+  }
+  await setSmokeGateway('OPEN')
   await db
     .update(reviewFeedbacks)
     .set({
@@ -984,6 +1288,7 @@ async function main() {
   console.log('review modes', { owner: ownerLow.kind, anonymous: feedback.length })
   await checkServicePackages(plainRow.id, plain.publicId)
   await checkHolderAccounts()
+  await checkBusinessQa()
 
   const leftover = await generateStockBatch({ count: 2, label: 'QA-READY' })
   const keep = leftover.units[0]

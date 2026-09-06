@@ -45,8 +45,9 @@ function PackagesPage() {
         ))}
       </div>
       <p className="text-sm text-muted-foreground">
-        Pilih paket dan jalur review masing-masing kartu melalui Kartu toko.
-        Jalur Google langsung selalu membuka Google Review tanpa meminta bintang terlebih dahulu.
+        Nama paket tampil saat aktivasi. Basic ke Google. Plus: rating rendah ke
+        WhatsApp owner. Pro: rating rendah isi form, sistem kirim ke owner.
+        Paket Pro hanya kalau WhatsApp platform OPEN.
       </p>
     </div>
   )
@@ -102,8 +103,8 @@ function PackageEditor({ servicePackage }: { servicePackage: ServicePackage }) {
           {isBasic
             ? 'Paket default · scan langsung ke Google Review Maps'
             : servicePackage.serviceTier === 'PLUS'
-              ? 'Google langsung atau WhatsApp owner'
-              : 'Google langsung, WhatsApp owner, atau feedback anonim'}
+              ? 'Tamu review. Rating rendah lanjut ke WhatsApp owner.'
+              : 'Tamu review. Rating rendah isi form; sistem kirim ke owner.'}
         </CardDescription>
       </CardHeader>
       <form onSubmit={save}>
@@ -121,8 +122,8 @@ function PackageEditor({ servicePackage }: { servicePackage: ServicePackage }) {
               value={name}
             />
             <FieldDescription>
-              Nama ini tampil saat aktivasi dan di detail kartu. Kode internal:{' '}
-              {servicePackage.serviceTier}.
+              Nama ini tampil saat aktivasi, di dashboard, dan di kartu pemegang.
+              Kode internal: {servicePackage.serviceTier}.
             </FieldDescription>
           </Field>
           {isBasic ? (

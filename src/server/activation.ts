@@ -10,7 +10,8 @@ import {
   type ReviewMode,
   type ServiceTier,
 } from './review'
-import { getServicePackage } from './service-packages'
+import { getServicePackages, getServicePackage } from './service-packages'
+import { isWhatsappGatewayOpen } from './whatsapp-status'
 
 function normalizePartnerRef(raw?: string | null) {
   const value = raw?.trim().replace(/\s+/g, ' ') ?? ''
@@ -23,13 +24,20 @@ export async function getActivationCard(publicId: string) {
     where: eq(units.publicId, id),
   })
   if (!unit) return null
-  const servicePackage = await getServicePackage(unit.serviceTier)
+  const [servicePackage, servicePackages, whatsappGatewayOpen] =
+    await Promise.all([
+      getServicePackage(unit.serviceTier),
+      getServicePackages(),
+      isWhatsappGatewayOpen(),
+    ])
   return {
     id: unit.id,
     publicId: unit.publicId,
     status: unit.status,
     serviceTier: unit.serviceTier as ServiceTier,
     servicePackage,
+    servicePackages,
+    whatsappGatewayOpen,
     reviewMode: unit.reviewMode as ReviewMode,
     ownerWhatsapp: unit.ownerWhatsapp,
     ownerId: unit.ownerId,
@@ -58,6 +66,7 @@ export async function activateUnit(input: {
   publicId: string
   placeId: string
   partnerRef?: string
+  serviceTier?: ServiceTier
   reviewMode?: ReviewMode
   ownerWhatsapp?: string
   clientKey?: string | null
@@ -88,9 +97,11 @@ export async function activateUnit(input: {
   const actor = await assertHolderMayActivate(unit, input)
 
   const settings = normalizeReviewSettings({
-    serviceTier: unit.serviceTier as ServiceTier,
-    reviewMode: input.reviewMode ?? (unit.reviewMode as ReviewMode),
+    serviceTier: input.serviceTier ?? (unit.serviceTier as ServiceTier),
+    reviewMode: input.reviewMode,
     ownerWhatsapp: input.ownerWhatsapp ?? unit.ownerWhatsapp,
+    whatsappGatewayOpen: await isWhatsappGatewayOpen(),
+    requireLivePro: true,
   })
 
   const details = await getPlaceDetails(input.placeId)

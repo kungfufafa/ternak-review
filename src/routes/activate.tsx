@@ -4,6 +4,7 @@ import { KeyRoundIcon, UserIcon } from 'lucide-react'
 import { useState } from 'react'
 import { AuthShell, AuthTitle } from '#/components/auth-shell'
 import { PlacePicker } from '#/components/place-picker'
+import { ReviewPathFields } from '#/components/review-path-fields'
 import { Alert } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
 import {
@@ -17,6 +18,7 @@ import {
   InputGroupInput,
 } from '#/components/ui/input-group'
 import { Spinner } from '#/components/ui/spinner'
+import type { ServiceTier } from '#/lib/review-settings'
 import {
   activateUnitFn,
   getActivationCardFn,
@@ -95,6 +97,12 @@ function ActivatePage() {
   )
   const [step, setStep] = useState<Step>(() => (skipPin ? 'outlet' : 'pin'))
   const [pin, setPin] = useState('')
+  const [serviceTier, setServiceTier] = useState<ServiceTier>(
+    () => card?.serviceTier ?? 'BASIC',
+  )
+  const [ownerWhatsapp, setOwnerWhatsapp] = useState(
+    () => card?.ownerWhatsapp ?? '',
+  )
   const [partnerRef, setPartnerRef] = useState(prefillRef)
   const [sessionToken, setSessionToken] = useState(() => crypto.randomUUID())
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null)
@@ -155,6 +163,8 @@ function ActivatePage() {
           publicId,
           placeId: selectedPlaceId,
           partnerRef: partnerRef.trim() || undefined,
+          serviceTier,
+          ownerWhatsapp: ownerWhatsapp.trim() || undefined,
           pin: skipPin ? undefined : pin,
         },
       })
@@ -296,9 +306,17 @@ function ActivatePage() {
               </InputGroupAddon>
             </InputGroup>
           ) : null}
+          <ReviewPathFields
+            allowTierChange
+            onTierChange={setServiceTier}
+            onWhatsappChange={setOwnerWhatsapp}
+            ownerWhatsapp={ownerWhatsapp}
+            packages={card.servicePackages}
+            serviceTier={serviceTier}
+            whatsappGatewayOpen={card.whatsappGatewayOpen}
+          />
           <p className="text-sm text-muted-foreground">
-            Salah toko? Tekan Ganti. Jalur review bisa diatur nanti dari
-            dashboard.
+            Salah toko? Tekan Ganti.
           </p>
           <div className="flex gap-2">
             <Button

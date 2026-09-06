@@ -8,7 +8,6 @@ import { Button } from '#/components/ui/button'
 import { Card, CardContent } from '#/components/ui/card'
 import { Spinner } from '#/components/ui/spinner'
 import { Textarea } from '#/components/ui/textarea'
-import { googleRangeLabel, ratingRangeLabel } from '#/lib/review-settings'
 import {
   getFeedbackCardFn,
   resolveFeedbackDestinationFn,
@@ -33,12 +32,10 @@ function FeedbackPage() {
   const submitFn = useServerFn(submitAnonymousFeedbackFn)
   const [rating, setRating] = useState<number | null>(null)
   const [anonymousRating, setAnonymousRating] = useState<number | null>(null)
-  const [interceptMaxRating, setInterceptMaxRating] = useState(card.interceptMaxRating)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const googleRange = googleRangeLabel(interceptMaxRating)
 
   async function chooseRating(nextRating: number) {
     setRating(nextRating)
@@ -51,7 +48,6 @@ function FeedbackPage() {
         data: { publicId: card.publicId, rating: nextRating },
       })
       if (result.kind === 'anonymous') {
-        setInterceptMaxRating(result.interceptMaxRating)
         setAnonymousRating(nextRating)
         return
       }
@@ -95,7 +91,7 @@ function FeedbackPage() {
             <em className="text-pine italic">{card.outletName}</em>?
           </>
         }
-        description={`Pilih rating sesuai pengalamanmu. ${googleRange ? `Rating ${ratingRangeLabel(interceptMaxRating)}` : 'Semua rating'} ${card.reviewMode === 'OWNER_WHATSAPP' && anonymousRating === null ? 'membuka WhatsApp owner' : 'membuka form masukan anonim'}.${googleRange ? ` Rating ${googleRange} langsung membuka Google Review.` : ''}`}
+        description="Pilih rating sesuai pengalamanmu."
       />
       {error ? <Alert variant="danger">{error}</Alert> : null}
       {submitted ? (
