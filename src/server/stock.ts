@@ -1,4 +1,4 @@
-import { asc, count, desc, eq, inArray, isNotNull } from 'drizzle-orm'
+import { asc, count, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import { db, insertBatchWithUnits } from '#/db'
 import { stockBatches, units } from '#/db/schema'
 import { generatePublicId } from '#/lib/crypto'
@@ -125,13 +125,22 @@ export async function listStockBatches() {
       batchId: units.batchId,
       status: units.status,
       n: count(),
+      assigned: count(units.ownerId),
+      readyStock: sql<number>`sum(case when ${units.ownerId} is null and ${units.nfcEncodedAt} is not null then 1 else 0 end)`,
     })
     .from(units)
     .groupBy(units.batchId, units.status)
 
   const byBatch = new Map<
     string,
-    { inStock: number; active: number; inactive: number }
+    {
+      inStock: number
+      active: number
+      inactive: number
+      available: number
+      assigned: number
+      readyStock: number
+    }
   >()
   for (const row of counts) {
     if (!row.batchId) continue
@@ -139,10 +148,17 @@ export async function listStockBatches() {
       inStock: 0,
       active: 0,
       inactive: 0,
+      available: 0,
+      assigned: 0,
+      readyStock: 0,
     }
     const n = Number(row.n)
-    if (row.status === 'IN_STOCK') cur.inStock = n
-    else if (row.status === 'ACTIVE') cur.active = n
+    if (row.status === 'IN_STOCK') {
+      cur.inStock = n
+      cur.assigned = Number(row.assigned)
+      cur.available = n - cur.assigned
+      cur.readyStock = Number(row.readyStock ?? 0)
+    } else if (row.status === 'ACTIVE') cur.active = n
     else cur.inactive = n
     byBatch.set(row.batchId, cur)
   }
@@ -165,6 +181,9 @@ export async function listStockBatches() {
       inStock: 0,
       active: 0,
       inactive: 0,
+      available: 0,
+      assigned: 0,
+      readyStock: 0,
     }
     const remaining = status.inStock + status.active + status.inactive
     const encoded = encodedByBatch.get(b.id) ?? 0
@@ -177,6 +196,9 @@ export async function listStockBatches() {
       inStock: status.inStock,
       active: status.active,
       inactive: status.inactive,
+      available: status.available,
+      assigned: status.assigned,
+      readyStock: status.readyStock,
       remaining,
       encoded,
       next: batchNextStep({ remaining, encoded }),
@@ -191,7 +213,7 @@ export async function deleteStockBatch(batchId: string) {
   if (!batch) return { ok: false as const, error: 'Cetakan tidak ditemukan.' }
 
   const rows = await db
-    .select({ status: units.status })
+    .select({ status: units.status, ownerId: units.ownerId })
     .from(units)
     .where(eq(units.batchId, batchId))
 
@@ -199,6 +221,13 @@ export async function deleteStockBatch(batchId: string) {
     return {
       ok: false as const,
       error: 'Cetakan yang sudah dipakai toko tidak bisa dihapus.',
+    }
+  }
+  if (rows.some((row) => row.ownerId)) {
+    return {
+      ok: false as const,
+      error:
+        'Cetakan memiliki kartu yang sudah dialokasikan. Lepas pemegangnya dulu jika cetakan ini memang akan dihapus.',
     }
   }
 

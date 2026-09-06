@@ -10,6 +10,8 @@ import { DataTable, DataTableCell, DataTableHead } from '#/components/data-table
 import { ListPager } from '#/components/list-pager'
 import { PageHeader } from '#/components/page'
 import { Badge } from '#/components/ui/badge'
+import { Alert } from '#/components/ui/alert'
+import { Button } from '#/components/ui/button'
 import {
   Card,
   CardContent,
@@ -24,7 +26,7 @@ import {
   EmptyTitle,
 } from '#/components/ui/empty'
 import { Select } from '#/components/ui/input'
-import { listOutboundLogsFn } from '#/server/functions'
+import { listOutboundLogsFn, retryFeedbackFn } from '#/server/functions'
 
 const logsSearchSchema = z.object({
   channel: z.enum(['email', 'whatsapp']).optional().catch(undefined),
@@ -89,7 +91,10 @@ function OutboundLogsPage() {
   const { channel, page } = Route.useSearch()
   const navigate = useNavigate({ from: '/admin/logs' })
   const listFn = useServerFn(listOutboundLogsFn)
+  const retryFn = useServerFn(retryFeedbackFn)
   const [data, setData] = useState(initial)
+  const [retryingId, setRetryingId] = useState<string | null>(null)
+  const [retryError, setRetryError] = useState<string | null>(null)
 
   useEffect(() => {
     setData(initial)
@@ -112,6 +117,23 @@ function OutboundLogsPage() {
       search: { channel: next, page: undefined },
       replace: true,
     })
+  }
+
+  async function retry(feedbackId: string) {
+    setRetryingId(feedbackId)
+    setRetryError(null)
+    try {
+      const result = await retryFn({ data: { feedbackId } })
+      if (!result.ok) throw new Error('Feedback tidak ditemukan.')
+      const refreshed = await listFn({
+        data: { channel, page: page ?? 1, pageSize: 30 },
+      })
+      setData(refreshed)
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : 'Feedback gagal dimasukkan ke antrean.')
+    } finally {
+      setRetryingId(null)
+    }
   }
 
   return (
@@ -164,6 +186,7 @@ function OutboundLogsPage() {
         </Select>
         <p className="text-sm text-muted-foreground">Diperbarui tiap 4 detik</p>
       </div>
+      {retryError ? <Alert variant="danger">{retryError}</Alert> : null}
       {items.length === 0 ? (
         <Empty>
           <EmptyHeader>
@@ -194,6 +217,20 @@ function OutboundLogsPage() {
                       <p className="text-muted-foreground">{item.preview}</p>
                       {item.error ? (
                         <p className="mt-1 text-destructive">{item.error}</p>
+                      ) : null}
+                      {item.channel === 'whatsapp' &&
+                      item.kind === 'FEEDBACK' &&
+                      (item.status === 'FAILED' || item.status === 'UNCERTAIN') ? (
+                        <Button
+                          className="mt-2"
+                          disabled={retryingId === item.id}
+                          onClick={() => void retry(item.id)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          {retryingId === item.id ? 'Menyiapkan…' : 'Kirim ulang'}
+                        </Button>
                       ) : null}
                     </div>
                   </DataTableCell>

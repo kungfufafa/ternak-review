@@ -42,7 +42,8 @@ function MyCardsPage() {
   const navigate = useNavigate()
   const cards = holder?.cards ?? []
   const pending = cards.filter((card) => card.status === 'IN_STOCK')
-  const installed = cards.filter((card) => card.status !== 'IN_STOCK')
+  const active = cards.filter((card) => card.status === 'ACTIVE')
+  const inactive = cards.filter((card) => card.status === 'INACTIVE')
   const [cameraOk, setCameraOk] = useState(false)
   const [nfcOk, setNfcOk] = useState(false)
   const [ios, setIos] = useState(false)
@@ -105,17 +106,83 @@ function MyCardsPage() {
   return (
     <div className="flex w-full max-w-3xl flex-col gap-6">
       <PageHeader
-        description="Tempel atau scan kartu yang mau dipasang. Karena kamu sudah masuk, PIN tidak diminta."
+        description="Pilih kartu yang belum diaktifkan untuk menghubungkannya ke toko, atau buka kartu aktif untuk mengelola toko."
         title="Kartu saya"
       />
 
+      {cards.length === 0 ? (
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>Belum ada kartu di akun ini</EmptyTitle>
+            <EmptyDescription>
+              Minta admin menghubungkan kartu ke akun ini. Jika sudah memegang
+              kartu fisik, kamu juga bisa memindainya di bawah untuk memeriksa
+              akses aktivasi.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : null}
+
+      {pending.length > 0 ? (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-medium">Belum diaktifkan ({pending.length})</h2>
+          <p className="text-sm text-muted-foreground">
+            Cocokkan kode dengan kartu fisik yang ingin dipasang, lalu pilih toko.
+            Kartu milik akun ini tidak memerlukan PIN selama kamu tetap masuk di
+            browser ini.
+          </p>
+          <ul className="flex flex-col gap-2">
+            {pending.map((card) => (
+              <li className="flex items-center justify-between gap-3 rounded-2xl bg-card p-4 ring-1 ring-border" key={card.id}>
+                <span className="font-mono text-sm">{card.publicId}</span>
+                <Button asChild size="sm">
+                  <Link search={{ id: card.publicId }} to="/activate">Pilih toko</Link>
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {[
+        { title: 'Aktif', cards: active },
+        { title: 'Nonaktif', cards: inactive },
+      ].map((group) => group.cards.length > 0 ? (
+        <section className="flex flex-col gap-3" key={group.title}>
+          <h2 className="font-medium">{group.title} ({group.cards.length})</h2>
+          {group.title === 'Nonaktif' ? (
+            <p className="text-sm text-muted-foreground">
+              Tamu belum bisa memakai kartu ini. Hubungi admin untuk mengaktifkannya kembali.
+            </p>
+          ) : null}
+          <ul className="flex flex-col gap-2">
+            {group.cards.map((card) => (
+              <li key={card.id}>
+                <Link
+                  className="flex items-center justify-between gap-3 rounded-2xl bg-card p-4 ring-1 ring-border transition-colors hover:bg-accent/50"
+                  params={{ unitId: card.id }}
+                  to="/app/units/$unitId"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{card.outletName ?? card.publicId}</p>
+                    <p className="mt-1 font-mono text-xs text-muted-foreground">{card.publicId}</p>
+                  </div>
+                  <StatusBadge status={card.status} />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null)}
+
       <Card>
         <CardHeader>
-          <CardTitle>Pasang kartu di toko</CardTitle>
+          <CardTitle>Pindai kartu di tangan</CardTitle>
           <CardDescription>
-            {pending.length > 0
-              ? `${pending.length} kartu siap dipasang. Tempel atau scan yang ada di tangan, lalu pilih toko.`
-              : 'Tidak ada kartu gudang. Kartu aktif tampil di bawah.'}
+            Gunakan NFC, kamera QR, atau masukkan kode untuk membuka kartu.
+            Jika kartu belum ditetapkan ke akun ini, alur akun dapat meminta PIN
+            pemegang. Tautan publik untuk kartu tanpa pemegang bisa langsung
+            memilih toko.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -127,8 +194,9 @@ function MyCardsPage() {
             </Button>
           ) : ios ? (
             <p className="text-sm text-muted-foreground">
-              iPhone: scan QR di bawah, atau tempel kartu ke HP supaya Safari
-              membuka tautannya (kamu sudah masuk, PIN dilewati).
+              iPhone: pindai QR di bawah, atau tempel kartu ke HP untuk membuka
+              tautannya. Jika tautan terbuka di browser lain, kamu mungkin perlu
+              masuk lagi atau memakai PIN pemegang.
             </p>
           ) : null}
           {cameraOk ? (
@@ -142,6 +210,7 @@ function MyCardsPage() {
           <form className="flex flex-col gap-2" onSubmit={onTyped}>
             <InputGroup>
               <InputGroupInput
+                aria-label="Tautan atau kode kartu"
                 onChange={(event) => {
                   lastRaw.current = ''
                   setPaused(false)
@@ -159,45 +228,6 @@ function MyCardsPage() {
           </form>
         </CardContent>
       </Card>
-
-      {installed.length === 0 ? (
-        cards.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyTitle>Belum ada kartu</EmptyTitle>
-              <EmptyDescription>
-                Minta admin assign kartu ke akun ini. Setelah itu tinggal tempel
-                atau scan di toko.
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : null
-      ) : (
-        <div className="flex flex-col gap-3">
-          <h2 className="text-sm font-medium text-muted-foreground">Sudah terpasang</h2>
-          <ul className="flex flex-col gap-2">
-            {installed.map((card) => (
-              <li key={card.id}>
-                <Link
-                  className="flex items-center justify-between gap-3 rounded-2xl bg-card p-4 ring-1 ring-border transition-colors hover:bg-accent/50"
-                  params={{ unitId: card.id }}
-                  to="/app/units/$unitId"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">
-                      {card.outletName ?? card.publicId}
-                    </p>
-                    <p className="mt-1 font-mono text-xs text-muted-foreground">
-                      {card.publicId}
-                    </p>
-                  </div>
-                  <StatusBadge status={card.status} />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   )
 }

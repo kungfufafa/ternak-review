@@ -14,6 +14,7 @@ if (process.env.SMOKE_USE_APP_DB !== '1') {
 }
 
 import {
+  deleteStockBatch,
   generateStockBatch,
   getBatchPrintData,
   listStockBatches,
@@ -37,6 +38,7 @@ import {
   getPublicFeedbackCard,
   listUnitFeedback,
   resolveFeedbackDestination,
+  retryFeedback,
   submitAnonymousFeedback,
   updateUnitReviewSettings,
 } from '../src/server/review.ts'
@@ -69,8 +71,11 @@ import { eq, or } from 'drizzle-orm'
 import { db } from '../src/db/index.ts'
 import { reviewFeedbacks, units, whatsappCommands, whatsappGatewayState, whatsappOutbox } from '../src/db/schema.ts'
 import {
+  deleteUnit,
   getAdminDashboardSummary,
   getUnitDetail,
+  listUnits,
+  setUnitActiveState,
   summarizeClickBuckets,
 } from '../src/server/clicks.ts'
 
@@ -337,8 +342,10 @@ async function checkHolderAccounts() {
       activateUnit({
         publicId: cardC.publicId,
         placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+        sessionOwnerId: other.id,
+        sessionRole: 'USER',
       }),
-    'Unassigned card without PIN',
+    'Logged-in user activating an unassigned card without PIN',
   )
   await expectReject(
     () =>
@@ -757,17 +764,43 @@ async function checkBusinessQa() {
       }),
     'QA Plus without owner number',
   )
-  await expectReject(
-    () =>
-      activateUnit({
-        publicId: proCard.publicId,
-        placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
-        pin: '8642',
-        serviceTier: 'PRO',
-        ownerWhatsapp: '081234567890',
-      }),
-    'QA Pro while WhatsApp is down',
+  await activateUnit({
+    publicId: proCard.publicId,
+    placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+    pin: '8642',
+    serviceTier: 'PRO',
+    ownerWhatsapp: '081234567890',
+  })
+  if ((await resolveRedirect(proCard.publicId)).kind !== 'feedback') {
+    throw new Error('QA Pro must keep the feedback page while WhatsApp is down')
+  }
+  if (!(await getPublicFeedbackCard(proCard.publicId))) {
+    throw new Error('QA Pro feedback form must remain visible while WhatsApp is down')
+  }
+  const proOfflineDestination = await resolveFeedbackDestination({
+    publicId: proCard.publicId,
+    rating: 3,
+  })
+  if (proOfflineDestination.kind !== 'anonymous') {
+    throw new Error('QA Pro low ratings must stay on the private form while offline')
+  }
+  const proOfflineSubmissionId = crypto.randomUUID()
+  const proOfflineSubmission = await submitAnonymousFeedback({
+    publicId: proCard.publicId,
+    rating: 3,
+    message: 'offline Pro feedback',
+    submissionId: proOfflineSubmissionId,
+  })
+  if (proOfflineSubmission.status !== 'QUEUED') {
+    throw new Error('QA Pro feedback must queue while WhatsApp is down')
+  }
+  const proOfflineLogs = await listOutboundLogs({ channel: 'whatsapp', pageSize: 100 })
+  const proOfflineLog = proOfflineLogs.items.find(
+    (item) => item.kind === 'FEEDBACK' && item.id === proOfflineSubmissionId,
   )
+  if (!proOfflineLog || proOfflineLog.status !== 'QUEUED') {
+    throw new Error('QA queued Pro feedback must appear in outbound logs')
+  }
 
   await activateUnit({
     publicId: plusCard.publicId,
@@ -821,13 +854,6 @@ async function checkBusinessQa() {
   }
 
   await setSmokeGateway('OPEN')
-  await activateUnit({
-    publicId: proCard.publicId,
-    placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
-    pin: '8642',
-    serviceTier: 'PRO',
-    ownerWhatsapp: '081234567890',
-  })
   const proLow = await resolveFeedbackDestination({
     publicId: proCard.publicId,
     rating: 3,
@@ -844,11 +870,11 @@ async function checkBusinessQa() {
   }
 
   await setSmokeGateway('OFFLINE')
-  if ((await resolveRedirect(proCard.publicId)).kind !== 'google') {
-    throw new Error('QA Pro guests must fall back to Google when WhatsApp is down')
+  if ((await resolveRedirect(proCard.publicId)).kind !== 'feedback') {
+    throw new Error('QA Pro guests must keep the feedback page when WhatsApp is down')
   }
-  if (await getPublicFeedbackCard(proCard.publicId)) {
-    throw new Error('QA Pro form must hide when WhatsApp is down')
+  if (!(await getPublicFeedbackCard(proCard.publicId))) {
+    throw new Error('QA Pro form must stay visible when WhatsApp is down')
   }
   const proState = await getActivationCard(proCard.publicId)
   if (!proState) throw new Error('Expected pro card')
@@ -859,6 +885,19 @@ async function checkBusinessQa() {
   })
   if (!proUpdated.ok || proUpdated.ownerWhatsapp !== '6281298722222') {
     throw new Error('QA must still save Pro owner number while WhatsApp is down')
+  }
+  await db
+    .update(reviewFeedbacks)
+    .set({ status: 'FAILED', deliveryError: 'smoke-retry', updatedAt: new Date() })
+    .where(eq(reviewFeedbacks.id, proOfflineSubmissionId))
+  if (!(await retryFeedback(proOfflineSubmissionId))) {
+    throw new Error('QA failed Pro feedback must be resendable')
+  }
+  const proRetried = (await listUnitFeedback(proState.id)).find(
+    (item) => item.id === proOfflineSubmissionId,
+  )
+  if (proRetried?.status !== 'QUEUED') {
+    throw new Error('QA resending Pro feedback must put it back in the queue')
   }
 
   await setSmokeGateway('OPEN')
@@ -905,6 +944,74 @@ async function checkBusinessQa() {
   })
   await setSmokeGateway('OFFLINE')
   console.log('business QA passed')
+}
+
+async function checkStockOwnership() {
+  const before = await getAdminDashboardSummary()
+  const batch = await generateStockBatch({ count: 5, label: 'QA-ALLOCATION' })
+  const [available, assigned, active, inactive] = batch.units
+  const holder = await createHolder({
+    email: `allocation-${available.publicId.toLowerCase()}@smoke.test`,
+    password: 'allocation-qa-12',
+    name: 'Allocation QA',
+    pin: '9742',
+  })
+  for (const card of [available, assigned, active, inactive]) {
+    await markNfcEncoded(card.publicId)
+  }
+  await assignUnitToHolder({ ownerId: holder.id, publicId: assigned.publicId })
+  for (const card of [active, inactive]) {
+    await activateUnit({
+      publicId: card.publicId,
+      placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+      sessionRole: 'ADMIN',
+    })
+  }
+  const inactiveCard = await getActivationCard(inactive.publicId)
+  if (!inactiveCard) throw new Error('Expected inactive allocation fixture')
+  await setUnitActiveState(inactiveCard.id, false)
+  const summary = await getAdminDashboardSummary()
+  if (
+    summary.stockCount !== before.stockCount + 3 ||
+    summary.availableStockCount !== before.availableStockCount + 2 ||
+    summary.assignedStockCount !== before.assignedStockCount + 1 ||
+    summary.readyStockCount !== before.readyStockCount + 1
+  ) {
+    throw new Error('Stock must separate available, assigned, activated and unencoded cards')
+  }
+  const row = (await listStockBatches()).find((item) => item.id === batch.batchId)
+  if (!row || row.remaining !== 5 || row.available !== 2 || row.assigned !== 1 || row.readyStock !== 1 || row.active !== 1 || row.inactive !== 1) {
+    throw new Error('Batch operational counts must match card ownership and activation')
+  }
+  const pending = await listUnits({ batchId: batch.batchId, status: 'IN_STOCK', ownership: 'assigned' })
+  if (pending.total !== 1 || pending.units[0]?.holderId !== holder.id || pending.units[0]?.publicId !== assigned.publicId || !pending.units[0]?.nfcEncodedAt) {
+    throw new Error('Pending activation filter must return the assigned card with holder and NFC data')
+  }
+  const rejectedUnitDelete = await deleteUnit(pending.units[0]!.id)
+  if (rejectedUnitDelete.ok || !rejectedUnitDelete.error.includes('pemegang')) {
+    throw new Error('An assigned warehouse card must not be deleted')
+  }
+  const rejectedBatchDelete = await deleteStockBatch(batch.batchId)
+  if (rejectedBatchDelete.ok || !rejectedBatchDelete.error.includes('dipakai toko')) {
+    throw new Error('A batch with installed cards must not be deleted')
+  }
+  const assignedBatch = await generateStockBatch({ count: 1, label: 'QA-ASSIGNED-ONLY' })
+  const assignedOnly = assignedBatch.units[0]
+  if (!assignedOnly) throw new Error('Expected assigned-only batch card')
+  await assignUnitToHolder({ ownerId: holder.id, publicId: assignedOnly.publicId })
+  const rejectedAssignedBatchDelete = await deleteStockBatch(assignedBatch.batchId)
+  if (rejectedAssignedBatchDelete.ok || !rejectedAssignedBatchDelete.error.includes('dialokasikan')) {
+    throw new Error('A batch with assigned cards must not be deleted')
+  }
+  const stock = await listUnits({ batchId: batch.batchId, status: 'IN_STOCK', ownership: 'unassigned' })
+  if (stock.total !== 2 || stock.units.some((card) => card.holderId !== null)) {
+    throw new Error('Available stock filter must exclude assigned and installed cards')
+  }
+  const holderSearch = await listUnits({ batchId: batch.batchId, q: 'Allocation QA' })
+  if (holderSearch.total !== 1 || holderSearch.units[0]?.publicId !== assigned.publicId) {
+    throw new Error('Admin must be able to find allocated cards by holder name')
+  }
+  console.log('stock ownership flow passed')
 }
 
 async function main() {
@@ -988,13 +1095,28 @@ async function main() {
     throw new Error('Activation must know whether WhatsApp platform is OPEN')
   }
 
+  const publicBatch = await generateStockBatch({ count: 1, label: 'QA-PUBLIC-ACTIVATE' })
+  const publicCard = publicBatch.units[0]
+  if (!publicCard) throw new Error('Expected public activation card')
+  await verifyActivationAccess({ publicId: publicCard.publicId })
+  await activateUnit({
+    publicId: publicCard.publicId,
+    placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+  })
+  const publicState = await getActivationCard(publicCard.publicId)
+  if (publicState?.status !== 'ACTIVE' || publicState.ownerId !== null) {
+    throw new Error('Public activation must allow an unassigned card without PIN')
+  }
+
   await expectReject(
     () =>
       activateUnit({
         publicId: tagged.publicId,
         placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+        sessionOwnerId: 'foreign-user',
+        sessionRole: 'USER',
       }),
-    'Activating an unassigned card without PIN',
+    'A logged-in user activating an unassigned card without PIN',
   )
   await expectReject(
     () =>
@@ -1030,9 +1152,8 @@ async function main() {
         placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
         pin: '2580',
         serviceTier: 'PRO',
-        ownerWhatsapp: '081234567890',
       }),
-    'Pro activation while WhatsApp is down',
+    'Pro activation without owner number',
   )
   const withPartner = await activateUnit({
     publicId: tagged.publicId,
@@ -1161,8 +1282,18 @@ async function main() {
   if (!proOffline.ok) {
     throw new Error('Existing Pro cards must still save while WhatsApp is down')
   }
-  if ((await resolveRedirect(plain.publicId)).kind !== 'google') {
-    throw new Error('Pro guests must fall back to Google while WhatsApp is down')
+  if ((await resolveRedirect(plain.publicId)).kind !== 'feedback') {
+    throw new Error('Pro guests must keep the feedback page while WhatsApp is down')
+  }
+  if (!(await getPublicFeedbackCard(plain.publicId))) {
+    throw new Error('Pro feedback form must remain visible while WhatsApp is down')
+  }
+  const anonymousOffline = await resolveFeedbackDestination({
+    publicId: plain.publicId,
+    rating: 2,
+  })
+  if (anonymousOffline.kind !== 'anonymous') {
+    throw new Error('Pro low ratings must open anonymous feedback while offline')
   }
   await setSmokeGateway('OPEN')
   const anonymous = await resolveFeedbackDestination({
@@ -1172,14 +1303,6 @@ async function main() {
   if (anonymous.kind !== 'anonymous') {
     throw new Error('Pro low ratings must open anonymous feedback')
   }
-  await setSmokeGateway('OFFLINE')
-  if ((await resolveRedirect(plain.publicId)).kind !== 'google') {
-    throw new Error('Anonymous cards must fall back to Google when WhatsApp is down')
-  }
-  if (await getPublicFeedbackCard(plain.publicId)) {
-    throw new Error('Anonymous form must hide when WhatsApp is down')
-  }
-  await setSmokeGateway('OPEN')
   await db
     .update(reviewFeedbacks)
     .set({
@@ -1289,6 +1412,7 @@ async function main() {
   await checkServicePackages(plainRow.id, plain.publicId)
   await checkHolderAccounts()
   await checkBusinessQa()
+  await checkStockOwnership()
 
   const leftover = await generateStockBatch({ count: 2, label: 'QA-READY' })
   const keep = leftover.units[0]

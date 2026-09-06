@@ -15,6 +15,7 @@ import {
 import { PageHeader } from '#/components/page'
 import { Sparkline } from '#/components/Sparkline'
 import { StatusBadge } from '#/components/ui/badge'
+import { Alert } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
 import {
   Card,
@@ -93,7 +94,32 @@ function UnitDetailEditor({
   const [reviewBusy, setReviewBusy] = useState(false)
   const [holderId, setHolderId] = useState(detail.holder?.id ?? '')
   const [holderBusy, setHolderBusy] = useState(false)
+  const [holderConfirmOpen, setHolderConfirmOpen] = useState(false)
+  const nextHolder = holders.find((holder) => holder.id === holderId)
   const willDeactivate = detail.status === 'ACTIVE'
+
+  async function onSaveHolder() {
+    setHolderBusy(true)
+    setError(null)
+    setSaved(false)
+    try {
+      if (!holderId) {
+        await unassignHolder({ data: { unitId: detail.id } })
+      } else {
+        await assignHolder({
+          data: { unitId: detail.id, ownerId: holderId },
+        })
+      }
+      setHolderConfirmOpen(false)
+      setSaved(true)
+      await router.invalidate({ sync: true })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal mengatur pemegang.')
+      setHolderConfirmOpen(false)
+    } finally {
+      setHolderBusy(false)
+    }
+  }
 
   async function onSavePartner(event: FormEvent) {
     event.preventDefault()
@@ -162,7 +188,7 @@ function UnitDetailEditor({
                 {willDeactivate ? 'Nonaktifkan' : 'Aktifkan kembali'}
               </Button>
             ) : null}
-            {detail.status === 'IN_STOCK' ? (
+            {detail.status === 'IN_STOCK' && !detail.holder ? (
               <Button
                 onClick={() => setConfirmOpen(true)}
                 type="button"
@@ -187,6 +213,8 @@ function UnitDetailEditor({
       </div>
 
       <div className="flex flex-col gap-4">
+        {error ? <Alert variant="danger">{error}</Alert> : null}
+        {saved ? <Alert variant="success">Perubahan disimpan.</Alert> : null}
         {detail.outlet ? (
           <div className="overflow-hidden rounded-2xl bg-card">
             <GoogleMapsEmbed
@@ -283,46 +311,40 @@ function UnitDetailEditor({
           <CardHeader>
             <CardTitle>Pemegang</CardTitle>
             <CardDescription>
-              User yang memegang kartu ini. PIN aktivasi publik memakai PIN
-              akun tersebut.
+              Akun yang dapat mengelola kartu, melihat statistik dan masukan.
+              Kartu yang sudah di-assign memakai PIN pemegang saat aktivasi
+              publik; kartu publik tanpa pemegang dapat langsung memilih toko.
             </CardDescription>
           </CardHeader>
           <form
             onSubmit={(event) => {
               event.preventDefault()
-              setHolderBusy(true)
-              setError(null)
-              setSaved(false)
-              void (async () => {
-                try {
-                  if (!holderId) {
-                    await unassignHolder({ data: { unitId: detail.id } })
-                  } else {
-                    await assignHolder({
-                      data: { unitId: detail.id, ownerId: holderId },
-                    })
-                  }
-                  setSaved(true)
-                  await router.invalidate({ sync: true })
-                } catch (err) {
-                  setError(
-                    err instanceof Error ? err.message : 'Gagal mengatur pemegang.',
-                  )
-                } finally {
-                  setHolderBusy(false)
-                }
-              })()
+              if (detail.holder && holderId !== detail.holder.id) {
+                setHolderConfirmOpen(true)
+                return
+              }
+              void onSaveHolder()
             }}
           >
             <CardContent>
               <Field>
                 <FieldLabel htmlFor="unit-holder">Akun pemegang</FieldLabel>
                 <Select
+                  disabled={holderBusy}
                   id="unit-holder"
                   onChange={(event) => setHolderId(event.target.value)}
                   value={holderId}
                 >
-                  <option value="">Belum di-assign</option>
+                  <option value="">Tanpa pemegang</option>
+                  {detail.holder &&
+                  !holders.some((holder) => holder.id === detail.holder?.id) ? (
+                    <option disabled value={detail.holder.id}>
+                      {detail.holder.name ?? detail.holder.email} ·{' '}
+                      {detail.holder.status === 'DISABLED'
+                        ? 'akun nonaktif'
+                        : 'pemegang saat ini'}
+                    </option>
+                  ) : null}
                   {holders.map((holder) => (
                     <option key={holder.id} value={holder.id}>
                       {holder.name ? `${holder.name} · ${holder.email}` : holder.email}
@@ -332,12 +354,23 @@ function UnitDetailEditor({
                 <FieldDescription>
                   {detail.holder
                     ? `Sekarang: ${detail.holder.name ?? detail.holder.email}`
-                    : 'Kartu tanpa pemegang tidak bisa diaktivasi lewat scan publik.'}
+                    : detail.status === 'IN_STOCK'
+                      ? 'Belum ada pemegang. Pengguna dapat mengklaim kartu saat aktivasi lewat scan dengan PIN akun aktifnya.'
+                      : 'Belum ada pemegang. Hubungkan akun agar pengguna dapat mengelola kartu ini.'}
                 </FieldDescription>
+                {detail.status === 'IN_STOCK' && detail.holder ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Kartu yang sudah dialokasikan tidak dapat dihapus. Lepas
+                    pemegang terlebih dahulu jika kartu ini harus dihapus.
+                  </p>
+                ) : null}
               </Field>
             </CardContent>
             <CardFooter>
-              <Button disabled={holderBusy} type="submit">
+              <Button
+                disabled={holderBusy || holderId === (detail.holder?.id ?? '')}
+                type="submit"
+              >
                 {holderBusy ? <Spinner data-icon="inline-start" /> : null}
                 Simpan pemegang
               </Button>
@@ -369,12 +402,6 @@ function UnitDetailEditor({
                   </FieldDescription>
                 </Field>
               </FieldGroup>
-              {error ? (
-                <p className="mt-3 text-sm text-destructive">{error}</p>
-              ) : null}
-              {saved ? (
-                <p className="mt-3 text-sm text-success">Perubahan disimpan.</p>
-              ) : null}
             </CardContent>
             <CardFooter>
               <Button disabled={busy} type="submit">
@@ -389,7 +416,8 @@ function UnitDetailEditor({
           <CardHeader>
             <CardTitle>Paket kartu</CardTitle>
             <CardDescription>
-              Tamu hanya nulis review. Nomor owner untuk tindak lanjut Plus/Pro.
+              Paket menentukan jalur review. Nomor WhatsApp tindak lanjut tetap
+              tersimpan meskipun pemegang kartu diganti.
             </CardDescription>
           </CardHeader>
           <form onSubmit={onSaveReviewSettings}>
@@ -406,6 +434,7 @@ function UnitDetailEditor({
                 ownerWhatsapp={ownerWhatsapp}
                 packages={detail.servicePackages}
                 serviceTier={serviceTier}
+                viewerRole="ADMIN"
                 whatsappGatewayOpen={detail.whatsappGatewayOpen}
               />
               <p className="text-sm text-muted-foreground">
@@ -415,12 +444,6 @@ function UnitDetailEditor({
                 </Link>
                 .
               </p>
-              {error ? (
-                <p className="text-sm text-destructive">{error}</p>
-              ) : null}
-              {saved ? (
-                <p className="text-sm text-success">Perubahan disimpan.</p>
-              ) : null}
             </CardContent>
             <CardFooter>
               <Button disabled={reviewBusy} type="submit">
@@ -482,11 +505,24 @@ function UnitDetailEditor({
       </div>
 
       <ConfirmDelete
+        confirmLabel={holderId ? 'Pindahkan pemegang' : 'Lepas pemegang'}
+        description={`${detail.publicId}${detail.outlet ? ` (${detail.outlet.name})` : ''}: dari ${detail.holder?.name ?? detail.holder?.email ?? 'tanpa pemegang'} ke ${nextHolder ? `${nextHolder.name ? `${nextHolder.name} · ` : ''}${nextHolder.email}` : 'tanpa pemegang'}. Pemegang lama kehilangan akses pengelolaan, statistik, dan masukan kartu ini.${holderId ? ' Pemegang baru mendapat akses tersebut.' : ''} Toko, paket, nomor WhatsApp tindak lanjut, dan status kartu tetap. Kartu aktif tetap melayani tamu.`}
+        onConfirm={onSaveHolder}
+        onOpenChange={(open) => {
+          if (!holderBusy) setHolderConfirmOpen(open)
+        }}
+        open={holderConfirmOpen}
+        pending={holderBusy}
+        title={holderId ? 'Pindahkan kartu ke pemegang lain?' : 'Lepas pemegang kartu?'}
+        variant={holderId ? 'default' : 'destructive'}
+      />
+
+      <ConfirmDelete
         confirmLabel={willDeactivate ? 'Nonaktifkan' : 'Aktifkan'}
         description={
           willDeactivate
-            ? `Tamu yang tempel atau scan ${detail.publicId} tidak akan ke Google Review sampai diaktifkan lagi.`
-            : `Tamu yang tempel atau scan ${detail.publicId} akan ke Google Review ${detail.outlet?.name ?? 'toko ini'} lagi.`
+            ? `Tamu yang tempel atau scan ${detail.publicId} tidak dapat melanjutkan ke jalur review sampai kartu diaktifkan lagi.`
+            : `Tamu yang tempel atau scan ${detail.publicId} akan kembali mengikuti jalur review sesuai paket untuk ${detail.outlet?.name ?? 'toko ini'}.`
         }
         onConfirm={async () => {
           setToggling(true)
@@ -517,7 +553,7 @@ function UnitDetailEditor({
       />
 
       <ConfirmDelete
-        description={`${detail.publicId} akan dihapus dari gudang. Kartu yang sudah di toko tidak bisa dihapus.`}
+        description={`${detail.publicId} akan dihapus dari gudang. Kartu yang sudah dialokasikan atau dipakai toko tidak bisa dihapus.`}
         onConfirm={async () => {
           setDeleting(true)
           try {

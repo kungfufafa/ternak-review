@@ -54,10 +54,11 @@ export function packageNeedsOwnerWhatsapp(tier: ServiceTier) {
 }
 
 export function packageAvailable(
-  serviceTier: ServiceTier,
-  whatsappGatewayOpen: boolean,
+  _serviceTier: ServiceTier,
+  _whatsappGatewayOpen: boolean,
 ) {
-  if (serviceTier === 'PRO') return whatsappGatewayOpen
+  // Gateway availability affects delivery timing, not which package can be
+  // selected. Pro feedback is queued while the gateway is offline.
   return true
 }
 
@@ -69,18 +70,14 @@ export function reviewModeForPackage(serviceTier: ServiceTier): ReviewMode {
 
 export function liveReviewMode(
   serviceTier: ServiceTier,
-  whatsappGatewayOpen: boolean,
+  _whatsappGatewayOpen: boolean,
   hasOwnerWhatsapp = true,
 ): ReviewMode {
   if (!packageNeedsOwnerWhatsapp(serviceTier) || !hasOwnerWhatsapp) {
     return 'GOOGLE_DIRECT'
   }
-  if (serviceTier === 'PRO' && !whatsappGatewayOpen) return 'GOOGLE_DIRECT'
   return reviewModeForPackage(serviceTier)
 }
-
-export const PRO_NEEDS_GATEWAY =
-  'Paket Pro butuh WhatsApp platform OPEN. Pilih Plus atau Basic, atau nyalakan gateway.'
 
 export function ratingRangeLabel(maxRating: number) {
   return maxRating === 1 ? '1' : `1–${maxRating}`

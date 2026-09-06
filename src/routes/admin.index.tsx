@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { ChevronRightIcon, FactoryIcon, PrinterIcon } from 'lucide-react'
+import { ChevronRightIcon, PrinterIcon } from 'lucide-react'
 import { KitPreview } from '#/components/kit-preview'
 import { Sparkline } from '#/components/Sparkline'
 import { Button } from '#/components/ui/button'
@@ -59,16 +59,23 @@ export const Route = createFileRoute('/admin/')({
 function AdminHomePage() {
   const { summary, batches, affiliates, appUrl } = Route.useLoaderData()
   const recentAffiliates = affiliates.leads
-  const pendingBatches = batches.filter((batch) => batch.next !== 'ready')
-  const focusBatch = pendingBatches.at(-1) ?? batches[0]
+  const pendingBatches = batches.filter(
+    (batch) => batch.remaining > 0 && batch.next !== 'ready',
+  )
+  const focusBatch =
+    pendingBatches.at(-1) ??
+    batches.find((batch) => batch.readyStock > 0) ??
+    batches.find((batch) => batch.assigned > 0) ??
+    batches.find((batch) => batch.remaining > 0)
   const chipLeft = focusBatch
     ? Math.max(0, focusBatch.remaining - focusBatch.encoded)
     : 0
   const needsChip = Boolean(focusBatch && focusBatch.next !== 'ready')
   const recentStores = summary.recentStores
   const attentionCount =
-    (pendingBatches.length > 1 ? 1 : 0) +
+    (pendingBatches.length > 0 ? 1 : 0) +
     (summary.readyStockCount < 25 ? 1 : 0) +
+    (summary.assignedStockCount > 0 ? 1 : 0) +
     (summary.inactiveCount > 0 ? 1 : 0)
 
   return (
@@ -93,13 +100,13 @@ function AdminHomePage() {
 
       <AppUrlBanner info={appUrl} />
 
-      {batches.length === 0 ? (
+      {!focusBatch ? (
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>Belum ada produksi</EmptyTitle>
+            <EmptyTitle>Belum ada kartu produksi</EmptyTitle>
             <EmptyDescription>
-              Bikin QR, cetak, tempel NFC, baru dijual. Tidak perlu akun untuk
-              sales atau tamu.
+              Buat QR, cetak kartu, lalu tulis NFC. Tentukan akun pemegang
+              sebelum kartu diserahkan untuk aktivasi toko.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
@@ -119,21 +126,29 @@ function AdminHomePage() {
               <CardTitle className="text-2xl">
                 {needsChip
                   ? focusBatch.next === 'print'
-                    ? 'Cetak kartu'
+                    ? 'Cetak & siapkan NFC'
                     : 'Selesaikan NFC'
-                  : 'Stok siap dikirim'}
+                  : focusBatch.available > 0
+                    ? 'Tentukan pemegang kartu'
+                    : focusBatch.assigned > 0
+                      ? 'Pantau aktivasi pemegang'
+                      : 'Produksi selesai'}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="max-w-xl text-muted-foreground">
                 {needsChip
                   ? focusBatch.next === 'print'
-                    ? `${focusBatch.label} berisi ${focusBatch.remaining} kartu. Cetak dulu sebelum menulis NFC.`
+                    ? `NFC untuk ${focusBatch.remaining} kartu di ${focusBatch.label} belum tercatat. Cetak bila belum, lalu tulis NFC.`
                     : `${chipLeft} dari ${focusBatch.remaining} kartu di ${focusBatch.label} masih perlu ditulis ke NFC.`
-                  : `${focusBatch.remaining} kartu di ${focusBatch.label} sudah siap dikirim dan diaktivasi toko.`}
+                  : focusBatch.available > 0
+                    ? `${focusBatch.readyStock} kartu di ${focusBatch.label} sudah tertulis NFC dan belum dialokasikan. Pilih pemegang, lalu serahkan kartu untuk aktivasi toko.`
+                    : focusBatch.assigned > 0
+                      ? `${focusBatch.assigned} kartu di ${focusBatch.label} sudah memiliki pemegang dan menunggu aktivasi toko.`
+                      : `${focusBatch.label}: ${focusBatch.active} kartu aktif dan ${focusBatch.inactive} nonaktif. Tidak ada stok yang belum dialokasikan dari cetakan ini.`}
               </p>
             </CardContent>
-            <CardFooter>
+            <CardFooter className="flex flex-wrap gap-2">
               {needsChip ? (
                 focusBatch.next === 'print' ? (
                   <Button asChild>
@@ -157,12 +172,28 @@ function AdminHomePage() {
                 )
               ) : (
                 <Button asChild>
-                  <Link to="/admin/stock">
-                    <FactoryIcon data-icon="inline-start" />
-                    Produksi lagi
+                  <Link
+                    to="/dashboard/units"
+                    search={{
+                      batch: focusBatch.id,
+                      status: focusBatch.inStock > 0 ? 'IN_STOCK' : undefined,
+                      ownership:
+                        focusBatch.available > 0 ? 'unassigned' : undefined,
+                    }}
+                  >
+                    {focusBatch.available > 0
+                      ? 'Atur pemegang kartu'
+                      : 'Kelola kartu'}
                   </Link>
                 </Button>
               )}
+              {focusBatch.next === 'print' ? (
+                <Button asChild variant="outline">
+                  <Link search={{ batch: focusBatch.id }} to="/admin/stock/nfc">
+                    Sudah cetak, lanjut NFC
+                  </Link>
+                </Button>
+              ) : null}
             </CardFooter>
           </Card>
 
@@ -176,14 +207,22 @@ function AdminHomePage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
-              {pendingBatches.length > 1 ? (
+              {pendingBatches.length > 0 ? (
                 <AttentionLink to="/admin/stock">
-                  {pendingBatches.length} cetakan belum selesai
+                  {pendingBatches.length} cetakan masih perlu NFC
                 </AttentionLink>
               ) : null}
               {summary.readyStockCount < 25 ? (
                 <AttentionLink to="/admin/stock">
-                  Stok siap kirim tinggal {summary.readyStockCount} kartu
+                  {summary.readyStockCount} kartu tertulis NFC belum dialokasikan
+                </AttentionLink>
+              ) : null}
+              {summary.assignedStockCount > 0 ? (
+                <AttentionLink
+                  search={{ status: 'IN_STOCK', ownership: 'assigned' }}
+                  to="/dashboard/units"
+                >
+                  {summary.assignedStockCount} kartu menunggu aktivasi pemegang
                 </AttentionLink>
               ) : null}
               {summary.inactiveCount > 0 ? (
@@ -196,8 +235,8 @@ function AdminHomePage() {
               ) : null}
               {attentionCount === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Tidak ada antrian produksi, stok rendah, atau kartu yang
-                  dimatikan.
+                  Tidak ada antrean NFC, aktivasi tertunda, stok rendah,
+                  atau kartu nonaktif.
                 </p>
               ) : null}
             </CardContent>
@@ -215,7 +254,7 @@ function AdminHomePage() {
             </p>
           </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <StatLine
             detail={`${summary.clicksLast7Days} dalam 7 hari penuh terakhir`}
             label="Kunjungan hari ini"
@@ -239,11 +278,25 @@ function AdminHomePage() {
             value={summary.activeOutletCount}
           />
           <StatLine
-            detail={`${summary.readyStockCount} siap dikirim atau diaktivasi`}
-            label="Kartu di gudang"
+            detail={`${summary.readyStockCount} sudah tertulis NFC`}
+            label="Belum dialokasikan"
             to="/dashboard/units"
-            search={{ status: 'IN_STOCK' }}
-            value={summary.stockCount}
+            search={{ status: 'IN_STOCK', ownership: 'unassigned' }}
+            value={summary.availableStockCount}
+          />
+          <StatLine
+            detail="Sudah memiliki akun pemegang"
+            label="Menunggu aktivasi"
+            to="/dashboard/units"
+            search={{ status: 'IN_STOCK', ownership: 'assigned' }}
+            value={summary.assignedStockCount}
+          />
+          <StatLine
+            detail="Periksa sebelum mengaktifkan kembali"
+            label="Kartu nonaktif"
+            to="/dashboard/units"
+            search={{ status: 'INACTIVE' }}
+            value={summary.inactiveCount}
           />
         </div>
       </section>
@@ -353,7 +406,10 @@ function StatLine({
   label: string
   value: number
   to: '/dashboard/units' | '/admin/affiliate'
-  search?: { status: 'IN_STOCK' | 'ACTIVE' | 'INACTIVE' }
+  search?: {
+    status: 'IN_STOCK' | 'ACTIVE' | 'INACTIVE'
+    ownership?: 'unassigned' | 'assigned'
+  }
   detail?: string
 }) {
   return (
@@ -380,7 +436,10 @@ function AttentionLink({
 }: {
   children: React.ReactNode
   to: '/admin/stock' | '/dashboard/units'
-  search?: { status: 'INACTIVE' }
+  search?: {
+    status: 'IN_STOCK' | 'ACTIVE' | 'INACTIVE'
+    ownership?: 'unassigned' | 'assigned'
+  }
 }) {
   return (
     <Link

@@ -2,9 +2,9 @@
 
 Kit fisik **10×10 cm**: cetak QR + chip NTAG215, satu URL dinamis (`/r/ID`). Default-nya tamu tap atau scan lalu langsung ke halaman **Tulis Review** Google Maps tempat yang dipilih saat aktivasi.
 
-Admin dapat mengganti nama paket dan batas bintang intersep di **Pengaturan paket** (`/admin/packages`). Paket default (nama awal Basic) tetap langsung membuka Google Review Maps. Paket dengan akses WhatsApp owner (nama awal Plus) dan feedback anonim melalui gateway WhatsApp platform (nama awal Pro) memakai batas intersep masing-masing, dari bintang 1 sampai 5. Batas awalnya bintang 3 ke bawah; misalnya diubah menjadi 2, bintang 1–2 masuk jalur feedback kartu dan bintang 3–5 menuju Google Review. Pengaturan berlaku langsung untuk semua kartu dalam paket, termasuk kartu aktif. Jalur Google langsung tetap tersedia pada semua paket. Google Review tidak pernah dianggap berhasil hanya karena kartu dipindai.
+Admin dapat mengganti nama paket dan batas bintang intersep di **Pengaturan paket** (`/admin/packages`). Paket default (nama awal Basic) tetap langsung membuka Google Review Maps. Paket dengan akses WhatsApp owner (nama awal Plus) dan feedback anonim melalui gateway WhatsApp platform (nama awal Pro) memakai batas intersep masing-masing, dari bintang 1 sampai 5. Batas awalnya bintang 3 ke bawah; misalnya diubah menjadi 2, bintang 1–2 masuk jalur feedback kartu dan bintang 3–5 menuju Google Review. Aktivasi Plus/Pro wajib mengisi nomor WhatsApp owner. Pro tetap dapat dipakai saat gateway offline; feedback anonim masuk antrean di **Log kiriman** dan dapat dikirim ulang setelah gateway tersambung. Pengaturan berlaku langsung untuk semua kartu dalam paket, termasuk kartu aktif. Jalur Google langsung tetap tersedia pada semua paket. Google Review tidak pernah dianggap berhasil hanya karena kartu dipindai.
 
-Login admin tetap email + password. Pemegang kartu masuk lewat **OTP WhatsApp** kalau gateway Baileys admin berstatus OPEN; kalau gateway mati, opsi OTP disembunyikan dan cadangan email/password tetap ada. Kartu harus di-assign ke user dulu. Aktivasi publik: scan kartu + PIN pemegang. Kalau pemegang sudah login, tempel/scan kartu dari `/app` atau di toko — PIN dilewati, langsung pilih listing Google. Tidak perlu pilih kartu dari daftar kode. Tamu yang tap kartu aktif tetap ke Google Review / intersep — PIN hanya untuk aktivasi.
+Login admin tetap email + password. Pemegang kartu masuk lewat **OTP WhatsApp** kalau gateway Baileys admin berstatus OPEN; kalau gateway mati, opsi OTP disembunyikan dan cadangan email/password tetap ada. Aktivasi publik untuk kartu yang belum di-assign langsung membuka pilihan listing Google tanpa PIN; kartu tetap tanpa pemegang sampai admin menetapkannya. Kalau kartu sudah di-assign ke user, aktivasi publik memakai PIN pemegang. Kalau pemegang sudah login, tempel/scan kartu dari `/app` atau di toko — PIN dilewati, langsung pilih listing Google. Tidak perlu pilih kartu dari daftar kode. Tamu yang tap kartu aktif tetap ke Google Review / intersep — PIN hanya untuk aktivasi.
 
 ## Peran
 
@@ -12,7 +12,7 @@ Login admin tetap email + password. Pemegang kartu masuk lewat **OTP WhatsApp** 
 |------|--------|---------------------|
 | **Admin** | Ya (email + password) | Produksi, paket, user management, assign kartu, tag partner |
 | **Pemegang kartu** | Ya (OTP WhatsApp jika gateway OPEN, atau email) | Dashboard `/app`: tempel/scan kartu di toko (tanpa PIN), kelola toko yang sudah terpasang |
-| **Aktivasi publik** | PIN 4 digit pemegang | Scan `/r/ID` + PIN akun yang memegang kartu, lalu pilih listing Google Maps |
+| **Aktivasi publik** | Tanpa PIN jika belum ada pemegang; PIN 4 digit jika sudah di-assign | Scan `/r/ID`, lalu pilih listing Google Maps. Kartu tanpa pemegang dapat langsung diaktifkan dan ditetapkan belakangan oleh admin |
 | **Tamu toko** | Tidak | Tap NFC atau scan QR kartu aktif → Google Review atau jalur feedback |
 
 Afiliasi **tidak wajib**. Field partner di aktivasi opsional. Data aktivasi (tempat, waktu, scan, tag jika ada) tetap tersimpan di database kita.

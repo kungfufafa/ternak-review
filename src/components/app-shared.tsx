@@ -50,6 +50,7 @@ export function getNavGroups(pathname: string): SidebarNavGroup[] {
 
   return [
     {
+      label: "Ringkasan",
       items: [
         {
           title: "Beranda",
@@ -57,45 +58,39 @@ export function getNavGroups(pathname: string): SidebarNavGroup[] {
           icon: <HouseIcon />,
           isActive: isAdminHome(pathname),
         },
+      ],
+    },
+    {
+      label: "Alur kartu",
+      items: [
         {
-          title: "Produksi",
+          title: "Produksi kartu",
           path: "/admin/stock",
           icon: <FactoryIcon />,
           isActive: onProduction,
         },
-      ],
-    },
-    {
-      label: "Toko",
-      items: [
         {
-          title: "Pengaturan paket",
-          path: "/admin/packages",
-          icon: <Settings2Icon />,
-          isActive: pathname.startsWith("/admin/packages"),
-        },
-        {
-          title: "Kartu toko",
-          path: "/dashboard/units",
-          icon: <StoreIcon />,
-          isActive: onUnits,
-        },
-        {
-          title: "Pengguna",
+          title: "Akun pemegang",
           path: "/admin/users",
           icon: <UsersIcon />,
           isActive: pathname.startsWith("/admin/users"),
         },
+        {
+          title: "Kartu & aktivasi",
+          path: "/dashboard/units",
+          icon: <StoreIcon />,
+          isActive: onUnits,
+        },
       ],
     },
     {
-      label: "Partner",
+      label: "Pengaturan",
       items: [
         {
-          title: "Affiliate",
-          path: "/admin/affiliate",
-          icon: <HandshakeIcon />,
-          isActive: onAffiliate,
+          title: "Paket review",
+          path: "/admin/packages",
+          icon: <Settings2Icon />,
+          isActive: pathname.startsWith("/admin/packages"),
         },
         {
           title: "WhatsApp Gateway",
@@ -114,6 +109,17 @@ export function getNavGroups(pathname: string): SidebarNavGroup[] {
           path: "/admin/logs",
           icon: <ScrollTextIcon />,
           isActive: pathname.startsWith("/admin/logs"),
+        },
+      ],
+    },
+    {
+      label: "Partner",
+      items: [
+        {
+          title: "Affiliate",
+          path: "/admin/affiliate",
+          icon: <HandshakeIcon />,
+          isActive: onAffiliate,
         },
       ],
     },

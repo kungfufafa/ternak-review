@@ -6,11 +6,12 @@ import {
   eq,
   gte,
   isNotNull,
+  isNull,
   or,
   sql,
 } from 'drizzle-orm'
 import { db } from '#/db'
-import { clicks, outlets, stockBatches, units } from '#/db/schema'
+import { clicks, outlets, owners, stockBatches, units } from '#/db/schema'
 import { sqlDayBucket } from '#/db/sql'
 import { getAppUrl } from '#/lib/env'
 import {
@@ -60,7 +61,9 @@ export async function getAdminDashboardSummary() {
   const [stockRow] = await db
     .select({
       total: count(),
-      ready: count(units.nfcEncodedAt),
+      available: sql<number>`sum(case when ${units.ownerId} is null then 1 else 0 end)`,
+      assigned: count(units.ownerId),
+      ready: sql<number>`sum(case when ${units.ownerId} is null and ${units.nfcEncodedAt} is not null then 1 else 0 end)`,
     })
     .from(units)
     .where(eq(units.status, 'IN_STOCK'))
@@ -90,6 +93,8 @@ export async function getAdminDashboardSummary() {
     activeCount: Number(activeRow?.total ?? 0),
     activeOutletCount: Number(activeOutletRow?.total ?? 0),
     stockCount: Number(stockRow?.total ?? 0),
+    availableStockCount: Number(stockRow?.available ?? 0),
+    assignedStockCount: Number(stockRow?.assigned ?? 0),
     readyStockCount: Number(stockRow?.ready ?? 0),
     inactiveCount: Number(inactiveRow?.total ?? 0),
     clicksThisMonth: Number(clickRow?.total ?? 0),
@@ -112,6 +117,7 @@ export async function getAdminDashboardSummary() {
 export async function listUnits(input?: {
   q?: string
   status?: UnitStatus
+  ownership?: 'unassigned' | 'assigned'
   partner?: string
   batchId?: string
   page?: number
@@ -128,6 +134,8 @@ export async function listUnits(input?: {
 
   const filters = []
   if (input?.status) filters.push(eq(units.status, input.status))
+  if (input?.ownership === 'unassigned') filters.push(isNull(units.ownerId))
+  if (input?.ownership === 'assigned') filters.push(isNotNull(units.ownerId))
   if (partner) filters.push(eq(units.partnerRef, partner))
   if (batchId) filters.push(eq(units.batchId, batchId))
   if (needle) {
@@ -137,6 +145,8 @@ export async function listUnits(input?: {
         sql`lower(${units.publicId}) like ${pattern}`,
         sql`lower(coalesce(${units.partnerRef}, '')) like ${pattern}`,
         sql`lower(coalesce(${outlets.name}, '')) like ${pattern}`,
+        sql`lower(coalesce(${owners.name}, '')) like ${pattern}`,
+        sql`lower(coalesce(${owners.email}, '')) like ${pattern}`,
       ),
     )
   }
@@ -146,6 +156,7 @@ export async function listUnits(input?: {
     .select({ total: count() })
     .from(units)
     .leftJoin(outlets, eq(units.outletId, outlets.id))
+    .leftJoin(owners, eq(units.ownerId, owners.id))
     .where(where)
 
   const total = Number(totalRow?.total ?? 0)
@@ -162,6 +173,10 @@ export async function listUnits(input?: {
       publicId: units.publicId,
       type: units.type,
       status: units.status,
+      holderId: units.ownerId,
+      holderName: owners.name,
+      holderEmail: owners.email,
+      nfcEncodedAt: units.nfcEncodedAt,
       partnerRef: units.partnerRef,
       activatedAt: units.activatedAt,
       outletName: outlets.name,
@@ -171,6 +186,7 @@ export async function listUnits(input?: {
     })
     .from(units)
     .leftJoin(outlets, eq(units.outletId, outlets.id))
+    .leftJoin(owners, eq(units.ownerId, owners.id))
     .leftJoin(stockBatches, eq(units.batchId, stockBatches.id))
     .where(where)
     .orderBy(desc(units.activatedAt), desc(units.createdAt))
@@ -185,6 +201,7 @@ export async function listUnits(input?: {
       batchId: row.batchId ?? null,
       batchLabel: row.batchLabel ?? null,
       activatedAt: stamp(row.activatedAt),
+      nfcEncodedAt: stamp(row.nfcEncodedAt),
     })),
     total,
     page: safePage,
@@ -217,6 +234,13 @@ export async function deleteUnit(unitId: string) {
       ok: false as const,
       error:
         'Kartu yang sudah dipakai toko tidak bisa dihapus. Nonaktifkan saja.',
+    }
+  }
+  if (unit.ownerId) {
+    return {
+      ok: false as const,
+      error:
+        'Kartu sudah memiliki pemegang. Lepas pemegang dulu jika kartu ini memang akan dihapus.',
     }
   }
 

@@ -1,7 +1,7 @@
-import { createFileRoute, Link, redirect } from '@tanstack/react-router'
+import { createFileRoute, Link, redirect, useNavigate, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
 import { KeyRoundIcon, UserIcon } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AuthShell, AuthTitle } from '#/components/auth-shell'
 import { PlacePicker } from '#/components/place-picker'
 import { ReviewPathFields } from '#/components/review-path-fields'
@@ -23,6 +23,7 @@ import {
   activateUnitFn,
   getActivationCardFn,
   getCurrentOwnerFn,
+  logoutFn,
   placeDetailsFn,
   verifyActivationAccessFn,
 } from '#/server/functions'
@@ -56,14 +57,17 @@ export const Route = createFileRoute('/activate')({
     if (!card) {
       return { card: null as null, session }
     }
-    if (card.status === 'ACTIVE') {
+    if (card.status !== 'IN_STOCK') {
+      if (session?.role === 'ADMIN') {
+        throw redirect({ params: { unitId: card.id }, to: '/dashboard/units/$unitId' })
+      }
       if (session?.ownerId === card.ownerId) {
         throw redirect({
           params: { unitId: card.id },
           to: '/app/units/$unitId',
         })
       }
-      throw redirect({ href: `/r/${card.publicId}` })
+      if (card.status === 'ACTIVE') throw redirect({ href: `/r/${card.publicId}` })
     }
     if (card.status === 'INACTIVE') {
       throw redirect({
@@ -85,11 +89,17 @@ function ActivatePage() {
   const detailsFn = useServerFn(placeDetailsFn)
   const activateFn = useServerFn(activateUnitFn)
   const verifyPinFn = useServerFn(verifyActivationAccessFn)
+  const logout = useServerFn(logoutFn)
+  const navigate = useNavigate()
+  const router = useRouter()
 
   const publicId = (card?.publicId ?? prefillId).toUpperCase()
   const isAdmin = session?.role === 'ADMIN'
   const isHolder = Boolean(session?.ownerId && session.ownerId === card?.ownerId)
-  const skipPin = isAdmin || isHolder
+  const publicUnassigned = Boolean(
+    !session && card?.status === 'IN_STOCK' && !card.ownerId,
+  )
+  const skipPin = isAdmin || isHolder || publicUnassigned
   const otherAccount = Boolean(
     session?.role === 'USER' &&
       card?.ownerId &&
@@ -119,6 +129,48 @@ function ActivatePage() {
     publicId: string
     outletName: string
   } | null>(null)
+  const flowCardRef = useRef<{ id: string; ref: string } | null>(null)
+
+  useEffect(() => {
+    if (!card) return
+    const currentFlow = flowCardRef.current
+    if (!currentFlow || currentFlow.id !== card.id) {
+      flowCardRef.current = { id: card.id, ref: prefillRef }
+      setStep(skipPin ? 'outlet' : 'pin')
+      setPin('')
+      setServiceTier(card.serviceTier)
+      setOwnerWhatsapp(card.ownerWhatsapp ?? '')
+      setPartnerRef(prefillRef)
+      setSelectedPlaceId(null)
+      setPlacePreview(null)
+      setError(null)
+      setResult(null)
+      return
+    }
+    if (currentFlow.ref !== prefillRef) {
+      flowCardRef.current = { ...currentFlow, ref: prefillRef }
+      setPartnerRef(prefillRef)
+    }
+    // Login can replace the session while this route stays mounted. Move a
+    // holder who just signed in past the PIN step without dropping the card.
+    if (skipPin) {
+      setStep((current) => (current === 'pin' ? 'outlet' : current))
+    }
+  }, [card, prefillRef, skipPin])
+
+  async function onSwitchAccount() {
+    setBusy(true)
+    setError(null)
+    try {
+      await logout()
+      await router.invalidate({ sync: true })
+      await navigate({ to: '/login', search: { activation: publicId, ref: partnerRef || undefined } })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal berganti akun.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function onVerifyPin(event: React.FormEvent) {
     event.preventDefault()
@@ -184,12 +236,14 @@ function ActivatePage() {
     return (
       <AuthShell center>
         <AuthTitle
+          description={prefillId ? 'Kode kartu tidak ditemukan. Periksa kode atau scan ulang QR pada kartu.' : 'Buka tautan QR/NFC pada kartu, atau pilih kartu dari dashboard.'}
           title={
             <>
               Scan <em className="text-pine italic">kartunya</em>
             </>
           }
         />
+        <Button asChild><Link to={session?.role === 'ADMIN' ? '/dashboard/units' : session ? '/app' : '/login'}>Buka daftar kartu</Link></Button>
       </AuthShell>
     )
   }
@@ -197,6 +251,7 @@ function ActivatePage() {
   return (
     <AuthShell wide>
       <AuthTitle
+        description={`Kartu ${publicId} · ${step === 'done' ? 'Aktivasi selesai' : step === 'confirm' ? 'Konfirmasi toko dan paket' : step === 'outlet' ? 'Pilih listing Google Maps yang sesuai' : 'Verifikasi pemegang kartu'}`}
         title={
           step === 'pin' ? (
             <>
@@ -226,7 +281,15 @@ function ActivatePage() {
       ) : null}
       {isAdmin && (step === 'outlet' || step === 'confirm') ? (
         <p className="text-sm text-muted-foreground">
-          Masuk sebagai admin — kartu dipasang tanpa PIN, sudah ada pemegang atau belum.
+          {card.ownerId
+            ? 'Aktivasi sebagai admin. Kartu tetap terhubung ke akun pemegangnya.'
+            : 'Kartu ini belum memiliki pemegang. Setelah aktivasi, tetapkan pemegang di detail kartu agar toko dapat mengelolanya.'}
+        </p>
+      ) : null}
+      {publicUnassigned && (step === 'outlet' || step === 'confirm') ? (
+        <p className="text-sm text-muted-foreground">
+          Kartu publik ini belum memiliki pemegang. Pilih toko sekarang; admin
+          dapat menetapkan pemegang setelah aktivasi.
         </p>
       ) : null}
 
@@ -234,8 +297,8 @@ function ActivatePage() {
         <form className="flex flex-col gap-4" onSubmit={onVerifyPin}>
           <p className="text-sm text-muted-foreground">
             {card.ownerId
-              ? 'PIN 4 digit pemegang. Admin yang sudah login tidak perlu PIN.'
-              : 'Kartu belum di-assign. Isi PIN pemegang untuk klaim, atau masuk sebagai admin untuk pasang tanpa PIN.'}
+              ? 'Masukkan PIN aktivasi 4 digit dari admin, atau masuk dengan akun pemegang kartu ini untuk melanjutkan tanpa PIN.'
+              : 'Kartu belum memiliki pemegang. PIN aktivasi akunmu akan menghubungkan kartu ini ke akun tersebut. Jika belum punya akun atau PIN, hubungi admin.'}
           </p>
           <InputGroup>
             <InputGroupInput
@@ -256,9 +319,15 @@ function ActivatePage() {
             {busy ? <Spinner data-icon="inline-start" /> : null}
             {busy ? 'Memeriksa…' : 'Lanjut'}
           </Button>
-          <Button asChild size="lg" variant="outline">
-            <Link to="/login">Masuk dashboard</Link>
-          </Button>
+          {session ? (
+            <Button disabled={busy} onClick={() => void onSwitchAccount()} size="lg" type="button" variant="outline">
+              Keluar dan masuk dengan akun pemegang
+            </Button>
+          ) : card.ownerId ? (
+            <Button asChild size="lg" variant="outline">
+              <Link search={{ activation: publicId, ref: partnerRef || undefined }} to="/login">Masuk tanpa PIN</Link>
+            </Button>
+          ) : null}
         </form>
       ) : null}
 
@@ -298,7 +367,8 @@ function ActivatePage() {
             <InputGroup>
               <InputGroupInput
                 onChange={(event) => setPartnerRef(event.target.value)}
-                placeholder="Nama kamu (opsional)"
+                aria-label="Kode rekanan"
+                placeholder="Kode rekanan (opsional)"
                 value={partnerRef}
               />
               <InputGroupAddon align="inline-start">
@@ -313,14 +383,17 @@ function ActivatePage() {
             ownerWhatsapp={ownerWhatsapp}
             packages={card.servicePackages}
             serviceTier={serviceTier}
+            viewerRole={isAdmin ? 'ADMIN' : 'USER'}
             whatsappGatewayOpen={card.whatsappGatewayOpen}
           />
           <p className="text-sm text-muted-foreground">
-            Salah toko? Tekan Ganti.
+            Pastikan nama dan alamat toko benar. Setelah diaktifkan, tamu yang
+            tap atau scan akan mengikuti jalur review paket ini.
           </p>
           <div className="flex gap-2">
             <Button
               className="flex-1"
+              disabled={busy}
               onClick={() => {
                 setSessionToken(crypto.randomUUID())
                 setSelectedPlaceId(null)
@@ -331,11 +404,11 @@ function ActivatePage() {
               type="button"
               variant="outline"
             >
-              Ganti
+              Ganti toko
             </Button>
             <Button className="flex-1" disabled={busy} size="lg" type="submit">
               {busy ? <Spinner data-icon="inline-start" /> : null}
-              {busy ? 'Menyimpan…' : 'Pasang'}
+              {busy ? 'Mengaktifkan…' : 'Aktifkan kartu'}
             </Button>
           </div>
         </form>
@@ -345,7 +418,7 @@ function ActivatePage() {
         <Card>
           <CardContent className="p-6">
             <p className="text-muted-foreground">
-              Kartu sudah nempel ke{' '}
+              Kartu aktif untuk{' '}
               <span className="text-foreground">{result.outletName}</span>.
               Tamu tinggal tempel atau scan.
             </p>
@@ -354,7 +427,7 @@ function ActivatePage() {
             {isAdmin ? (
               <>
                 <Button asChild className="w-full" size="lg">
-                  <Link to="/dashboard/units">Lihat kartu</Link>
+                  <Link params={{ unitId: card.id }} to="/dashboard/units/$unitId">Kelola kartu ini</Link>
                 </Button>
                 <Button asChild className="w-full" size="lg" variant="outline">
                   <a href={`/r/${result.publicId}`}>Coba sebagai tamu</a>

@@ -489,6 +489,7 @@ export const toggleUnitFn = createServerFn({ method: 'POST' })
 const unitListSchema = z.object({
   q: z.string().max(200).optional(),
   status: z.enum(['IN_STOCK', 'ACTIVE', 'INACTIVE']).optional(),
+  ownership: z.enum(['unassigned', 'assigned']).optional(),
   partner: z.string().max(80).optional(),
   batchId: z.string().uuid().optional(),
   page: z.coerce.number().int().min(1).optional(),

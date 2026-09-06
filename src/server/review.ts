@@ -4,7 +4,6 @@ import { reviewFeedbacks, units } from '#/db/schema'
 import {
   liveReviewMode,
   packageNeedsOwnerWhatsapp,
-  PRO_NEEDS_GATEWAY,
   ratingRangeLabel,
   reviewModeForPackage,
   type ReviewMode,
@@ -40,17 +39,8 @@ export function normalizeReviewSettings(input: {
   serviceTier: ServiceTier
   reviewMode?: ReviewMode
   ownerWhatsapp?: string | null
-  whatsappGatewayOpen: boolean
-  requireLivePro?: boolean
 }) {
   const { serviceTier } = input
-  if (
-    input.requireLivePro &&
-    serviceTier === 'PRO' &&
-    !input.whatsappGatewayOpen
-  ) {
-    throw new Error(PRO_NEEDS_GATEWAY)
-  }
   const reviewMode = reviewModeForPackage(serviceTier)
   const ownerWhatsapp = packageNeedsOwnerWhatsapp(serviceTier)
     ? normalizeWhatsapp(input.ownerWhatsapp)
@@ -168,9 +158,7 @@ export async function submitAnonymousFeedback(input: {
   const unit = await getActiveUnit(input.publicId)
   const servicePackage = await getServicePackage(unit.serviceTier)
   if ((await liveModeForUnit(unit)) !== 'ANONYMOUS_WHATSAPP') {
-    throw new Error(
-      'Mode anonim tidak aktif. WhatsApp platform harus OPEN, atau pilih jalur lain.',
-    )
+    throw new Error('Mode anonim tidak aktif. Periksa paket dan nomor WhatsApp owner.')
   }
   if (input.rating > servicePackage.interceptMaxRating) {
     throw new Error(
@@ -243,7 +231,6 @@ export async function updateUnitReviewSettings(input: {
   if (!unit) return { ok: false as const, error: 'Kartu tidak ditemukan.' }
   const settings = normalizeReviewSettings({
     ...input,
-    whatsappGatewayOpen: await isWhatsappGatewayOpen(),
   })
   await db
     .update(units)

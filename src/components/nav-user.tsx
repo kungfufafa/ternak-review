@@ -38,11 +38,14 @@ import { Spinner } from "#/components/ui/spinner"
 import { changePasswordFn, logoutFn } from "#/server/functions"
 
 export function NavUser() {
-  const { email } = useAdminUser()
+  const { email, name, role, hasPassword } = useAdminUser()
   const logout = useServerFn(logoutFn)
   const changePassword = useServerFn(changePasswordFn)
   const router = useRouter()
-  const initial = (email[0] ?? "A").toUpperCase()
+  const roleLabel = role === 'ADMIN' ? 'Admin' : 'Pemegang kartu'
+  const displayName = name?.trim() || roleLabel
+  const identity = email.endsWith('@wa.holder') ? email.split('@')[0] : email
+  const initial = (displayName[0] ?? "A").toUpperCase()
   const [sheetOpen, setSheetOpen] = useState(false)
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
@@ -83,10 +86,10 @@ export function NavUser() {
           </Avatar>
           <span className="hidden min-w-0 flex-1 sm:grid">
             <span className="truncate text-sm font-medium leading-tight">
-              Admin
+              {displayName}
             </span>
             <span className="truncate text-xs leading-tight text-muted-foreground">
-              {email}
+              {identity}
             </span>
           </span>
           <ChevronsUpDownIcon className="hidden size-4 shrink-0 text-muted-foreground sm:block" />
@@ -100,26 +103,28 @@ export function NavUser() {
             </Avatar>
             <span className="grid min-w-0 flex-1">
               <span className="truncate font-medium text-foreground">
-                Admin
+                {displayName}
               </span>
               <span className="truncate text-xs text-muted-foreground">
-                {email}
+                {roleLabel} · {identity}
               </span>
             </span>
           </DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem
-            onSelect={() => {
-              setError(null)
-              setSaved(false)
-              window.setTimeout(() => setSheetOpen(true), 0)
-            }}
-          >
-            <KeyRoundIcon />
-            Ganti password
-          </DropdownMenuItem>
+          {hasPassword ? (
+            <DropdownMenuItem
+              onSelect={() => {
+                setError(null)
+                setSaved(false)
+                window.setTimeout(() => setSheetOpen(true), 0)
+              }}
+            >
+              <KeyRoundIcon />
+              Ganti password
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem
             onClick={async () => {
               await logout()

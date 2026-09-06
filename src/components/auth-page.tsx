@@ -3,7 +3,7 @@
 import { useNavigate, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
 import { AtSignIcon, KeyRoundIcon, LockIcon, PhoneIcon } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AuthShell, AuthTitle } from '#/components/auth-shell'
 import { Alert } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
@@ -33,10 +33,14 @@ export function AuthPage({
   adminExists,
   whatsappOtp = false,
   emailOtp = false,
+  activation,
+  partnerRef,
 }: {
   adminExists: boolean
   whatsappOtp?: boolean
   emailOtp?: boolean
+  activation?: string
+  partnerRef?: string
 }) {
   const navigate = useNavigate()
   const router = useRouter()
@@ -60,13 +64,24 @@ export function AuthPage({
   const [whatsapp, setWhatsapp] = useState('')
   const [code, setCode] = useState('')
   const [otpSent, setOtpSent] = useState(false)
+  const [resendSeconds, setResendSeconds] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (resendSeconds <= 0) return
+    const timer = window.setTimeout(() => setResendSeconds((value) => Math.max(0, value - 1)), 1000)
+    return () => window.clearTimeout(timer)
+  }, [resendSeconds])
+
   async function goIn(role: 'ADMIN' | 'USER') {
     await router.invalidate()
-    await navigate({ to: role === 'USER' ? '/app' : '/admin' })
+    if (activation) {
+      await navigate({ to: '/activate', search: { id: activation, ref: partnerRef } })
+    } else {
+      await navigate({ to: role === 'USER' ? '/app' : '/admin' })
+    }
   }
 
   async function onPassword(e: React.FormEvent) {
@@ -85,8 +100,9 @@ export function AuthPage({
     }
   }
 
-  async function onRequestOtp(e: React.FormEvent) {
-    e.preventDefault()
+  async function onRequestOtp(e?: React.FormEvent) {
+    e?.preventDefault()
+    if (busy || resendSeconds > 0) return
     setBusy(true)
     setError(null)
     setInfo(null)
@@ -96,6 +112,8 @@ export function AuthPage({
           ? await requestEmailOtp({ data: { email } })
           : await requestOtp({ data: { whatsapp } })
       setOtpSent(true)
+      setCode('')
+      setResendSeconds(60)
       setInfo(result.sent)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal mengirim kode.')
@@ -127,6 +145,7 @@ export function AuthPage({
     setInfo(null)
     setOtpSent(false)
     setCode('')
+    setResendSeconds(0)
   }
 
   const useOtp = !isSetup && (mode === 'wa' || mode === 'email')
@@ -134,6 +153,7 @@ export function AuthPage({
   return (
     <AuthShell>
       <AuthTitle
+        description={activation ? `Masuk untuk melanjutkan aktivasi kartu ${activation}.` : isSetup ? 'Penyiapan akun admin pertama.' : 'Gunakan akun yang telah dibuat oleh admin.'}
         title={
           isSetup ? (
             <>
@@ -268,7 +288,7 @@ export function AuthPage({
             ) : null}
           </CardContent>
           <CardFooter className="flex flex-col gap-2">
-            <Button className="w-full" disabled={busy} size="lg" type="submit">
+            <Button className="w-full" disabled={busy || (useOtp && !otpSent && resendSeconds > 0)} size="lg" type="submit">
               {busy ? <Spinner data-icon="inline-start" /> : null}
               {busy
                 ? 'Menunggu…'
@@ -277,9 +297,20 @@ export function AuthPage({
                   : useOtp
                     ? otpSent
                       ? 'Masuk'
-                      : 'Kirim kode'
+                      : resendSeconds > 0 ? `Kirim kode (${resendSeconds} dtk)` : 'Kirim kode'
                     : 'Masuk'}
             </Button>
+            {useOtp && otpSent ? (
+              <Button
+                className="w-full"
+                disabled={busy || resendSeconds > 0}
+                onClick={() => void onRequestOtp()}
+                type="button"
+                variant="outline"
+              >
+                {resendSeconds > 0 ? `Kirim ulang kode (${resendSeconds} dtk)` : 'Kirim ulang kode'}
+              </Button>
+            ) : null}
             {!isSetup && whatsappOtp && mode !== 'wa' ? (
               <Button
                 className="w-full"

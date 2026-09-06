@@ -15,8 +15,10 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
-import { ReviewPathFields } from '#/components/review-path-fields'
+import { Field, FieldDescription, FieldLabel } from '#/components/ui/field'
+import { Input } from '#/components/ui/input'
 import { Spinner } from '#/components/ui/spinner'
+import { packageNeedsOwnerWhatsapp, packageSetupCopy } from '#/lib/review-settings'
 import {
   getMyUnitDetailFn,
   placeDetailsFn,
@@ -53,6 +55,7 @@ function MyUnitPage() {
   const [pendingPlace, setPendingPlace] = useState<{
     placeId: string
     name: string
+    address: string | null
   } | null>(null)
   const [ownerWhatsapp, setOwnerWhatsapp] = useState(detail.ownerWhatsapp ?? '')
   const [busy, setBusy] = useState(false)
@@ -61,6 +64,9 @@ function MyUnitPage() {
   const servicePackage =
     detail.servicePackages.find((item) => item.serviceTier === detail.serviceTier) ??
     detail.servicePackages[0]
+  const isActive = detail.status === 'ACTIVE'
+  const needsWhatsapp = packageNeedsOwnerWhatsapp(detail.serviceTier)
+  const whatsappChanged = ownerWhatsapp.trim() !== (detail.ownerWhatsapp ?? '')
 
   async function onPickNewPlace(placeId: string) {
     setError(null)
@@ -73,7 +79,11 @@ function MyUnitPage() {
           sessionToken,
         },
       })
-      setPendingPlace({ placeId: details.placeId, name: details.name })
+      setPendingPlace({
+        placeId: details.placeId,
+        name: details.name,
+        address: details.formattedAddress,
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memuat toko.')
     } finally {
@@ -103,6 +113,7 @@ function MyUnitPage() {
 
   async function onSaveReview(event: FormEvent) {
     event.preventDefault()
+    if (!needsWhatsapp || !whatsappChanged) return
     setBusy(true)
     setError(null)
     setSaved(false)
@@ -144,6 +155,12 @@ function MyUnitPage() {
       </div>
       {error ? <Alert variant="danger">{error}</Alert> : null}
       {saved ? <Alert variant="success">Perubahan disimpan.</Alert> : null}
+      {!isActive ? (
+        <Alert>
+          Kartu ini nonaktif. Tamu yang memindai kartu belum bisa membuka halaman
+          review. Hubungi admin untuk mengaktifkannya kembali.
+        </Alert>
+      ) : null}
 
       {detail.outlet ? (
         <div className="rounded-2xl bg-card p-5 ring-1 ring-border">
@@ -153,23 +170,27 @@ function MyUnitPage() {
               {detail.outlet.address}
             </p>
           ) : null}
-          <Button
-            className="mt-3"
-            onClick={() => {
-              setChangingPlace((open) => !open)
-              setPendingPlace(null)
-              setSessionToken(crypto.randomUUID())
-            }}
-            type="button"
-            variant="outline"
-          >
-            {changingPlace ? 'Batal' : 'Toko salah? Ganti'}
-          </Button>
-          {changingPlace ? (
+          {isActive ? (
+            <Button
+              className="mt-3"
+              disabled={busy}
+              onClick={() => {
+                setChangingPlace((open) => !open)
+                setPendingPlace(null)
+                setSessionToken(crypto.randomUUID())
+              }}
+              type="button"
+              variant="outline"
+            >
+              {changingPlace ? 'Batal ganti toko' : 'Ganti toko tujuan'}
+            </Button>
+          ) : null}
+          {isActive && changingPlace ? (
             <div className="mt-4 flex flex-col gap-3">
               <p className="text-sm text-muted-foreground">
-                Pilih listing yang benar. Tamu berikutnya akan ke toko baru.
-                Scan lama tidak terhapus.
+                Pilih listing Google Maps yang benar. Setelah disimpan, pindai
+                berikutnya membuka toko baru. Riwayat pemindaian tetap mengikuti
+                kartu ini, termasuk pemindaian saat terhubung ke toko sebelumnya.
               </p>
               <PlacePicker
                 disabled={busy}
@@ -180,10 +201,18 @@ function MyUnitPage() {
                 sessionToken={sessionToken}
               />
               {pendingPlace ? (
-                <Button disabled={busy} onClick={() => void onRebind()} type="button">
-                  {busy ? <Spinner data-icon="inline-start" /> : null}
-                  Pasang ke {pendingPlace.name}
-                </Button>
+                <div className="flex flex-col gap-3 rounded-xl bg-muted/50 p-4">
+                  <div>
+                    <p className="font-medium">{pendingPlace.name}</p>
+                    {pendingPlace.address ? (
+                      <p className="text-sm text-muted-foreground">{pendingPlace.address}</p>
+                    ) : null}
+                  </div>
+                  <Button disabled={busy} onClick={() => void onRebind()} type="button">
+                    {busy ? <Spinner data-icon="inline-start" /> : null}
+                    Simpan toko tujuan
+                  </Button>
+                </div>
               ) : null}
             </div>
           ) : null}
@@ -191,41 +220,80 @@ function MyUnitPage() {
       ) : null}
 
       <div className="rounded-2xl bg-card p-5">
-            <p className="text-sm text-muted-foreground">Scan</p>
-            <p className="mt-1 text-2xl font-medium tabular-nums">
-              {detail.totalClicks}
+        <p className="text-sm text-muted-foreground">Kunjungan melalui kartu</p>
+        <p className="mt-1 text-2xl font-medium tabular-nums">{detail.totalClicks}</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Jumlah pembukaan tautan kartu, bukan jumlah ulasan yang terkirim ke Google.
+        </p>
+        <div className="mt-4"><Sparkline data={detail.daily} /></div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Paket dan tujuan review</CardTitle>
+          <CardDescription>
+            Paket: {servicePackage?.name ?? detail.serviceTier}. Hubungi admin
+            jika ingin mengganti paket.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {servicePackage ? (
+            <p className="text-sm text-muted-foreground">
+              {!isActive ? 'Setelah kartu diaktifkan kembali: ' : null}
+              {packageSetupCopy(detail.serviceTier, servicePackage.interceptMaxRating)}
             </p>
-            <div className="mt-4">
-              <Sparkline data={detail.daily} />
-            </div>
-          </div>
-          <Card>
-            <CardHeader>
-              <CardTitle>Tindak lanjut</CardTitle>
-              <CardDescription>
-                Tamu hanya nulis review. Nomor owner untuk Plus/Pro.
-              </CardDescription>
-            </CardHeader>
-            <form onSubmit={onSaveReview}>
-              <CardContent className="flex flex-col gap-4">
-                <ReviewPathFields
-                  allowTierChange={false}
-                  onTierChange={() => {}}
-                  onWhatsappChange={setOwnerWhatsapp}
-                  ownerWhatsapp={ownerWhatsapp}
-                  packages={detail.servicePackages}
-                  serviceTier={detail.serviceTier}
-                  whatsappGatewayOpen={detail.whatsappGatewayOpen}
+          ) : null}
+          {detail.serviceTier === 'PRO' && !detail.whatsappGatewayOpen ? (
+            <Alert>
+              Pengiriman WhatsApp sedang offline. Masukan anonim tetap masuk ke
+              Log kiriman dan menunggu dikirim ulang setelah gateway tersambung.
+              Hubungi admin jika antrean perlu segera dikirim.
+            </Alert>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      {needsWhatsapp ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>WhatsApp penerima masukan</CardTitle>
+            <CardDescription>
+              Isi nomor pengelola toko yang akan menindaklanjuti masukan tamu.
+            </CardDescription>
+          </CardHeader>
+          <form onSubmit={onSaveReview}>
+            <CardContent>
+              <Field>
+                <FieldLabel htmlFor="owner-whatsapp">Nomor WhatsApp</FieldLabel>
+                <Input
+                  disabled={busy}
+                  id="owner-whatsapp"
+                  inputMode="tel"
+                  maxLength={32}
+                  onChange={(event) => {
+                    setOwnerWhatsapp(event.target.value)
+                    setSaved(false)
+                  }}
+                  placeholder="08xxxxxxxxxx"
+                  required
+                  value={ownerWhatsapp}
                 />
-              </CardContent>
-              <CardFooter className="mt-5">
-                <Button disabled={busy} type="submit">
-                  {busy ? <Spinner data-icon="inline-start" /> : null}
-                  Simpan jalur review
-                </Button>
-              </CardFooter>
-            </form>
-          </Card>
+                <FieldDescription>
+                  {detail.serviceTier === 'PRO'
+                    ? 'Masukan dari form masuk antrean WhatsApp untuk dikirim ke nomor ini. Nomor tidak ditampilkan kepada tamu.'
+                    : 'Tamu yang memilih jalur masukan akan membuka chat WhatsApp ke nomor ini.'}
+                </FieldDescription>
+              </Field>
+            </CardContent>
+            <CardFooter className="mt-5">
+              <Button disabled={busy || !whatsappChanged} type="submit">
+                {busy ? <Spinner data-icon="inline-start" /> : null}
+                Simpan nomor WhatsApp
+              </Button>
+            </CardFooter>
+          </form>
+        </Card>
+      ) : null}
     </div>
   )
 }

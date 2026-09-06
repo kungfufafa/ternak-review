@@ -47,7 +47,8 @@ function PackagesPage() {
       <p className="text-sm text-muted-foreground">
         Nama paket tampil saat aktivasi. Basic ke Google. Plus: rating rendah ke
         WhatsApp owner. Pro: rating rendah isi form, sistem kirim ke owner.
-        Paket Pro hanya kalau WhatsApp platform OPEN.
+        Saat gateway offline, masukan Pro masuk ke Log kiriman dan menunggu
+        dikirim ulang.
       </p>
     </div>
   )

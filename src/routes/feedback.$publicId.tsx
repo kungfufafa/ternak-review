@@ -96,7 +96,8 @@ function FeedbackPage() {
       {error ? <Alert variant="danger">{error}</Alert> : null}
       {submitted ? (
         <Alert variant="success">
-          Masukan tersimpan dan akan diteruskan ke pemilik toko.
+          Masukan tersimpan. Sistem akan meneruskannya ke pemilik toko saat
+          WhatsApp tersambung.
         </Alert>
       ) : null}
       <Card className="w-full">

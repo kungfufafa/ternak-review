@@ -1,6 +1,7 @@
 import { createFileRoute, Link, notFound, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
 import { useState, type FormEvent } from 'react'
+import { ConfirmDelete } from '#/components/confirm-delete'
 import { PageHeader } from '#/components/page'
 import { StatusBadge } from '#/components/ui/badge'
 import { Alert } from '#/components/ui/alert'
@@ -19,6 +20,8 @@ import { Spinner } from '#/components/ui/spinner'
 import {
   assignUnitToHolderFn,
   getHolderFn,
+  getUnitDetailFn,
+  listUnitsFn,
   resetHolderPasswordFn,
   resetHolderPinFn,
   setHolderStatusFn,
@@ -34,7 +37,7 @@ export const Route = createFileRoute('/admin/users/$userId')({
   },
   component: UserDetailPage,
   head: () => ({
-    meta: [{ title: 'Pengguna — Ternak Review' }],
+    meta: [{ title: 'Akun pemegang — Ternak Review' }],
   }),
 })
 
@@ -46,6 +49,8 @@ function UserDetailPage() {
   const resetPin = useServerFn(resetHolderPinFn)
   const resetPassword = useServerFn(resetHolderPasswordFn)
   const assignCard = useServerFn(assignUnitToHolderFn)
+  const findCards = useServerFn(listUnitsFn)
+  const getCardDetail = useServerFn(getUnitDetailFn)
   const unassign = useServerFn(unassignUnitFn)
   const [name, setName] = useState(user.name ?? '')
   const [whatsapp, setWhatsapp] = useState(user.whatsapp ?? '')
@@ -59,6 +64,13 @@ function UserDetailPage() {
     whatsapp: { status: string; reason?: string }
   } | null>(null)
   const [saved, setSaved] = useState(false)
+  const [statusConfirmOpen, setStatusConfirmOpen] = useState(false)
+  const [pendingTransfer, setPendingTransfer] = useState<
+    NonNullable<Awaited<ReturnType<typeof getUnitDetailFn>>> | null
+  >(null)
+  const [pendingRemoval, setPendingRemoval] = useState<
+    (typeof user.cards)[number] | null
+  >(null)
 
   async function run(action: () => Promise<void>) {
     setBusy(true)
@@ -69,9 +81,38 @@ function UserDetailPage() {
       await router.invalidate({ sync: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal menyimpan.')
+      setStatusConfirmOpen(false)
+      setPendingTransfer(null)
+      setPendingRemoval(null)
     } finally {
       setBusy(false)
     }
+  }
+
+  async function prepareAssignment() {
+    const code = publicId.trim().toUpperCase()
+    await run(async () => {
+      for (let page = 1; ; page += 1) {
+        const result = await findCards({ data: { q: code, page, pageSize: 100 } })
+        const card = result.units.find((item) => item.publicId === code)
+        if (card) {
+          const detail = await getCardDetail({ data: { unitId: card.id } })
+          if (!detail) throw new Error('Kartu tidak ditemukan.')
+          if (detail.holder && detail.holder.id !== user.id) {
+            setPendingTransfer(detail)
+            return
+          }
+          if (detail.holder?.id === user.id) {
+            throw new Error(`${code} sudah terhubung ke akun ini.`)
+          }
+          await assignCard({ data: { ownerId: user.id, unitId: detail.id } })
+          setPublicId('')
+          setSaved(true)
+          return
+        }
+        if (page >= result.pageCount) throw new Error('Kartu tidak ditemukan.')
+      }
+    })
   }
 
   return (
@@ -82,26 +123,22 @@ function UserDetailPage() {
         action={
           <Button
             disabled={busy}
-            onClick={() =>
-              void run(async () => {
-                await setStatus({
-                  data: {
-                    userId: user.id,
-                    status: user.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE',
-                  },
-                })
-              })
-            }
+            onClick={() => setStatusConfirmOpen(true)}
             type="button"
             variant="outline"
           >
-            {user.status === 'ACTIVE' ? 'Nonaktifkan' : 'Aktifkan'}
+            {user.status === 'ACTIVE' ? 'Nonaktifkan akun' : 'Aktifkan akun'}
           </Button>
         }
       />
       <Link className="text-sm text-muted-foreground hover:text-foreground" to="/admin/users">
-        ← Semua pengguna
+        ← Semua akun pemegang
       </Link>
+      <p className="text-sm text-muted-foreground">
+        Akun {user.status === 'ACTIVE' ? 'aktif' : 'nonaktif'}. Menonaktifkan akun
+        menghentikan akses masuk dan aktivasi dengan PIN. Kartu yang sudah aktif
+        tetap melayani tamu; nonaktifkan kartu dari detailnya bila diperlukan.
+      </p>
       {error ? <Alert variant="danger">{error}</Alert> : null}
       {saved ? <Alert variant="success">Perubahan disimpan.</Alert> : null}
       {revealedPin ? (
@@ -163,7 +200,7 @@ function UserDetailPage() {
           </CardContent>
           <CardFooter className="mt-5">
             <Button disabled={busy} type="submit">
-              Simpan nama
+              Simpan profil
             </Button>
           </CardFooter>
         </form>
@@ -230,8 +267,9 @@ function UserDetailPage() {
         <CardHeader>
           <CardTitle>Kartu</CardTitle>
           <CardDescription>
-            Assign kartu gudang ke pengguna ini. PIN yang sama berlaku untuk
-            semua kartunya.
+            Hubungkan kartu ke akun ini, baik yang belum maupun sudah aktif.
+            Jika kartu dipegang akun lain, periksa dampak pemindahan sebelum
+            menyimpan. PIN akun ini digunakan untuk aktivasi kartunya.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -239,26 +277,32 @@ function UserDetailPage() {
             className="flex flex-col gap-3 sm:flex-row"
             onSubmit={(event) => {
               event.preventDefault()
-              void run(async () => {
-                await assignCard({
-                  data: { ownerId: user.id, publicId: publicId.trim() },
-                })
-                setPublicId('')
-                setSaved(true)
-              })
+              void prepareAssignment()
             }}
           >
             <Input
               className="sm:flex-1"
+              aria-label="Kode kartu yang akan dihubungkan"
+              disabled={busy || user.status !== 'ACTIVE'}
+              maxLength={32}
               onChange={(event) => setPublicId(event.target.value.toUpperCase())}
               placeholder="Kode kartu"
               required
               value={publicId}
             />
-            <Button disabled={busy || publicId.trim().length < 4} type="submit">
-              Assign
+            <Button
+              disabled={busy || publicId.trim().length < 4 || user.status !== 'ACTIVE'}
+              type="submit"
+            >
+              {busy ? <Spinner data-icon="inline-start" /> : null}
+              Hubungkan kartu
             </Button>
           </form>
+          {user.status !== 'ACTIVE' ? (
+            <p className="text-sm text-muted-foreground">
+              Aktifkan akun terlebih dahulu untuk menghubungkan kartu.
+            </p>
+          ) : null}
           {user.cards.length === 0 ? (
             <p className="text-sm text-muted-foreground">Belum ada kartu.</p>
           ) : (
@@ -284,16 +328,12 @@ function UserDetailPage() {
                     <StatusBadge status={card.status} />
                     <Button
                       disabled={busy}
-                      onClick={() =>
-                        void run(async () => {
-                          await unassign({ data: { unitId: card.id } })
-                        })
-                      }
+                      onClick={() => setPendingRemoval(card)}
                       size="sm"
                       type="button"
                       variant="outline"
                     >
-                      Lepas
+                      Lepas pemegang
                     </Button>
                   </div>
                 </li>
@@ -302,6 +342,74 @@ function UserDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDelete
+        confirmLabel={user.status === 'ACTIVE' ? 'Nonaktifkan akun' : 'Aktifkan akun'}
+        description={
+          user.status === 'ACTIVE'
+            ? `${user.name ?? user.email} akan keluar dari sesi yang sedang berjalan dan tidak bisa masuk atau aktivasi dengan PIN. Kartu yang sudah aktif tetap melayani tamu. Untuk menghentikan layanan kartu, nonaktifkan masing-masing kartu.`
+            : `${user.name ?? user.email} dapat kembali masuk dan menggunakan PIN untuk aktivasi. Status kartu tidak berubah.`
+        }
+        onConfirm={() =>
+          run(async () => {
+            await setStatus({
+              data: {
+                userId: user.id,
+                status: user.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE',
+              },
+            })
+            setStatusConfirmOpen(false)
+            setSaved(true)
+          })
+        }
+        onOpenChange={(open) => {
+          if (!busy) setStatusConfirmOpen(open)
+        }}
+        open={statusConfirmOpen}
+        pending={busy}
+        title={user.status === 'ACTIVE' ? 'Nonaktifkan akun pemegang?' : 'Aktifkan akun pemegang?'}
+        variant={user.status === 'ACTIVE' ? 'destructive' : 'default'}
+      />
+
+      <ConfirmDelete
+        confirmLabel="Pindahkan pemegang"
+        description={`${pendingTransfer?.publicId ?? ''}${pendingTransfer?.outlet ? ` (${pendingTransfer.outlet.name})` : ''}: dari ${pendingTransfer?.holder?.name ?? pendingTransfer?.holder?.email ?? ''} ke ${user.name ? `${user.name} · ` : ''}${user.email}. Pemegang lama kehilangan akses pengelolaan, statistik, dan masukan kartu ini; akun ini mendapat akses tersebut. Toko, paket, nomor WhatsApp tindak lanjut, dan status kartu tetap. Kartu aktif tetap melayani tamu.`}
+        onConfirm={() =>
+          run(async () => {
+            if (!pendingTransfer) return
+            await assignCard({ data: { ownerId: user.id, unitId: pendingTransfer.id } })
+            setPendingTransfer(null)
+            setPublicId('')
+            setSaved(true)
+          })
+        }
+        onOpenChange={(open) => {
+          if (!open && !busy) setPendingTransfer(null)
+        }}
+        open={pendingTransfer !== null}
+        pending={busy}
+        title="Pindahkan kartu ke akun ini?"
+        variant="default"
+      />
+
+      <ConfirmDelete
+        confirmLabel="Lepas pemegang"
+        description={`${pendingRemoval?.publicId ?? ''}${pendingRemoval?.outletName ? ` (${pendingRemoval.outletName})` : ''} akan menjadi tanpa pemegang. ${user.name ?? user.email} kehilangan akses pengelolaan, statistik, dan masukan kartu ini. Toko, paket, nomor WhatsApp tindak lanjut, dan status kartu tetap. Kartu aktif tetap melayani tamu. Kartu yang belum aktif dapat diaktifkan lewat tautan publik; jika ingin langsung mengaitkannya ke akun pemegang, gunakan PIN akun tersebut.`}
+        onConfirm={() =>
+          run(async () => {
+            if (!pendingRemoval) return
+            await unassign({ data: { unitId: pendingRemoval.id } })
+            setPendingRemoval(null)
+            setSaved(true)
+          })
+        }
+        onOpenChange={(open) => {
+          if (!open && !busy) setPendingRemoval(null)
+        }}
+        open={pendingRemoval !== null}
+        pending={busy}
+        title="Lepas kartu dari akun ini?"
+      />
     </div>
   )
 }

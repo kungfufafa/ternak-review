@@ -21,6 +21,7 @@ import {
   getCurrentOwnerFn,
   lookupQrFn,
   markNfcEncodedFn,
+  listStockBatchesFn,
 } from '#/server/functions'
 
 type LockedCard = {
@@ -46,10 +47,12 @@ export const Route = createFileRoute('/admin/stock/nfc')({
     const appUrl = await getAppUrlInfoFn()
     if (!deps.batch) return { run: null, appUrl }
     try {
-      const data = await getBatchPrintFn({
-        data: { batchId: deps.batch },
-      })
+      const [data, batches] = await Promise.all([
+        getBatchPrintFn({ data: { batchId: deps.batch } }),
+        listStockBatchesFn(),
+      ])
       const encoded = data.units.filter((unit) => unit.nfcEncodedAt).length
+      const summary = batches.find((batch) => batch.id === data.batch.id)
       return {
         appUrl,
         run: {
@@ -57,6 +60,9 @@ export const Route = createFileRoute('/admin/stock/nfc')({
           label: data.batch.label,
           count: data.units.length,
           encoded,
+          inStock: summary?.inStock ?? data.units.filter((unit) => unit.status === 'IN_STOCK').length,
+          available: summary?.available ?? 0,
+          assigned: summary?.assigned ?? 0,
         },
       }
     } catch {
@@ -214,6 +220,30 @@ function NfcPage() {
   }
 
   const runLeft = run ? Math.max(0, run.count - runEncoded) : null
+  const completionTarget = run
+    ? run.available > 0
+      ? {
+          label: 'Tentukan pemegang',
+          search: {
+            batch: run.id,
+            status: 'IN_STOCK' as const,
+            ownership: 'unassigned' as const,
+          },
+        }
+      : run.assigned > 0
+        ? {
+            label: 'Lihat aktivasi pemegang',
+            search: {
+              batch: run.id,
+              status: 'IN_STOCK' as const,
+              ownership: 'assigned' as const,
+            },
+          }
+        : {
+            label: 'Kelola kartu',
+            search: { batch: run.id },
+          }
+    : null
 
   return (
     <div className="flex flex-col gap-10">
@@ -238,12 +268,30 @@ function NfcPage() {
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">{run.label}</span>
             <span className="tabular-nums">
-              {runLeft === 0 ? 'siap dijual' : `${runLeft} lagi`}
+              {runLeft === 0
+                ? 'Penulisan NFC selesai'
+                : `${runLeft} kartu belum tertulis`}
             </span>
           </div>
           <Progress
             value={run.count > 0 ? (runEncoded / run.count) * 100 : 0}
           />
+          {runLeft === 0 && completionTarget ? (
+            <div className="mt-3 rounded-xl bg-muted/50 p-4">
+              <p className="text-sm text-muted-foreground">
+                Penulisan NFC selesai. Lanjutkan proses sebelum kartu
+                diserahkan ke toko.
+              </p>
+              <Button asChild className="mt-3" size="sm">
+                <Link
+                  search={completionTarget.search}
+                  to="/dashboard/units"
+                >
+                  {completionTarget.label}
+                </Link>
+              </Button>
+            </div>
+          ) : null}
         </div>
       ) : sessionDone > 0 ? (
         <p className="text-center text-sm text-muted-foreground">
@@ -252,7 +300,9 @@ function NfcPage() {
       ) : null}
 
       {flash ? (
-        <Alert variant="success">{flash} beres. Ambil kartu berikutnya.</Alert>
+        <Alert variant="success">
+          {flash} sudah ditulis ke NFC. Ambil kartu berikutnya.
+        </Alert>
       ) : null}
       {error ? <Alert variant="danger">{error}</Alert> : null}
 

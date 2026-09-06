@@ -7,9 +7,22 @@ import {
 } from '#/server/functions'
 
 export const Route = createFileRoute('/login')({
-  beforeLoad: async () => {
+  validateSearch: (search: Record<string, unknown>): {
+    activation?: string
+    ref?: string
+  } => ({
+    activation:
+      typeof search.activation === 'string' && /^[a-z0-9]{4,32}$/i.test(search.activation)
+        ? search.activation.toUpperCase()
+        : undefined,
+    ref: typeof search.ref === 'string' ? search.ref.trim().slice(0, 80) || undefined : undefined,
+  }),
+  beforeLoad: async ({ search }) => {
     const owner = await getCurrentOwnerFn()
     if (owner) {
+      if (search.activation) {
+        throw redirect({ to: '/activate', search: { id: search.activation, ref: search.ref } })
+      }
       throw redirect({ to: owner.role === 'USER' ? '/app' : '/admin' })
     }
   },
@@ -32,8 +45,11 @@ export const Route = createFileRoute('/login')({
 
 function LoginPage() {
   const { adminExists, whatsappOtp, emailOtp } = Route.useLoaderData()
+  const { activation, ref } = Route.useSearch()
   return (
     <AuthPage
+      activation={activation}
+      partnerRef={ref}
       adminExists={adminExists}
       emailOtp={emailOtp}
       whatsappOtp={whatsappOtp}

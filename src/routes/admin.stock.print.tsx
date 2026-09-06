@@ -311,7 +311,9 @@ function StockPrintPage() {
               <div className="rounded-2xl bg-accent p-5 text-accent-foreground">
                 <p className="font-medium">Sudah cetak?</p>
                 <p className="mt-1 text-sm">
-                  Tempel tag NFC, scan QR kartu, tulis dengan HP, baru dijual.
+                  Tempel tag NFC, scan QR kartu, lalu tulis dengan HP. Setelah
+                  penulisan NFC selesai, tentukan pemegang sebelum kartu
+                  diserahkan ke toko.
                 </p>
                 <Button asChild className="mt-4">
                   <Link search={{ batch: batch.id }} to="/admin/stock/nfc">

@@ -152,7 +152,7 @@ function AdminStockPage() {
           <em className="text-pine italic">Produksi</em>
         </h1>
         <p className="max-w-lg text-muted-foreground">
-          Generate QR → cetak → tempel NFC → jual. Toko yang aktivasi.
+          Buat QR → cetak → tulis NFC → tentukan pemegang → aktivasi toko.
         </p>
       </div>
 
@@ -270,7 +270,11 @@ function AdminStockPage() {
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="font-medium tracking-tight">Antrian produksi</h2>
+        <h2 className="font-medium tracking-tight">Cetakan &amp; status kartu</h2>
+        <p className="text-sm text-muted-foreground">
+          Progres NFC tercatat per kartu. Jika kartu sudah dicetak, langsung
+          lanjut ke NFC. Kartu yang sudah dialokasikan dipisahkan dari stok tersedia.
+        </p>
         {cardBatches.length === 0 ? (
           <Empty>
             <EmptyHeader>
@@ -294,24 +298,39 @@ function AdminStockPage() {
                     <ItemTitle>{batch.label}</ItemTitle>
                     <ItemDescription>
                       {formatDay(batch.createdAt)} · {batch.remaining} kartu
+                      tercatat
                       {batch.remaining !== batch.count
                         ? ` dari ${batch.count}`
                         : ''}
-                      {next === 'ready'
-                        ? ' · siap dijual'
-                        : next === 'nfc'
-                          ? ` · tempel NFC · ${left} sisa`
-                          : ' · cetak dulu'}
+                      {batch.remaining === 0
+                        ? ' · cetakan kosong'
+                        : next === 'ready'
+                          ? ' · NFC selesai'
+                          : next === 'nfc'
+                            ? ` · ${left} NFC belum ditulis`
+                            : ' · NFC belum dimulai'}
                     </ItemDescription>
+                    {batch.remaining > 0 ? (
+                      <ItemDescription>
+                        {batch.available} belum dialokasikan ({batch.readyStock} NFC
+                        tertulis) · {batch.assigned} menunggu aktivasi ·{' '}
+                        {batch.active} aktif · {batch.inactive} nonaktif
+                      </ItemDescription>
+                    ) : null}
                   </ItemContent>
                   <ItemActions className="flex flex-wrap">
-                    {next === 'ready' ? (
+                    {batch.remaining === 0 ? null : next === 'ready' ? (
                       <Button asChild size="sm" variant="outline">
                         <Link
-                          search={{ status: 'IN_STOCK', batch: batch.id }}
+                          search={{
+                            batch: batch.id,
+                            status: batch.inStock > 0 ? 'IN_STOCK' : undefined,
+                            ownership:
+                              batch.available > 0 ? 'unassigned' : undefined,
+                          }}
                           to="/dashboard/units"
                         >
-                          Siap dijual
+                          {batch.available > 0 ? 'Atur pemegang' : 'Kelola kartu'}
                         </Link>
                       </Button>
                     ) : next === 'nfc' ? (
@@ -324,16 +343,28 @@ function AdminStockPage() {
                         </Link>
                       </Button>
                     ) : (
-                      <Button asChild size="sm">
-                        <Link
-                          search={{ batch: batch.id }}
-                          to="/admin/stock/print"
-                        >
-                          Cetak
-                        </Link>
-                      </Button>
+                      <>
+                        <Button asChild size="sm" variant="outline">
+                          <Link
+                            search={{ batch: batch.id }}
+                            to="/admin/stock/print"
+                          >
+                            Cetak
+                          </Link>
+                        </Button>
+                        <Button asChild size="sm">
+                          <Link
+                            search={{ batch: batch.id }}
+                            to="/admin/stock/nfc"
+                          >
+                            Lanjut NFC
+                          </Link>
+                        </Button>
+                      </>
                     )}
-                    {batch.active === 0 && batch.inactive === 0 ? (
+                    {batch.active === 0 &&
+                    batch.inactive === 0 &&
+                    batch.assigned === 0 ? (
                       <Button
                         onClick={() =>
                           setPendingDelete({ id: batch.id, label: batch.label })

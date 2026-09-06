@@ -26,7 +26,7 @@ function StatusPage() {
         title={
           inactive ? (
             <>
-              Sedang <em className="text-pine italic">istirahat</em>
+              Kartu <em className="text-pine italic">nonaktif</em>
             </>
           ) : (
             <>
@@ -37,7 +37,7 @@ function StatusPage() {
       />
       <p className="mb-4 text-sm text-muted-foreground">
         {inactive
-          ? 'Pemegang bisa mengaktifkan lagi dari dashboard. Tamu coba scan ulang nanti.'
+          ? 'Kartu ini belum bisa digunakan untuk review. Pemegang kartu dapat menghubungi admin untuk mengaktifkannya kembali.'
           : 'Coba tempel atau scan kartunya sekali lagi. Kalau masih sama, hubungi penjual.'}
       </p>
       <Button asChild className="w-full" size="lg">

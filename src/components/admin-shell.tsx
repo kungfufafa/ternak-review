@@ -1,18 +1,18 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { AdminUserContext } from "#/components/admin-user"
+import { AdminUserContext, type AppUser } from "#/components/admin-user"
 import { AppShell } from "#/components/app-shell"
 
 export function AdminShell({
-  email,
+  user,
   children,
 }: {
-  email: string
+  user: AppUser
   children: ReactNode
 }) {
   return (
-    <AdminUserContext.Provider value={{ email }}>
+    <AdminUserContext.Provider value={user}>
       <AppShell>{children}</AppShell>
     </AdminUserContext.Provider>
   )

@@ -13,6 +13,7 @@ export function ReviewPathFields({
   serviceTier,
   ownerWhatsapp,
   whatsappGatewayOpen,
+  viewerRole = 'USER',
   allowTierChange = true,
   onTierChange,
   onWhatsappChange,
@@ -21,6 +22,7 @@ export function ReviewPathFields({
   serviceTier: ServiceTier
   ownerWhatsapp: string
   whatsappGatewayOpen: boolean
+  viewerRole?: 'ADMIN' | 'USER'
   allowTierChange?: boolean
   onTierChange: (tier: ServiceTier) => void
   onWhatsappChange: (value: string) => void
@@ -38,38 +40,53 @@ export function ReviewPathFields({
   return (
     <div className="flex flex-col gap-4">
       <Field>
-        <FieldLabel htmlFor="review-tier">Paket</FieldLabel>
-        <Select
-          disabled={!allowTierChange}
-          id="review-tier"
-          onChange={(event) => onTierChange(event.target.value as ServiceTier)}
-          value={serviceTier}
-        >
-          {selectable.map((item) => (
-            <option
-              disabled={
-                !packageAvailable(item.serviceTier, whatsappGatewayOpen) &&
-                item.serviceTier !== serviceTier
-              }
-              key={item.serviceTier}
-              value={item.serviceTier}
-            >
-              {item.name}
-            </option>
-          ))}
-        </Select>
+        <FieldLabel htmlFor={allowTierChange ? 'review-tier' : undefined}>
+          Paket kartu
+        </FieldLabel>
+        {allowTierChange ? (
+          <Select
+            id="review-tier"
+            onChange={(event) => {
+              const selected = packages.find(
+                (item) => item.serviceTier === event.target.value,
+              )
+              if (selected) onTierChange(selected.serviceTier)
+            }}
+            value={serviceTier}
+          >
+            {selectable.map((item) => (
+              <option key={item.serviceTier} value={item.serviceTier}>
+                {item.name}
+              </option>
+            ))}
+          </Select>
+        ) : (
+          <p className="font-medium">{servicePackage?.name ?? serviceTier}</p>
+        )}
         <FieldDescription>
-          Tamu hanya nulis review. Nomor owner untuk tindak lanjut, bukan isian tamu.
+          {allowTierChange
+            ? 'Paket menentukan jalur review tamu. Nomor WhatsApp tindak lanjut diisi oleh pengelola toko.'
+            : 'Paket ditetapkan admin. Hubungi admin jika ingin mengubah paket kartu.'}
         </FieldDescription>
       </Field>
       {proOffline ? (
         <p className="text-sm text-muted-foreground">
-          WhatsApp platform belum OPEN. Tamu Pro sementara ke Google Review.
-          Ganti paket atau nyalakan gateway.
+          WhatsApp platform sedang tidak tersambung. Paket Pro tetap bisa
+          dipakai: masukan anonim masuk ke Log kiriman sebagai antrean dan
+          dapat dikirim ulang setelah gateway tersambung.{' '}
+          {allowTierChange
+            ? viewerRole === 'ADMIN'
+              ? 'Buka pengaturan WhatsApp untuk menyambungkan kembali layanan.'
+              : 'Hubungi admin untuk menyambungkan kembali WhatsApp.'
+            : 'Hubungi admin jika antrean perlu segera dikirim.'}
         </p>
-      ) : !whatsappGatewayOpen ? (
+      ) : allowTierChange && !whatsappGatewayOpen ? (
         <p className="text-sm text-muted-foreground">
-          Paket Pro tidak ditawarkan. WhatsApp platform belum OPEN.
+          Paket Pro tetap tersedia saat gateway offline. Masukan anonim akan
+          masuk ke Log kiriman dan menunggu dikirim ulang.{' '}
+          {viewerRole === 'ADMIN'
+            ? 'Buka pengaturan WhatsApp untuk menyambungkannya.'
+            : 'Hubungi admin untuk menyambungkannya.'}
         </p>
       ) : null}
       {servicePackage ? (
@@ -80,7 +97,7 @@ export function ReviewPathFields({
       {needsWhatsapp ? (
         <Field>
           <FieldLabel htmlFor="review-owner-whatsapp">
-            WhatsApp owner (tindak lanjut)
+            Nomor WhatsApp owner (wajib untuk Plus/Pro)
           </FieldLabel>
           <Input
             id="review-owner-whatsapp"
@@ -93,7 +110,7 @@ export function ReviewPathFields({
           />
           <FieldDescription>
             {serviceTier === 'PRO'
-              ? 'Sistem kirim isi form ke nomor ini. Tamu tidak melihatnya.'
+              ? 'Isi form masuk antrean WhatsApp untuk dikirim ke nomor ini. Tamu tidak melihatnya.'
               : 'Rating rendah membuka chat ke nomor ini. Tamu tidak mengetik nomor.'}
           </FieldDescription>
         </Field>

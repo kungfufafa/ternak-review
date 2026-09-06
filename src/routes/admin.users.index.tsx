@@ -57,7 +57,7 @@ export const Route = createFileRoute('/admin/users/')({
   },
   component: UsersPage,
   head: () => ({
-    meta: [{ title: 'Pengguna — Ternak Review' }],
+    meta: [{ title: 'Akun pemegang — Ternak Review' }],
   }),
 })
 
@@ -136,7 +136,7 @@ function UsersPage() {
       setPin('')
       await router.invalidate({ sync: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal membuat pengguna.')
+      setError(err instanceof Error ? err.message : 'Gagal membuat akun pemegang.')
     } finally {
       setBusy(false)
     }
@@ -146,12 +146,12 @@ function UsersPage() {
     <div className="flex w-full max-w-6xl flex-col gap-6">
       <PageHeader
         description="Buat akun pemegang kartu, assign PIN, lalu serahkan kartu. Satu user boleh memegang banyak kartu."
-        title="Pengguna"
+        title="Akun pemegang"
       />
 
       <Card>
         <CardHeader>
-          <CardTitle>Pengguna baru</CardTitle>
+          <CardTitle>Akun pemegang baru</CardTitle>
           <CardDescription>
             PIN dikirim lewat email (Resend/SMTP) dan WhatsApp platform, kalau
             saluran itu aktif di pengaturan. Tamu tidak mengisi nomor ini.
@@ -221,7 +221,7 @@ function UsersPage() {
             {error ? <Alert className="md:col-span-2" variant="danger">{error}</Alert> : null}
             {created ? (
               <Alert className="md:col-span-2" variant="success">
-                Pengguna dibuat. PIN: <strong>{created.pin}</strong>. Catat
+                Akun pemegang dibuat. PIN: <strong>{created.pin}</strong>. Catat
                 sekarang, tidak ditampilkan lagi. {notifyLine('Email', created.email)}{' '}
                 {notifyLine('WhatsApp', created.whatsapp)}
               </Alert>
@@ -230,7 +230,7 @@ function UsersPage() {
           <CardFooter className="mt-5">
             <Button disabled={busy} type="submit">
               {busy ? <Spinner data-icon="inline-start" /> : null}
-              {busy ? 'Menyimpan…' : 'Buat pengguna'}
+              {busy ? 'Menyimpan…' : 'Buat akun pemegang'}
             </Button>
           </CardFooter>
         </form>
@@ -250,9 +250,9 @@ function UsersPage() {
       {list.users.length === 0 ? (
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>Belum ada pengguna</EmptyTitle>
+            <EmptyTitle>Belum ada akun pemegang</EmptyTitle>
             <EmptyDescription>
-              Buat akun pemegang dulu, lalu assign kartu dari detail pengguna
+              Buat akun pemegang dulu, lalu hubungkan kartu dari detail akun
               atau detail kartu.
             </EmptyDescription>
           </EmptyHeader>

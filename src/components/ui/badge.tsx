@@ -30,7 +30,8 @@ export function Badge({
 }
 
 export function StatusBadge({ status }: { status: string }) {
-  if (status === 'ACTIVE') return <Badge variant="success">Di toko</Badge>
-  if (status === 'INACTIVE') return <Badge variant="muted">Dimatikan</Badge>
-  return <Badge variant="secondary">Di gudang</Badge>
+  if (status === 'ACTIVE') return <Badge variant="success">Aktif</Badge>
+  if (status === 'INACTIVE') return <Badge variant="muted">Nonaktif</Badge>
+  if (status === 'IN_STOCK') return <Badge variant="secondary">Belum aktif</Badge>
+  return <Badge variant="outline">Status tidak dikenal</Badge>
 }

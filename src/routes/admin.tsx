@@ -15,7 +15,7 @@ export const Route = createFileRoute('/admin')({
 function AdminLayout() {
   const { owner } = Route.useRouteContext()
   return (
-    <AdminShell email={owner.email}>
+    <AdminShell user={owner}>
       <Outlet />
     </AdminShell>
   )

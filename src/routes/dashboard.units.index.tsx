@@ -33,6 +33,7 @@ export const Route = createFileRoute('/dashboard/units/')({
   ): {
     partner?: string
     status?: UnitStatus
+    ownership?: 'unassigned' | 'assigned'
     q?: string
     page?: number
     batch?: string
@@ -51,6 +52,10 @@ export const Route = createFileRoute('/dashboard/units/')({
       typeof search.q === 'string' && search.q.trim()
         ? search.q.trim()
         : undefined
+    const ownership =
+      search.ownership === 'unassigned' || search.ownership === 'assigned'
+        ? search.ownership
+        : undefined
     const batch =
       typeof search.batch === 'string' &&
       /^[0-9a-f-]{36}$/i.test(search.batch)
@@ -63,6 +68,7 @@ export const Route = createFileRoute('/dashboard/units/')({
     return {
       ...(partner ? { partner } : {}),
       ...(status ? { status } : {}),
+      ...(ownership ? { ownership } : {}),
       ...(q ? { q } : {}),
       ...(batch ? { batch } : {}),
       ...(page ? { page } : {}),
@@ -71,6 +77,7 @@ export const Route = createFileRoute('/dashboard/units/')({
   loaderDeps: ({ search }) => ({
     q: search.q,
     status: search.status,
+    ownership: search.ownership,
     partner: search.partner,
     batch: search.batch,
     page: search.page,
@@ -81,6 +88,7 @@ export const Route = createFileRoute('/dashboard/units/')({
         data: {
           q: deps.q,
           status: deps.status,
+          ownership: deps.ownership,
           partner: deps.partner,
           batchId: deps.batch,
           page: deps.page ?? 1,
@@ -99,10 +107,10 @@ export const Route = createFileRoute('/dashboard/units/')({
 
 function UnitsListPage() {
   const { list, batches } = Route.useLoaderData()
-  const { partner, status, q, batch } = Route.useSearch()
+  const { partner, status, ownership, q, batch } = Route.useSearch()
   const navigate = useNavigate({ from: '/dashboard/units/' })
   const [draft, setDraft] = useState(q ?? '')
-  const hasFilters = Boolean(q || status || partner || batch)
+  const hasFilters = Boolean(q || status || ownership || partner || batch)
 
   useEffect(() => {
     setDraft(q ?? '')
@@ -127,15 +135,15 @@ function UnitsListPage() {
   return (
     <>
       <PageHeader
-        description="Cari, filter, lihat detail, ubah rekanan, atau hapus kartu gudang."
-        title="Kartu toko"
+        description="Pantau NFC, tentukan pemegang, dan ikuti aktivasi setiap kartu. Buka detail kartu untuk mengatur pemegangnya."
+        title="Semua kartu"
       />
 
       <div className="mb-6 flex flex-col gap-3">
         <InputGroup className="max-w-md">
           <InputGroupInput
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Cari kode, tempat, atau rekanan"
+            placeholder="Cari kode, toko, pemegang, atau rekanan"
             value={draft}
           />
           <InputGroupAddon align="inline-start">
@@ -164,10 +172,42 @@ function UnitsListPage() {
           variant="outline"
         >
           <ToggleGroupItem value="all">Semua</ToggleGroupItem>
-          <ToggleGroupItem value="IN_STOCK">Gudang</ToggleGroupItem>
-          <ToggleGroupItem value="ACTIVE">Di toko</ToggleGroupItem>
-          <ToggleGroupItem value="INACTIVE">Dimatikan</ToggleGroupItem>
+          <ToggleGroupItem value="IN_STOCK">Belum aktif</ToggleGroupItem>
+          <ToggleGroupItem value="ACTIVE">Aktif</ToggleGroupItem>
+          <ToggleGroupItem value="INACTIVE">Nonaktif</ToggleGroupItem>
         </ToggleGroup>
+        <Select
+          aria-label="Pemegang kartu"
+          className="max-w-md"
+          onChange={(event) => {
+            const value = event.target.value
+            void navigate({
+              replace: true,
+              search: (prev) => ({
+                ...prev,
+                ownership:
+                  value === 'unassigned' || value === 'assigned'
+                    ? value
+                    : undefined,
+                page: undefined,
+              }),
+            })
+          }}
+          value={ownership ?? ''}
+        >
+          <option value="">Semua pemegang</option>
+          <option value="unassigned">Belum dialokasikan</option>
+          <option value="assigned">Sudah ada pemegang</option>
+        </Select>
+        {status === 'IN_STOCK' ? (
+          <p className="text-sm text-muted-foreground">
+            {ownership === 'assigned'
+              ? 'Kartu sudah memiliki pemegang dan menunggu aktivasi toko.'
+              : ownership === 'unassigned'
+                ? 'Kartu belum memiliki pemegang. Periksa NFC, lalu tentukan pemegang dari detail kartu.'
+                : 'Belum aktif mencakup kartu tanpa pemegang dan kartu yang menunggu aktivasi.'}
+          </p>
+        ) : null}
         {batches.length > 0 ? (
           <Select
             aria-label="Cetakan"
@@ -217,7 +257,7 @@ function UnitsListPage() {
             <EmptyDescription>
               {hasFilters
                 ? 'Ubah kata kunci atau filter.'
-                : 'Generate QR dulu di menu Produksi.'}
+                : 'Buat kartu dulu di menu Produksi kartu.'}
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
@@ -228,6 +268,7 @@ function UnitsListPage() {
                   search={{
                     q: undefined,
                     status: undefined,
+                    ownership: undefined,
                     partner: undefined,
                     batch: undefined,
                     page: undefined,
@@ -268,6 +309,20 @@ function UnitsListPage() {
 
                   <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-xs">
                     <div className="min-w-0">
+                      <dt className="text-muted-foreground">Pemegang</dt>
+                      <dd className="mt-0.5 truncate">
+                        {u.holderId
+                          ? (u.holderName ?? u.holderEmail ?? 'Akun pemegang')
+                          : 'Belum dialokasikan'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">NFC</dt>
+                      <dd className="mt-0.5">
+                        {u.nfcEncodedAt ? 'Sudah ditulis' : 'Belum ditulis'}
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
                       <dt className="text-muted-foreground">Cetakan</dt>
                       <dd
                         className="mt-0.5 truncate"
@@ -307,6 +362,8 @@ function UnitsListPage() {
                   'Tempat',
                   'Cetakan',
                   'Rekanan',
+                  'Pemegang',
+                  'NFC',
                   'Status',
                   'Aktivasi',
                 ]}
@@ -326,6 +383,22 @@ function UnitsListPage() {
                     <DataTableCell>{u.outletName ?? '—'}</DataTableCell>
                     <DataTableCell muted>{u.batchLabel ?? '—'}</DataTableCell>
                     <DataTableCell muted>{u.partnerRef ?? '—'}</DataTableCell>
+                    <DataTableCell>
+                      {u.holderId ? (
+                        <Link
+                          className="hover:underline"
+                          params={{ userId: u.holderId }}
+                          to="/admin/users/$userId"
+                        >
+                          {u.holderName ?? u.holderEmail ?? 'Akun pemegang'}
+                        </Link>
+                      ) : (
+                        'Belum dialokasikan'
+                      )}
+                    </DataTableCell>
+                    <DataTableCell muted>
+                      {u.nfcEncodedAt ? 'Sudah ditulis' : 'Belum ditulis'}
+                    </DataTableCell>
                     <DataTableCell>
                       <StatusBadge status={u.status} />
                     </DataTableCell>

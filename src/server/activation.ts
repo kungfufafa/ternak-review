@@ -100,8 +100,6 @@ export async function activateUnit(input: {
     serviceTier: input.serviceTier ?? (unit.serviceTier as ServiceTier),
     reviewMode: input.reviewMode,
     ownerWhatsapp: input.ownerWhatsapp ?? unit.ownerWhatsapp,
-    whatsappGatewayOpen: await isWhatsappGatewayOpen(),
-    requireLivePro: true,
   })
 
   const details = await getPlaceDetails(input.placeId)
@@ -201,11 +199,11 @@ async function rejectBadPin(publicId: string): Promise<never> {
   )
   if (limit.limited || limit.remaining === 0) {
     throw new Error(
-      'Terlalu banyak PIN yang tidak cocok. Istirahat sebentar, atau masuk sebagai admin supaya tidak perlu PIN.',
+      'Terlalu banyak PIN yang tidak cocok. Coba lagi dalam 15 menit, atau hubungi admin untuk memeriksa pemegang dan PIN kartu.',
     )
   }
   throw new Error(
-    `PIN belum cocok. Masih ${limit.remaining} kesempatan. Admin yang sudah login tidak perlu PIN.`,
+    `PIN belum cocok. Masih ${limit.remaining} kesempatan. Gunakan PIN aktivasi dari admin, bukan kode OTP untuk masuk.`,
   )
 }
 
@@ -249,7 +247,7 @@ async function assertHolderMayActivate(
   if (unit.ownerId && unit.owner?.role === 'USER') {
     if (unit.owner.status !== 'ACTIVE') {
       throw new Error(
-        'Akun pemegang sedang istirahat. Hubungi penjual supaya diaktifkan lagi.',
+        'Akun pemegang dinonaktifkan. Hubungi admin untuk mengaktifkan akun sebelum memasang kartu.',
       )
     }
     if (input.sessionOwnerId && input.sessionOwnerId === unit.ownerId) {
@@ -260,6 +258,9 @@ async function assertHolderMayActivate(
     }
     return { holderOwnerId: unit.ownerId }
   }
+  if (!input.pin && !input.sessionOwnerId && !input.sessionRole) {
+    return { holderOwnerId: null }
+  }
   if (!input.pin) {
     throw new Error(
       'Masukkan PIN pemegang, atau masuk sebagai admin untuk pasang tanpa PIN.',
@@ -267,7 +268,7 @@ async function assertHolderMayActivate(
   }
   const matches = await findHolderByPin(input.pin)
   if (matches.length > 1) {
-    throw new Error('PIN bentrok di beberapa akun. Masuk dashboard, jangan pakai PIN.')
+    throw new Error('PIN digunakan oleh lebih dari satu akun. Minta admin menetapkan kartu ke akunmu, lalu masuk dengan akun tersebut untuk aktivasi tanpa PIN.')
   }
   const holder = matches[0]
   if (!holder) {
