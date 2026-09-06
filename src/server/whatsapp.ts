@@ -7,6 +7,7 @@ import {
   whatsappGatewayState,
   whatsappOutbox,
 } from '#/db/schema'
+import { getDeployTarget } from '#/lib/deploy-target'
 import { getAppUrl, getWhatsappGatewayToken, isProduction, isWhatsappGatewayConfigured } from '#/lib/env'
 import {
   applyFeedbackDelivery,
@@ -335,6 +336,7 @@ export async function getWhatsappGatewayStatus() {
     status: isOnline ? state?.status ?? 'OFFLINE' : 'OFFLINE',
     workerId,
     testMode: Boolean(workerId?.startsWith('stub')),
+    cloudflare: getDeployTarget() === 'cloudflare',
     qr: qrFresh ? state?.qr ?? null : null,
     lastHeartbeatAt: state?.lastHeartbeatAt?.getTime() ?? null,
     lastError: state?.lastError ?? null,

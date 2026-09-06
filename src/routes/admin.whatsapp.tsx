@@ -102,7 +102,7 @@ function WhatsappAdminPage() {
   return (
     <div className="flex w-full max-w-3xl flex-col gap-6">
       <PageHeader
-        description="Satu nomor WhatsApp platform untuk meneruskan masukan anonim ke owner."
+        description="Satu nomor WhatsApp platform. Bukan di dalam Cloudflare: proses Baileys terpisah yang nyambung ke situs ini."
         title="WhatsApp Gateway"
       />
       {error ? <Alert variant="danger">{error}</Alert> : null}
@@ -115,9 +115,22 @@ function WhatsappAdminPage() {
       ) : null}
       {status.status === 'OFFLINE' && !status.testMode ? (
         <Alert>
-          Worker belum nyala. Lokal tanpa nomor:{' '}
-          <code>npm run gateway:stub</code> (OTP masuk terminal + Log kiriman).
-          Production: jalankan gateway Baileys, lalu Hubungkan dan scan QR.
+          {status.cloudflare ? (
+            <>
+              WhatsApp tidak bisa jalan di dalam Cloudflare Workers — butuh
+              proses Baileys terpisah (komputer/VPS yang nyala terus) yang
+              poll ke situs ini. Jalankan gateway dengan{' '}
+              <code>APP_URL=https://ternakreview.com</code> dan token yang sama
+              dengan secret Cloudflare, lalu Hubungkan dan scan QR.
+            </>
+          ) : (
+            <>
+              Worker belum nyala. Lokal tanpa nomor:{' '}
+              <code>npm run gateway:stub</code> (OTP masuk terminal + Log
+              kiriman). Atau jalankan gateway Baileys, lalu Hubungkan dan scan
+              QR.
+            </>
+          )}
         </Alert>
       ) : null}
       <Card>
