@@ -10,6 +10,7 @@ import {
   hashPassword,
   hashToken,
   passwordHashNeedsUpgrade,
+  pbkdf2Iterations,
   timingSafeEqualText,
   verifyPassword,
 } from '#/lib/crypto'
@@ -20,8 +21,12 @@ const PROD_SESSION_COOKIE = '__Host-review_session'
 const SESSION_HOURS = 12
 const MIN_PASSWORD_LENGTH = 12
 const PRIMARY_OWNER_ID = '00000000-0000-4000-8000-000000000001'
-const DUMMY_PASSWORD_HASH =
-  'pbkdf2:600000:c0dec0dec0dec0dec0dec0dec0dec0de:359a83837843ace257b2cf995e64abb23327222ca6745852f7ebd588016d405b'
+const DUMMY_SALT_HASH =
+  'c0dec0dec0dec0dec0dec0dec0dec0de:359a83837843ace257b2cf995e64abb23327222ca6745852f7ebd588016d405b'
+
+function dummyPasswordHash() {
+  return `pbkdf2:${pbkdf2Iterations()}:${DUMMY_SALT_HASH}`
+}
 
 function sessionCookieName() {
   return isProduction() ? PROD_SESSION_COOKIE : DEV_SESSION_COOKIE
@@ -124,7 +129,7 @@ export async function loginWithPassword(email: string, password: string) {
   const owner = await db.query.owners.findFirst({
     where: eq(owners.email, normalized),
   })
-  const hashToVerify = owner?.passwordHash ?? DUMMY_PASSWORD_HASH
+  const hashToVerify = owner?.passwordHash ?? dummyPasswordHash()
   const passwordMatches = await verifyPassword(password, hashToVerify)
   if (!owner?.passwordHash || !passwordMatches) {
     throw new Error(GENERIC_LOGIN_ERROR)

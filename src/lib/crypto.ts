@@ -1,12 +1,19 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { customAlphabet } from 'nanoid'
+import { getDeployTarget } from './deploy-target'
 import { getAuthSecret, getIpHashSalt } from './env'
 
 const publicIdAlphabet = customAlphabet('23456789ABCDEFGHJKLMNPQRSTUVWXYZ', 10)
 const encoder = new TextEncoder()
 
-function pbkdf2Iterations() {
-  return 600_000
+/** Cloudflare WebCrypto rejects PBKDF2 above 100_000 iterations. */
+export const PBKDF2_ITERATIONS_NODE = 600_000
+export const PBKDF2_ITERATIONS_CLOUDFLARE = 100_000
+
+export function pbkdf2Iterations() {
+  return getDeployTarget() === 'cloudflare'
+    ? PBKDF2_ITERATIONS_CLOUDFLARE
+    : PBKDF2_ITERATIONS_NODE
 }
 
 function toHex(bytes: Uint8Array) {
@@ -40,17 +47,27 @@ async function pbkdf2Sha256(
     false,
     ['deriveBits'],
   )
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: 'PBKDF2',
-      hash: 'SHA-256',
-      salt: salt as BufferSource,
-      iterations,
-    },
-    key,
-    256,
-  )
-  return new Uint8Array(bits)
+  try {
+    const bits = await crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        hash: 'SHA-256',
+        salt: salt as BufferSource,
+        iterations,
+      },
+      key,
+      256,
+    )
+    return new Uint8Array(bits)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (iterations > PBKDF2_ITERATIONS_CLOUDFLARE && /100000|iteration/i.test(message)) {
+      throw new Error(
+        'Hash password ini tidak bisa diverifikasi di Cloudflare. Reset password di VPS/Node, atau buat akun ulang.',
+      )
+    }
+    throw error
+  }
 }
 
 export function generatePublicId() {

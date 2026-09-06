@@ -64,7 +64,7 @@ async function main() {
 
   const owner = await db.query.owners.findFirst()
   if (!owner?.passwordHash?.startsWith('pbkdf2:600000:')) {
-    throw new Error('Password baru wajib memakai PBKDF2 600000 iterasi')
+    throw new Error('Password baru di Node wajib memakai PBKDF2 600000 iterasi')
   }
 
   await createSessionForOwner(owner.id)
