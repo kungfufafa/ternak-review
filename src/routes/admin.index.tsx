@@ -105,8 +105,8 @@ function AdminHomePage() {
           <EmptyHeader>
             <EmptyTitle>Belum ada kartu produksi</EmptyTitle>
             <EmptyDescription>
-              Buat QR, cetak kartu, lalu tulis NFC. Tentukan akun pemegang
-              sebelum kartu diserahkan untuk aktivasi toko.
+              Buat QR, cetak kartu, lalu tulis NFC. Tetapkan pemegang, atau
+              aktifkan tokonya dulu lalu hubungkan akun kemudian.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>

@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router'
 import { Field, FieldDescription, FieldLabel } from '#/components/ui/field'
 import { Input, Select } from '#/components/ui/input'
 import {
@@ -36,6 +37,20 @@ export function ReviewPathFields({
       item.serviceTier === serviceTier,
   )
   const proOffline = serviceTier === 'PRO' && !whatsappGatewayOpen
+  const reconnectHint =
+    viewerRole === 'ADMIN' ? (
+      <>
+        <Link
+          className="text-pine underline underline-offset-4"
+          to="/admin/whatsapp"
+        >
+          Buka pengaturan WhatsApp
+        </Link>{' '}
+        untuk menyambungkannya.
+      </>
+    ) : (
+      'Hubungi admin untuk menyambungkannya.'
+    )
 
   return (
     <div className="flex flex-col gap-4">
@@ -65,28 +80,25 @@ export function ReviewPathFields({
         )}
         <FieldDescription>
           {allowTierChange
-            ? 'Paket menentukan jalur review tamu. Nomor WhatsApp tindak lanjut diisi oleh pengelola toko.'
+            ? viewerRole === 'ADMIN'
+              ? 'Paket menentukan jalur review tamu setelah tempel atau scan.'
+              : 'Paket menentukan jalur review tamu. Nomor WhatsApp tindak lanjut diisi pengelola toko.'
             : 'Paket ditetapkan admin. Hubungi admin jika ingin mengubah paket kartu.'}
         </FieldDescription>
       </Field>
       {proOffline ? (
         <p className="text-sm text-muted-foreground">
-          WhatsApp platform sedang tidak tersambung. Paket Pro tetap bisa
-          dipakai: masukan anonim masuk ke Log kiriman sebagai antrean dan
-          dapat dikirim ulang setelah gateway tersambung.{' '}
+          WhatsApp belum tersambung. Paket Pro tetap bisa dipakai: masukan
+          anonim masuk antrean dan bisa dikirim ulang setelah tersambung.{' '}
           {allowTierChange
-            ? viewerRole === 'ADMIN'
-              ? 'Buka pengaturan WhatsApp untuk menyambungkan kembali layanan.'
-              : 'Hubungi admin untuk menyambungkan kembali WhatsApp.'
+            ? reconnectHint
             : 'Hubungi admin jika antrean perlu segera dikirim.'}
         </p>
       ) : allowTierChange && !whatsappGatewayOpen ? (
         <p className="text-sm text-muted-foreground">
-          Paket Pro tetap tersedia saat gateway offline. Masukan anonim akan
-          masuk ke Log kiriman dan menunggu dikirim ulang.{' '}
-          {viewerRole === 'ADMIN'
-            ? 'Buka pengaturan WhatsApp untuk menyambungkannya.'
-            : 'Hubungi admin untuk menyambungkannya.'}
+          WhatsApp belum tersambung. Paket Pro tetap bisa dipilih; masukan
+          anonim masuk antrean dan bisa dikirim ulang setelah tersambung.{' '}
+          {reconnectHint}
         </p>
       ) : null}
       {servicePackage ? (

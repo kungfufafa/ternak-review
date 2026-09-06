@@ -282,8 +282,8 @@ function ActivatePage() {
       {isAdmin && (step === 'outlet' || step === 'confirm') ? (
         <p className="text-sm text-muted-foreground">
           {card.ownerId
-            ? 'Aktivasi sebagai admin. Kartu tetap terhubung ke akun pemegangnya.'
-            : 'Kartu ini belum memiliki pemegang. Setelah aktivasi, tetapkan pemegang di detail kartu agar toko dapat mengelolanya.'}
+            ? 'Kamu mengaktifkan sebagai admin. Pemegang yang sudah terhubung tetap mengelola kartu ini.'
+            : 'Belum ada pemegang. Setelah toko terpasang, tetapkan akun di halaman kartu agar toko bisa kelola dari aplikasi.'}
         </p>
       ) : null}
       {publicUnassigned && (step === 'outlet' || step === 'confirm') ? (
@@ -427,7 +427,9 @@ function ActivatePage() {
             {isAdmin ? (
               <>
                 <Button asChild className="w-full" size="lg">
-                  <Link params={{ unitId: card.id }} to="/dashboard/units/$unitId">Kelola kartu ini</Link>
+                  <Link params={{ unitId: card.id }} to="/dashboard/units/$unitId">
+                    {card.ownerId ? 'Buka detail kartu' : 'Tetapkan pemegang'}
+                  </Link>
                 </Button>
                 <Button asChild className="w-full" size="lg" variant="outline">
                   <a href={`/r/${result.publicId}`}>Coba sebagai tamu</a>

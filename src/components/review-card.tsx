@@ -1,3 +1,4 @@
+import { BrandMark } from '#/components/brand-mark'
 import { cn } from '#/lib/utils'
 
 function GoogleMark() {
@@ -70,24 +71,33 @@ export function ReviewCard({
     <article className={cn('review-card', className)}>
       <div className="review-card-frame">
         <div className="review-card-face">
-          <GoogleMark />
-          <p className="review-card-title">
-            Bantu Kami Dengan
-            <span>Google Review</span>
-          </p>
-          <Stars />
+          <div className="review-card-head">
+            <GoogleMark />
+            <p className="review-card-kicker">Bantu kami dengan</p>
+            <p className="review-card-title">Google Review</p>
+            <Stars />
+          </div>
           <div className="review-card-actions">
-            <NfcTap />
+            <div className="review-card-action">
+              <div className="review-card-glyph">
+                <NfcTap />
+              </div>
+              <p>Tempel HP</p>
+            </div>
             <span className="review-card-or">Atau</span>
-            <div
-              className="review-card-qr"
-              dangerouslySetInnerHTML={
-                qrSvg ? { __html: qrSvg } : undefined
-              }
-            />
-            <p>Tempel HP</p>
-            <span aria-hidden="true" />
-            <p>Scan QR</p>
+            <div className="review-card-action">
+              <div
+                className="review-card-qr"
+                dangerouslySetInnerHTML={
+                  qrSvg ? { __html: qrSvg } : undefined
+                }
+              />
+              <p>Scan QR</p>
+            </div>
+          </div>
+          <div className="review-card-brand">
+            <BrandMark className="review-card-brand-mark" title="" />
+            <p className="review-card-brand-credit">@ternakreview</p>
           </div>
         </div>
       </div>

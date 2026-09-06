@@ -202,10 +202,10 @@ function UnitsListPage() {
         {status === 'IN_STOCK' ? (
           <p className="text-sm text-muted-foreground">
             {ownership === 'assigned'
-              ? 'Kartu sudah memiliki pemegang dan menunggu aktivasi toko.'
+              ? 'Menunggu pemegang atau admin mengaktifkan toko.'
               : ownership === 'unassigned'
-                ? 'Kartu belum memiliki pemegang. Periksa NFC, lalu tentukan pemegang dari detail kartu.'
-                : 'Belum aktif mencakup kartu tanpa pemegang dan kartu yang menunggu aktivasi.'}
+                ? 'Belum ada pemegang. Buka detail untuk menetapkan akun, atau aktifkan tokonya dulu.'
+                : 'Termasuk kartu tanpa pemegang dan yang sudah dialokasikan, belum dipasang ke toko.'}
           </p>
         ) : null}
         {batches.length > 0 ? (

@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '#/db'
 import { outlets, owners, units } from '#/db/schema'
 import { hashPin, normalizePin, pinMatches } from '#/lib/pin'
@@ -136,7 +136,13 @@ export async function activateUnit(input: {
       ...settings,
       activatedAt: new Date(),
     })
-    .where(and(eq(units.id, unit.id), eq(units.status, 'IN_STOCK')))
+    .where(
+      and(
+        eq(units.id, unit.id),
+        eq(units.status, 'IN_STOCK'),
+        unit.ownerId ? eq(units.ownerId, unit.ownerId) : isNull(units.ownerId),
+      ),
+    )
     .returning()
 
   if (!updated) {

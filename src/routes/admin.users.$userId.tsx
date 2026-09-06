@@ -267,9 +267,8 @@ function UserDetailPage() {
         <CardHeader>
           <CardTitle>Kartu</CardTitle>
           <CardDescription>
-            Hubungkan kartu ke akun ini, baik yang belum maupun sudah aktif.
-            Jika kartu dipegang akun lain, periksa dampak pemindahan sebelum
-            menyimpan. PIN akun ini digunakan untuk aktivasi kartunya.
+            Tempel kode kartu untuk menghubungkan ke akun ini. PIN akun dipakai
+            saat aktivasi publik.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -347,8 +346,8 @@ function UserDetailPage() {
         confirmLabel={user.status === 'ACTIVE' ? 'Nonaktifkan akun' : 'Aktifkan akun'}
         description={
           user.status === 'ACTIVE'
-            ? `${user.name ?? user.email} akan keluar dari sesi yang sedang berjalan dan tidak bisa masuk atau aktivasi dengan PIN. Kartu yang sudah aktif tetap melayani tamu. Untuk menghentikan layanan kartu, nonaktifkan masing-masing kartu.`
-            : `${user.name ?? user.email} dapat kembali masuk dan menggunakan PIN untuk aktivasi. Status kartu tidak berubah.`
+            ? `${user.name ?? user.email} tidak bisa masuk atau aktivasi dengan PIN. Kartu aktif tetap melayani tamu.`
+            : `${user.name ?? user.email} bisa masuk dan memakai PIN lagi. Status kartu tidak berubah.`
         }
         onConfirm={() =>
           run(async () => {
@@ -373,7 +372,7 @@ function UserDetailPage() {
 
       <ConfirmDelete
         confirmLabel="Pindahkan pemegang"
-        description={`${pendingTransfer?.publicId ?? ''}${pendingTransfer?.outlet ? ` (${pendingTransfer.outlet.name})` : ''}: dari ${pendingTransfer?.holder?.name ?? pendingTransfer?.holder?.email ?? ''} ke ${user.name ? `${user.name} · ` : ''}${user.email}. Pemegang lama kehilangan akses pengelolaan, statistik, dan masukan kartu ini; akun ini mendapat akses tersebut. Toko, paket, nomor WhatsApp tindak lanjut, dan status kartu tetap. Kartu aktif tetap melayani tamu.`}
+        description={`${pendingTransfer?.holder?.name ?? pendingTransfer?.holder?.email ?? 'Pemegang lama'} tidak lagi bisa kelola ${pendingTransfer?.publicId ?? 'kartu ini'}. Akses pindah ke ${user.name ?? user.email}. Toko dan paket tidak berubah.`}
         onConfirm={() =>
           run(async () => {
             if (!pendingTransfer) return
@@ -394,7 +393,7 @@ function UserDetailPage() {
 
       <ConfirmDelete
         confirmLabel="Lepas pemegang"
-        description={`${pendingRemoval?.publicId ?? ''}${pendingRemoval?.outletName ? ` (${pendingRemoval.outletName})` : ''} akan menjadi tanpa pemegang. ${user.name ?? user.email} kehilangan akses pengelolaan, statistik, dan masukan kartu ini. Toko, paket, nomor WhatsApp tindak lanjut, dan status kartu tetap. Kartu aktif tetap melayani tamu. Kartu yang belum aktif dapat diaktifkan lewat tautan publik; jika ingin langsung mengaitkannya ke akun pemegang, gunakan PIN akun tersebut.`}
+        description={`${pendingRemoval?.publicId ?? 'Kartu ini'} menjadi tanpa pemegang. ${user.name ?? user.email} tidak lagi bisa kelolanya dari aplikasi. Tamu tetap bisa review jika kartu aktif.`}
         onConfirm={() =>
           run(async () => {
             if (!pendingRemoval) return
