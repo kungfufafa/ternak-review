@@ -49,8 +49,8 @@ export function AuthPage({
   const isSetup = !adminExists
   const [mode, setMode] = useState<LoginMode>(() => {
     if (isSetup) return 'password'
-    if (whatsappOtp) return 'wa'
     if (emailOtp) return 'email'
+    if (whatsappOtp) return 'wa'
     return 'password'
   })
 

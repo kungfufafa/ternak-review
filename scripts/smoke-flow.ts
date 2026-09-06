@@ -54,7 +54,11 @@ import {
   reportWhatsappGateway,
   testWhatsapp,
 } from '../src/server/whatsapp.ts'
-import { requestLoginOtp, verifyLoginOtp } from '../src/server/otp-login.ts'
+import {
+  requestEmailLoginOtp,
+  requestLoginOtp,
+  verifyLoginOtp,
+} from '../src/server/otp-login.ts'
 import { isSmtpReady, saveSmtpSettings, sendAppEmail } from '../src/server/smtp.ts'
 import { listOutboundLogs } from '../src/server/outbox.ts'
 import {
@@ -539,6 +543,10 @@ async function checkHolderAccounts() {
   if (await isSmtpReady()) {
     throw new Error('SMTP must stay off until admin enables it')
   }
+  await expectReject(
+    () => requestEmailLoginOtp(holder.email),
+    'Email OTP while mail is off',
+  )
   const smtp = await saveSmtpSettings({
     provider: 'smtp',
     host: 'smtp.example.com',
@@ -623,6 +631,31 @@ async function checkHolderAccounts() {
   const probe = emailLogs.items.find((item) => item.to === 'log-probe@example.com')
   if (!probe || probe.status !== 'FAILED' || probe.preview.includes('482193')) {
     throw new Error('Failed email send must appear in outbound logs with redacted secrets')
+  }
+  const unknownMail = await requestEmailLoginOtp('nobody-otp@example.com')
+  if (!unknownMail.ok) {
+    throw new Error('Unknown email OTP must stay generic')
+  }
+  await expectReject(
+    () => requestEmailLoginOtp(holder.email),
+    'Fake Resend key must fail holder OTP send',
+  )
+  const otpLogs = await listOutboundLogs({ channel: 'email', pageSize: 20 })
+  const otpFail = otpLogs.items.find(
+    (item) => item.kind === 'OTP' && item.to === holder.email,
+  )
+  if (!otpFail || otpFail.status !== 'FAILED') {
+    throw new Error('Email OTP must send through the configured Resend/SMTP path')
+  }
+  if (otpFail.preview.match(/\b\d{6}\b/)) {
+    throw new Error('Email OTP logs must redact the code')
+  }
+  if (
+    otpLogs.items.some(
+      (item) => item.kind === 'OTP' && item.to === 'nobody-otp@example.com',
+    )
+  ) {
+    throw new Error('Unknown email must not enqueue an OTP message')
   }
   await saveSmtpSettings({
     provider: 'resend',

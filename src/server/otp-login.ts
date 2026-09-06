@@ -3,7 +3,7 @@ import { db } from '#/db'
 import { emailOtps, loginOtps, owners } from '#/db/schema'
 import { hashToken, timingSafeEqualText } from '#/lib/crypto'
 import { normalizeWhatsapp } from '#/server/review'
-import { replaceSessionsForOwner } from './auth'
+import { replaceSessionsForOwner, type OwnerRole } from './auth'
 import { isSmtpReady, sendAppEmail } from './smtp'
 import { isWhatsappGatewayOpen, queueWhatsappOutbox } from './whatsapp'
 
@@ -127,23 +127,28 @@ export async function verifyLoginOtp(whatsappRaw: string, codeRaw: string) {
 const GENERIC_EMAIL_SENT =
   'Kalau email itu terdaftar, kodenya dikirim ke kotak masuk.'
 
+const MAIL_OFF_ERROR =
+  'Pengiriman email belum aktif. Masuk pakai password, atau minta admin mengisi Resend/SMTP.'
+
+async function findActiveOwnerByEmail(email: string) {
+  return db.query.owners.findFirst({
+    where: and(eq(owners.email, email), eq(owners.status, 'ACTIVE')),
+  })
+}
+
+function sessionRole(role: string): OwnerRole {
+  return role === 'ADMIN' ? 'ADMIN' : 'USER'
+}
+
 export async function requestEmailLoginOtp(emailRaw: string) {
   if (!(await isSmtpReady())) {
-    throw new Error(
-      'Email SMTP belum aktif. Masuk pakai password, atau minta admin mengisi SMTP.',
-    )
+    throw new Error(MAIL_OFF_ERROR)
   }
   const email = emailRaw.trim().toLowerCase()
   if (!email.includes('@') || email.endsWith('@wa.holder')) {
     throw new Error('Email tidak valid.')
   }
-  const owner = await db.query.owners.findFirst({
-    where: and(
-      eq(owners.email, email),
-      eq(owners.role, 'USER'),
-      eq(owners.status, 'ACTIVE'),
-    ),
-  })
+  const owner = await findActiveOwnerByEmail(email)
   if (!owner) return { ok: true as const, sent: GENERIC_EMAIL_SENT }
 
   const code = generateOtp()
@@ -170,22 +175,14 @@ export async function requestEmailLoginOtp(emailRaw: string) {
 
 export async function verifyEmailLoginOtp(emailRaw: string, codeRaw: string) {
   if (!(await isSmtpReady())) {
-    throw new Error(
-      'Email SMTP belum aktif. Masuk pakai password, atau minta admin mengisi SMTP.',
-    )
+    throw new Error(MAIL_OFF_ERROR)
   }
   const email = emailRaw.trim().toLowerCase()
   const code = codeRaw.trim()
   if (!email.includes('@') || !/^\d{6}$/.test(code)) {
     throw new Error('Email atau kode tidak valid.')
   }
-  const owner = await db.query.owners.findFirst({
-    where: and(
-      eq(owners.email, email),
-      eq(owners.role, 'USER'),
-      eq(owners.status, 'ACTIVE'),
-    ),
-  })
+  const owner = await findActiveOwnerByEmail(email)
   const otp = owner
     ? await db.query.emailOtps.findFirst({
         where: and(
@@ -221,6 +218,6 @@ export async function verifyEmailLoginOtp(emailRaw: string, codeRaw: string) {
   return {
     ownerId: owner.id,
     email: owner.email,
-    role: 'USER' as const,
+    role: sessionRole(owner.role),
   }
 }

@@ -135,7 +135,7 @@ function SmtpPage() {
   return (
     <div className="flex w-full max-w-3xl flex-col gap-6">
       <PageHeader
-        description="Resend pakai API key (jalan di Cloudflare). SMTP klasik untuk VPS/Node. Kalau aktif, pemegang bisa masuk pakai kode email dan PIN bisa dikirim ke email saat akun dibuat."
+        description="Resend pakai API key (jalan di Cloudflare). SMTP klasik untuk VPS/Node. Kalau aktif, kode OTP login (admin dan pemegang) plus PIN akun baru dikirim lewat saluran ini."
         title="Email keluar"
       />
       {isResend ? (
