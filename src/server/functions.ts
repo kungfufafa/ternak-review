@@ -422,7 +422,7 @@ export const loginPasswordFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       email: z.string().trim().email().max(254),
-      password: z.string().min(8).max(200),
+      password: z.string().min(6).max(200),
     }),
   )
   .handler(async ({ data }) => {
@@ -438,7 +438,7 @@ export const registerPasswordFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       email: z.string().trim().email().max(254),
-      password: z.string().min(12).max(200),
+      password: z.string().min(6).max(200),
       setupToken: z.string().min(1).max(512),
     }),
   )
@@ -624,7 +624,7 @@ export const changePasswordFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       currentPassword: z.string().min(1).max(200),
-      newPassword: z.string().min(12).max(200),
+      newPassword: z.string().min(6).max(200),
     }),
   )
   .handler(async ({ data }) => {
@@ -824,7 +824,7 @@ export const resetHolderPasswordFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       userId: z.string().uuid(),
-      password: z.string().min(12).max(200),
+      password: z.string().min(6).max(200),
     }),
   )
   .handler(async ({ data }) => {

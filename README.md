@@ -174,7 +174,7 @@ Cek setelah nyala: `GET /health` — field `target` adalah `cloudflare` atau `no
 - Aktivasi hanya menyimpan `place_id` resmi Google. QR dan NTAG215 mengarah ke `/r/{id}`, lalu ke `writereview?placeid=…` listing itu.
 - Set `APP_URL` HTTPS final **sebelum** cetak dan tulis chip. URL di kertas/chip tidak ikut pindah domain; yang dinamis hanya tujuan Google.
 - Hosting redirect (`/r/*`) harus uptime tinggi — ini jalur kritis produk.
-- Password admin baru minimal 12 karakter dan memakai PBKDF2-HMAC-SHA256 600.000 iterasi. Hash lama di-upgrade saat login berhasil; hash `scrypt:` lama tetap diverifikasi di VPS.
+- Password admin baru minimal 6 karakter. Di Cloudflare PBKDF2 100.000 iterasi; di VPS/Node 600.000. Hash lama di-upgrade saat login berhasil; hash `scrypt:` lama tetap diverifikasi di VPS.
 - Session admin berlaku absolut 12 jam. Login atau ganti password mencabut semua session lama.
 - VPS yang berada di balik reverse proxy tepercaya boleh memakai `TRUST_PROXY=true` hanya bila proxy menimpa `X-Real-IP`/`X-Forwarded-For`. Jangan aktifkan pada port Node yang terekspos langsung.
 - Click berulang dari kartu/client yang sama dideduplikasi per lima menit untuk menahan write-flood dan noise analytics.

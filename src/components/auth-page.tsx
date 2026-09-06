@@ -237,7 +237,7 @@ export function AuthPage({
                   <InputGroupInput
                     autoComplete={isSetup ? 'new-password' : 'current-password'}
                     maxLength={200}
-                    minLength={isSetup ? 12 : 8}
+                    minLength={6}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Kata sandi"
                     required

@@ -19,7 +19,7 @@ import { getAdminSetupToken, getAppUrl, isProduction } from '#/lib/env'
 const DEV_SESSION_COOKIE = 'review_session'
 const PROD_SESSION_COOKIE = '__Host-review_session'
 const SESSION_HOURS = 12
-const MIN_PASSWORD_LENGTH = 12
+const MIN_PASSWORD_LENGTH = 6
 const PRIMARY_OWNER_ID = '00000000-0000-4000-8000-000000000001'
 const DUMMY_SALT_HASH =
   'c0dec0dec0dec0dec0dec0dec0dec0de:359a83837843ace257b2cf995e64abb23327222ca6745852f7ebd588016d405b'

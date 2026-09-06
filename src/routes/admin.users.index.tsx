@@ -164,12 +164,12 @@ function UsersPage() {
               <FieldLabel htmlFor="user-password">Password cadangan</FieldLabel>
               <Input
                 id="user-password"
-                minLength={12}
+                minLength={6}
                 onChange={(event) => setPassword(event.target.value)}
                 type="password"
                 value={password}
               />
-              <FieldDescription>Opsional. Minimal 12 karakter kalau diisi.</FieldDescription>
+              <FieldDescription>Opsional. Minimal 6 karakter kalau diisi.</FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="user-pin">PIN 4 digit (opsional)</FieldLabel>

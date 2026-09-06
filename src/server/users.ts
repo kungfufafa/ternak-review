@@ -7,7 +7,7 @@ import { replaceHolderSessions } from './auth'
 import { normalizeWhatsapp } from './review'
 import { sendHolderWelcomeEmail } from './smtp'
 
-const MIN_PASSWORD_LENGTH = 12
+const MIN_PASSWORD_LENGTH = 6
 
 function normalizeEmail(email: string) {
   const value = email.trim().toLowerCase()

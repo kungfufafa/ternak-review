@@ -193,13 +193,13 @@ function UserDetailPage() {
               <FieldLabel htmlFor="holder-password">Password baru</FieldLabel>
               <Input
                 id="holder-password"
-                minLength={12}
+                minLength={6}
                 onChange={(event) => setPassword(event.target.value)}
                 required
                 type="password"
                 value={password}
               />
-              <FieldDescription>Minimal 12 karakter.</FieldDescription>
+              <FieldDescription>Minimal 6 karakter.</FieldDescription>
             </Field>
             <Button disabled={busy || password.length < 12} type="submit">
               Reset password
