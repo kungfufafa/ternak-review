@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import 'dotenv/config'
 import { config } from 'dotenv'
 config({ path: '.env.local' })
@@ -7,7 +10,7 @@ if (process.env.CI || process.env.SMOKE_LIVE_PLACES !== '1') {
   process.env.GOOGLE_MAPS_API_KEY = ''
 }
 if (process.env.SMOKE_USE_APP_DB !== '1') {
-  process.env.DATABASE_URL = 'file:./data/ci.db'
+  process.env.DATABASE_URL = `file:${join(mkdtempSync(join(tmpdir(), 'review-smoke-')), 'smoke.db')}`
 }
 
 import {
