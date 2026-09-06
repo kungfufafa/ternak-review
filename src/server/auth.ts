@@ -80,10 +80,16 @@ export function readSessionToken(): string | null {
   }
 }
 
+export type OwnerRole = 'ADMIN' | 'USER'
+export type OwnerStatus = 'ACTIVE' | 'DISABLED'
+
 export type SessionOwner = {
   sessionId: string
   ownerId: string
   email: string
+  name: string | null
+  role: OwnerRole
+  status: OwnerStatus
   hasPassword: boolean
 }
 
@@ -99,10 +105,14 @@ export async function getSessionOwner(): Promise<SessionOwner | null> {
     with: { owner: true },
   })
   if (!row?.owner) return null
+  if (row.owner.status !== 'ACTIVE') return null
   return {
     sessionId: row.id,
     ownerId: row.owner.id,
     email: row.owner.email,
+    name: row.owner.name,
+    role: row.owner.role,
+    status: row.owner.status,
     hasPassword: Boolean(row.owner.passwordHash),
   }
 }
@@ -119,6 +129,9 @@ export async function loginWithPassword(email: string, password: string) {
   if (!owner?.passwordHash || !passwordMatches) {
     throw new Error(GENERIC_LOGIN_ERROR)
   }
+  if (owner.status !== 'ACTIVE') {
+    throw new Error('Akun dinonaktifkan.')
+  }
   if (passwordHashNeedsUpgrade(owner.passwordHash)) {
     await db
       .update(owners)
@@ -126,11 +139,18 @@ export async function loginWithPassword(email: string, password: string) {
       .where(eq(owners.id, owner.id))
   }
   await replaceSessionsForOwner(owner.id)
-  return { ownerId: owner.id, email: owner.email }
+  return {
+    ownerId: owner.id,
+    email: owner.email,
+    role: owner.role as OwnerRole,
+  }
 }
 
 export async function adminExists() {
-  const [row] = await db.select({ n: count() }).from(owners)
+  const [row] = await db
+    .select({ n: count() })
+    .from(owners)
+    .where(eq(owners.role, 'ADMIN'))
   return Number(row?.n ?? 0) > 0
 }
 
@@ -161,6 +181,8 @@ export async function registerWithPassword(
         id: PRIMARY_OWNER_ID,
         email: normalized,
         passwordHash: await hashPassword(password),
+        role: 'ADMIN',
+        status: 'ACTIVE',
       })
       .returning()
     created = inserted[0]
@@ -172,7 +194,7 @@ export async function registerWithPassword(
   }
   if (!created) throw new Error('Gagal membuat admin')
   await createSessionForOwner(created.id)
-  return { ownerId: created.id, email: created.email }
+  return { ownerId: created.id, email: created.email, role: 'ADMIN' as const }
 }
 
 export async function changeOwnerPassword(
@@ -200,6 +222,10 @@ export async function changeOwnerPassword(
   return { ok: true as const }
 }
 
+export async function replaceHolderSessions(ownerId: string) {
+  await db.delete(sessions).where(eq(sessions.ownerId, ownerId))
+}
+
 export async function createSessionForOwner(ownerId: string) {
   const token = generateToken()
   const expiresAt = new Date(Date.now() + SESSION_HOURS * 60 * 60 * 1000)
@@ -212,7 +238,7 @@ export async function createSessionForOwner(ownerId: string) {
   return token
 }
 
-async function replaceSessionsForOwner(ownerId: string) {
+export async function replaceSessionsForOwner(ownerId: string) {
   await db.delete(sessions).where(eq(sessions.ownerId, ownerId))
   await db.delete(sessions).where(lt(sessions.expiresAt, new Date()))
   return createSessionForOwner(ownerId)

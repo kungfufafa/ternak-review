@@ -19,7 +19,7 @@ export function AppSidebar() {
     <Sidebar collapsible="icon" variant="inset">
       <SidebarHeader className="h-14 justify-center">
         <SidebarMenuButton asChild>
-          <Link to="/admin">
+          <Link to={pathname.startsWith("/app") ? "/app" : "/admin"}>
             <BrandMark className="size-4 rounded-sm" title="" />
             <span>
               Ternak

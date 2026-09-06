@@ -67,6 +67,40 @@ export function hashToken(token: string) {
     .digest('hex')
 }
 
+async function aesKey() {
+  const hash = await crypto.subtle.digest(
+    'SHA-256',
+    encoder.encode(getAuthSecret()),
+  )
+  return crypto.subtle.importKey('raw', hash, 'AES-GCM', false, [
+    'encrypt',
+    'decrypt',
+  ])
+}
+
+export async function encryptSecret(plain: string) {
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const data = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    await aesKey(),
+    encoder.encode(plain),
+  )
+  return `v1:${toHex(iv)}:${toHex(new Uint8Array(data))}`
+}
+
+export async function decryptSecret(stored: string) {
+  const [version, ivHex, dataHex] = stored.split(':')
+  if (version !== 'v1' || !ivHex || !dataHex) {
+    throw new Error('Rahasia tersimpan tidak valid.')
+  }
+  const plain = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: fromHex(ivHex) as BufferSource },
+    await aesKey(),
+    fromHex(dataHex) as BufferSource,
+  )
+  return new TextDecoder().decode(plain)
+}
+
 export function timingSafeEqualText(a: string, b: string) {
   const aDigest = createHash('sha256').update(a).digest()
   const bDigest = createHash('sha256').update(b).digest()

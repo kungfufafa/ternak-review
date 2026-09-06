@@ -47,12 +47,21 @@ function PrivacyPage() {
         bisa mencatat waktu, jenis perangkat, dan hash IP — bukan alamat IP
         mentah.
       </p>
+      <p>
+        Untuk paket WhatsApp, nomor owner disimpan sebagai tujuan kartu. Pesan
+        feedback anonim tidak meminta atau meneruskan nama, nomor, atau
+        identitas tamu.
+      </p>
 
       <h2>2. Bagaimana data dipakai</h2>
       <ul>
         <li>Mengirim akses produk setelah pembayaran berhasil</li>
         <li>Membalas pertanyaan atau kendala</li>
-        <li>Menjalankan kartu: aktivasi toko dan arahkan tamu ke Google Review</li>
+        <li>Menjalankan kartu: aktivasi toko, Google Review, dan feedback sesuai paket</li>
+        <li>
+          Menyimpan masukan anonim yang dikirim tamu tanpa nama atau nomor
+          telepon, lalu meneruskannya ke WhatsApp owner melalui gateway kami
+        </li>
         <li>Melacak performa kartu di dashboard admin</li>
       </ul>
       <p>

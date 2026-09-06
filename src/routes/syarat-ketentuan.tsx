@@ -74,6 +74,11 @@ function TermsPage() {
         berubah kalau domain diganti belakangan.
       </p>
       <p>
+        Paket dengan fitur feedback dapat menyediakan jalur masukan dengan batas
+        bintang sesuai pengaturan admin. Feedback anonim diteruskan ke nomor WhatsApp
+        owner yang disimpan pada kartu; jalur ini bukan posting review Google.
+      </p>
+      <p>
         Kami tidak menjamin uptime 100%, dan tidak bertanggung jawab atas
         kebijakan Google Review (akun, rating, moderasi).
       </p>

@@ -1,16 +1,10 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#/db'
 import { units } from '#/db/schema'
+import { parseCode } from '#/lib/card-code'
 import { getAppUrl } from '#/lib/env'
 
-export function parseCode(raw: string) {
-  const text = raw.trim().toUpperCase()
-  const qr = text.match(/\/R\/([2-9A-HJ-NP-Z]+)/)
-  if (qr?.[1]) return { kind: 'qr' as const, id: qr[1] }
-  const id = text.replace(/[^2-9A-HJ-NP-Z]/g, '')
-  if (id.length >= 8) return { kind: 'id' as const, id }
-  throw new Error('Kode tidak valid. Scan QR kartu.')
-}
+export { parseCode } from '#/lib/card-code'
 
 export async function lookupQr(raw: string) {
   const parsed = parseCode(raw)

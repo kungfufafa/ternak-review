@@ -16,7 +16,7 @@ async function cleanupExpiredWindows(now: number) {
     .where(lt(rateLimits.windowStart, new Date(now - RETENTION_MS)))
 }
 
-export async function assertRateLimit(
+export async function consumeRateLimit(
   bucketKey: string,
   options?: { max?: number; windowMs?: number },
 ) {
@@ -43,7 +43,21 @@ export async function assertRateLimit(
     })
     .returning({ count: rateLimits.count })
 
-  if (Number(row?.count ?? 0) > max) {
+  const count = Number(row?.count ?? 0)
+  return {
+    count,
+    max,
+    remaining: Math.max(0, max - count),
+    limited: count > max,
+  }
+}
+
+export async function assertRateLimit(
+  bucketKey: string,
+  options?: { max?: number; windowMs?: number },
+) {
+  const result = await consumeRateLimit(bucketKey, options)
+  if (result.limited) {
     throw new Error(
       'Terlalu banyak percobaan. Coba lagi dalam beberapa menit.',
     )

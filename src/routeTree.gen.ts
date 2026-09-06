@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ActivateRouteImport } from './routes/activate'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AffiliateRouteImport } from './routes/affiliate'
+import { Route as AppRouteImport } from './routes/app'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as KebijakanPrivasiRouteImport } from './routes/kebijakan-privasi'
@@ -22,16 +23,27 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as RStatusRouteImport } from './routes/r-status'
 import { Route as SyaratKetentuanRouteImport } from './routes/syarat-ketentuan'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as AdminLogsRouteImport } from './routes/admin.logs'
+import { Route as AdminPackagesRouteImport } from './routes/admin.packages'
+import { Route as AdminSmtpRouteImport } from './routes/admin.smtp'
 import { Route as AdminStockRouteImport } from './routes/admin.stock'
+import { Route as AdminWhatsappRouteImport } from './routes/admin.whatsapp'
+import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
+import { Route as FeedbackPublicIdRouteImport } from './routes/feedback.$publicId'
 import { Route as RPublicIdRouteImport } from './routes/r.$publicId'
 import { Route as AdminAffiliateIndexRouteImport } from './routes/admin.affiliate.index'
 import { Route as AdminAffiliateLeadIdRouteImport } from './routes/admin.affiliate.$leadId'
 import { Route as AdminStockIndexRouteImport } from './routes/admin.stock.index'
 import { Route as AdminStockNfcRouteImport } from './routes/admin.stock.nfc'
 import { Route as AdminStockPrintRouteImport } from './routes/admin.stock.print'
+import { Route as AdminUsersIndexRouteImport } from './routes/admin.users.index'
+import { Route as AdminUsersUserIdRouteImport } from './routes/admin.users.$userId'
+import { Route as AppUnitsUnitIdRouteImport } from './routes/app.units.$unitId'
 import { Route as DashboardUnitsIndexRouteImport } from './routes/dashboard.units.index'
 import { Route as DashboardUnitsUnitIdRouteImport } from './routes/dashboard.units.$unitId'
+import { Route as ApiInternalWhatsappPollRouteImport } from './routes/api.internal.whatsapp.poll'
+import { Route as ApiInternalWhatsappReportRouteImport } from './routes/api.internal.whatsapp.report'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -51,6 +63,11 @@ const AdminRoute = AdminRouteImport.update({
 const AffiliateRoute = AffiliateRouteImport.update({
   id: '/affiliate',
   path: '/affiliate',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppRoute = AppRouteImport.update({
+  id: '/app',
+  path: '/app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardRoute = DashboardRouteImport.update({
@@ -98,15 +115,45 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminLogsRoute = AdminLogsRouteImport.update({
+  id: '/logs',
+  path: '/logs',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminPackagesRoute = AdminPackagesRouteImport.update({
+  id: '/packages',
+  path: '/packages',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminSmtpRoute = AdminSmtpRouteImport.update({
+  id: '/smtp',
+  path: '/smtp',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminStockRoute = AdminStockRouteImport.update({
   id: '/stock',
   path: '/stock',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminWhatsappRoute = AdminWhatsappRouteImport.update({
+  id: '/whatsapp',
+  path: '/whatsapp',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AppIndexRoute = AppIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
 const DashboardIndexRoute = DashboardIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => DashboardRoute,
+} as any)
+const FeedbackPublicIdRoute = FeedbackPublicIdRouteImport.update({
+  id: '/feedback/$publicId',
+  path: '/feedback/$publicId',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const RPublicIdRoute = RPublicIdRouteImport.update({
   id: '/r/$publicId',
@@ -138,6 +185,21 @@ const AdminStockPrintRoute = AdminStockPrintRouteImport.update({
   path: '/print',
   getParentRoute: () => AdminStockRoute,
 } as any)
+const AdminUsersIndexRoute = AdminUsersIndexRouteImport.update({
+  id: '/users/',
+  path: '/users/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminUsersUserIdRoute = AdminUsersUserIdRouteImport.update({
+  id: '/users/$userId',
+  path: '/users/$userId',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AppUnitsUnitIdRoute = AppUnitsUnitIdRouteImport.update({
+  id: '/units/$unitId',
+  path: '/units/$unitId',
+  getParentRoute: () => AppRoute,
+} as any)
 const DashboardUnitsIndexRoute = DashboardUnitsIndexRouteImport.update({
   id: '/units/',
   path: '/units/',
@@ -148,12 +210,24 @@ const DashboardUnitsUnitIdRoute = DashboardUnitsUnitIdRouteImport.update({
   path: '/units/$unitId',
   getParentRoute: () => DashboardRoute,
 } as any)
+const ApiInternalWhatsappPollRoute = ApiInternalWhatsappPollRouteImport.update({
+  id: '/api/internal/whatsapp/poll',
+  path: '/api/internal/whatsapp/poll',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiInternalWhatsappReportRoute =
+  ApiInternalWhatsappReportRouteImport.update({
+    id: '/api/internal/whatsapp/report',
+    path: '/api/internal/whatsapp/report',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/activate': typeof ActivateRoute
   '/admin': typeof AdminRouteWithChildren
   '/affiliate': typeof AffiliateRoute
+  '/app': typeof AppRouteWithChildren
   '/dashboard': typeof DashboardRouteWithChildren
   '/health': typeof HealthRoute
   '/kebijakan-privasi': typeof KebijakanPrivasiRoute
@@ -162,17 +236,28 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/admin/logs': typeof AdminLogsRoute
+  '/admin/packages': typeof AdminPackagesRoute
+  '/admin/smtp': typeof AdminSmtpRoute
   '/admin/stock': typeof AdminStockRouteWithChildren
+  '/admin/whatsapp': typeof AdminWhatsappRoute
+  '/feedback/$publicId': typeof FeedbackPublicIdRoute
   '/r/$publicId': typeof RPublicIdRoute
   '/admin/': typeof AdminIndexRoute
+  '/app/': typeof AppIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
   '/admin/affiliate/$leadId': typeof AdminAffiliateLeadIdRoute
   '/admin/stock/nfc': typeof AdminStockNfcRoute
   '/admin/stock/print': typeof AdminStockPrintRoute
+  '/admin/users/$userId': typeof AdminUsersUserIdRoute
+  '/app/units/$unitId': typeof AppUnitsUnitIdRoute
   '/dashboard/units/$unitId': typeof DashboardUnitsUnitIdRoute
   '/admin/affiliate/': typeof AdminAffiliateIndexRoute
   '/admin/stock/': typeof AdminStockIndexRoute
+  '/admin/users/': typeof AdminUsersIndexRoute
   '/dashboard/units/': typeof DashboardUnitsIndexRoute
+  '/api/internal/whatsapp/poll': typeof ApiInternalWhatsappPollRoute
+  '/api/internal/whatsapp/report': typeof ApiInternalWhatsappReportRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -185,16 +270,27 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/admin/logs': typeof AdminLogsRoute
+  '/admin/packages': typeof AdminPackagesRoute
+  '/admin/smtp': typeof AdminSmtpRoute
+  '/admin/whatsapp': typeof AdminWhatsappRoute
+  '/feedback/$publicId': typeof FeedbackPublicIdRoute
   '/r/$publicId': typeof RPublicIdRoute
   '/admin': typeof AdminIndexRoute
+  '/app': typeof AppIndexRoute
   '/dashboard': typeof DashboardIndexRoute
   '/admin/affiliate/$leadId': typeof AdminAffiliateLeadIdRoute
   '/admin/stock/nfc': typeof AdminStockNfcRoute
   '/admin/stock/print': typeof AdminStockPrintRoute
+  '/admin/users/$userId': typeof AdminUsersUserIdRoute
+  '/app/units/$unitId': typeof AppUnitsUnitIdRoute
   '/dashboard/units/$unitId': typeof DashboardUnitsUnitIdRoute
   '/admin/affiliate': typeof AdminAffiliateIndexRoute
   '/admin/stock': typeof AdminStockIndexRoute
+  '/admin/users': typeof AdminUsersIndexRoute
   '/dashboard/units': typeof DashboardUnitsIndexRoute
+  '/api/internal/whatsapp/poll': typeof ApiInternalWhatsappPollRoute
+  '/api/internal/whatsapp/report': typeof ApiInternalWhatsappReportRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -202,6 +298,7 @@ export interface FileRoutesById {
   '/activate': typeof ActivateRoute
   '/admin': typeof AdminRouteWithChildren
   '/affiliate': typeof AffiliateRoute
+  '/app': typeof AppRouteWithChildren
   '/dashboard': typeof DashboardRouteWithChildren
   '/health': typeof HealthRoute
   '/kebijakan-privasi': typeof KebijakanPrivasiRoute
@@ -210,17 +307,28 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/admin/logs': typeof AdminLogsRoute
+  '/admin/packages': typeof AdminPackagesRoute
+  '/admin/smtp': typeof AdminSmtpRoute
   '/admin/stock': typeof AdminStockRouteWithChildren
+  '/admin/whatsapp': typeof AdminWhatsappRoute
+  '/feedback/$publicId': typeof FeedbackPublicIdRoute
   '/r/$publicId': typeof RPublicIdRoute
   '/admin/': typeof AdminIndexRoute
+  '/app/': typeof AppIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
   '/admin/affiliate/$leadId': typeof AdminAffiliateLeadIdRoute
   '/admin/stock/nfc': typeof AdminStockNfcRoute
   '/admin/stock/print': typeof AdminStockPrintRoute
+  '/admin/users/$userId': typeof AdminUsersUserIdRoute
+  '/app/units/$unitId': typeof AppUnitsUnitIdRoute
   '/dashboard/units/$unitId': typeof DashboardUnitsUnitIdRoute
   '/admin/affiliate/': typeof AdminAffiliateIndexRoute
   '/admin/stock/': typeof AdminStockIndexRoute
+  '/admin/users/': typeof AdminUsersIndexRoute
   '/dashboard/units/': typeof DashboardUnitsIndexRoute
+  '/api/internal/whatsapp/poll': typeof ApiInternalWhatsappPollRoute
+  '/api/internal/whatsapp/report': typeof ApiInternalWhatsappReportRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -229,6 +337,7 @@ export interface FileRouteTypes {
     | '/activate'
     | '/admin'
     | '/affiliate'
+    | '/app'
     | '/dashboard'
     | '/health'
     | '/kebijakan-privasi'
@@ -237,17 +346,28 @@ export interface FileRouteTypes {
     | '/login'
     | '/r-status'
     | '/syarat-ketentuan'
+    | '/admin/logs'
+    | '/admin/packages'
+    | '/admin/smtp'
     | '/admin/stock'
+    | '/admin/whatsapp'
+    | '/feedback/$publicId'
     | '/r/$publicId'
     | '/admin/'
+    | '/app/'
     | '/dashboard/'
     | '/admin/affiliate/$leadId'
     | '/admin/stock/nfc'
     | '/admin/stock/print'
+    | '/admin/users/$userId'
+    | '/app/units/$unitId'
     | '/dashboard/units/$unitId'
     | '/admin/affiliate/'
     | '/admin/stock/'
+    | '/admin/users/'
     | '/dashboard/units/'
+    | '/api/internal/whatsapp/poll'
+    | '/api/internal/whatsapp/report'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -260,22 +380,34 @@ export interface FileRouteTypes {
     | '/login'
     | '/r-status'
     | '/syarat-ketentuan'
+    | '/admin/logs'
+    | '/admin/packages'
+    | '/admin/smtp'
+    | '/admin/whatsapp'
+    | '/feedback/$publicId'
     | '/r/$publicId'
     | '/admin'
+    | '/app'
     | '/dashboard'
     | '/admin/affiliate/$leadId'
     | '/admin/stock/nfc'
     | '/admin/stock/print'
+    | '/admin/users/$userId'
+    | '/app/units/$unitId'
     | '/dashboard/units/$unitId'
     | '/admin/affiliate'
     | '/admin/stock'
+    | '/admin/users'
     | '/dashboard/units'
+    | '/api/internal/whatsapp/poll'
+    | '/api/internal/whatsapp/report'
   id:
     | '__root__'
     | '/'
     | '/activate'
     | '/admin'
     | '/affiliate'
+    | '/app'
     | '/dashboard'
     | '/health'
     | '/kebijakan-privasi'
@@ -284,17 +416,28 @@ export interface FileRouteTypes {
     | '/login'
     | '/r-status'
     | '/syarat-ketentuan'
+    | '/admin/logs'
+    | '/admin/packages'
+    | '/admin/smtp'
     | '/admin/stock'
+    | '/admin/whatsapp'
+    | '/feedback/$publicId'
     | '/r/$publicId'
     | '/admin/'
+    | '/app/'
     | '/dashboard/'
     | '/admin/affiliate/$leadId'
     | '/admin/stock/nfc'
     | '/admin/stock/print'
+    | '/admin/users/$userId'
+    | '/app/units/$unitId'
     | '/dashboard/units/$unitId'
     | '/admin/affiliate/'
     | '/admin/stock/'
+    | '/admin/users/'
     | '/dashboard/units/'
+    | '/api/internal/whatsapp/poll'
+    | '/api/internal/whatsapp/report'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -302,6 +445,7 @@ export interface RootRouteChildren {
   ActivateRoute: typeof ActivateRoute
   AdminRoute: typeof AdminRouteWithChildren
   AffiliateRoute: typeof AffiliateRoute
+  AppRoute: typeof AppRouteWithChildren
   DashboardRoute: typeof DashboardRouteWithChildren
   HealthRoute: typeof HealthRoute
   KebijakanPrivasiRoute: typeof KebijakanPrivasiRoute
@@ -310,7 +454,10 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   RStatusRoute: typeof RStatusRoute
   SyaratKetentuanRoute: typeof SyaratKetentuanRoute
+  FeedbackPublicIdRoute: typeof FeedbackPublicIdRoute
   RPublicIdRoute: typeof RPublicIdRoute
+  ApiInternalWhatsappPollRoute: typeof ApiInternalWhatsappPollRoute
+  ApiInternalWhatsappReportRoute: typeof ApiInternalWhatsappReportRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -341,6 +488,13 @@ declare module '@tanstack/react-router' {
       path: '/affiliate'
       fullPath: '/affiliate'
       preLoaderRoute: typeof AffiliateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app': {
+      id: '/app'
+      path: '/app'
+      fullPath: '/app'
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dashboard': {
@@ -406,6 +560,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/logs': {
+      id: '/admin/logs'
+      path: '/logs'
+      fullPath: '/admin/logs'
+      preLoaderRoute: typeof AdminLogsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/packages': {
+      id: '/admin/packages'
+      path: '/packages'
+      fullPath: '/admin/packages'
+      preLoaderRoute: typeof AdminPackagesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/smtp': {
+      id: '/admin/smtp'
+      path: '/smtp'
+      fullPath: '/admin/smtp'
+      preLoaderRoute: typeof AdminSmtpRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/stock': {
       id: '/admin/stock'
       path: '/stock'
@@ -413,12 +588,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminStockRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/whatsapp': {
+      id: '/admin/whatsapp'
+      path: '/whatsapp'
+      fullPath: '/admin/whatsapp'
+      preLoaderRoute: typeof AdminWhatsappRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/app/': {
+      id: '/app/'
+      path: '/'
+      fullPath: '/app/'
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/dashboard/': {
       id: '/dashboard/'
       path: '/'
       fullPath: '/dashboard/'
       preLoaderRoute: typeof DashboardIndexRouteImport
       parentRoute: typeof DashboardRoute
+    }
+    '/feedback/$publicId': {
+      id: '/feedback/$publicId'
+      path: '/feedback/$publicId'
+      fullPath: '/feedback/$publicId'
+      preLoaderRoute: typeof FeedbackPublicIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/r/$publicId': {
       id: '/r/$publicId'
@@ -462,6 +658,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminStockPrintRouteImport
       parentRoute: typeof AdminStockRoute
     }
+    '/admin/users/': {
+      id: '/admin/users/'
+      path: '/users'
+      fullPath: '/admin/users/'
+      preLoaderRoute: typeof AdminUsersIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/users/$userId': {
+      id: '/admin/users/$userId'
+      path: '/users/$userId'
+      fullPath: '/admin/users/$userId'
+      preLoaderRoute: typeof AdminUsersUserIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/app/units/$unitId': {
+      id: '/app/units/$unitId'
+      path: '/units/$unitId'
+      fullPath: '/app/units/$unitId'
+      preLoaderRoute: typeof AppUnitsUnitIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/dashboard/units/': {
       id: '/dashboard/units/'
       path: '/units'
@@ -475,6 +692,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/dashboard/units/$unitId'
       preLoaderRoute: typeof DashboardUnitsUnitIdRouteImport
       parentRoute: typeof DashboardRoute
+    }
+    '/api/internal/whatsapp/poll': {
+      id: '/api/internal/whatsapp/poll'
+      path: '/api/internal/whatsapp/poll'
+      fullPath: '/api/internal/whatsapp/poll'
+      preLoaderRoute: typeof ApiInternalWhatsappPollRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/internal/whatsapp/report': {
+      id: '/api/internal/whatsapp/report'
+      path: '/api/internal/whatsapp/report'
+      fullPath: '/api/internal/whatsapp/report'
+      preLoaderRoute: typeof ApiInternalWhatsappReportRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
 }
@@ -496,20 +727,44 @@ const AdminStockRouteWithChildren = AdminStockRoute._addFileChildren(
 )
 
 interface AdminRouteChildren {
+  AdminLogsRoute: typeof AdminLogsRoute
+  AdminPackagesRoute: typeof AdminPackagesRoute
+  AdminSmtpRoute: typeof AdminSmtpRoute
   AdminStockRoute: typeof AdminStockRouteWithChildren
+  AdminWhatsappRoute: typeof AdminWhatsappRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminAffiliateLeadIdRoute: typeof AdminAffiliateLeadIdRoute
+  AdminUsersUserIdRoute: typeof AdminUsersUserIdRoute
   AdminAffiliateIndexRoute: typeof AdminAffiliateIndexRoute
+  AdminUsersIndexRoute: typeof AdminUsersIndexRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminLogsRoute: AdminLogsRoute,
+  AdminPackagesRoute: AdminPackagesRoute,
+  AdminSmtpRoute: AdminSmtpRoute,
   AdminStockRoute: AdminStockRouteWithChildren,
+  AdminWhatsappRoute: AdminWhatsappRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminAffiliateLeadIdRoute: AdminAffiliateLeadIdRoute,
+  AdminUsersUserIdRoute: AdminUsersUserIdRoute,
   AdminAffiliateIndexRoute: AdminAffiliateIndexRoute,
+  AdminUsersIndexRoute: AdminUsersIndexRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
+interface AppRouteChildren {
+  AppIndexRoute: typeof AppIndexRoute
+  AppUnitsUnitIdRoute: typeof AppUnitsUnitIdRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppIndexRoute: AppIndexRoute,
+  AppUnitsUnitIdRoute: AppUnitsUnitIdRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 interface DashboardRouteChildren {
   DashboardIndexRoute: typeof DashboardIndexRoute
@@ -532,6 +787,7 @@ const rootRouteChildren: RootRouteChildren = {
   ActivateRoute: ActivateRoute,
   AdminRoute: AdminRouteWithChildren,
   AffiliateRoute: AffiliateRoute,
+  AppRoute: AppRouteWithChildren,
   DashboardRoute: DashboardRouteWithChildren,
   HealthRoute: HealthRoute,
   KebijakanPrivasiRoute: KebijakanPrivasiRoute,
@@ -540,7 +796,10 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   RStatusRoute: RStatusRoute,
   SyaratKetentuanRoute: SyaratKetentuanRoute,
+  FeedbackPublicIdRoute: FeedbackPublicIdRoute,
   RPublicIdRoute: RPublicIdRoute,
+  ApiInternalWhatsappPollRoute: ApiInternalWhatsappPollRoute,
+  ApiInternalWhatsappReportRoute: ApiInternalWhatsappReportRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

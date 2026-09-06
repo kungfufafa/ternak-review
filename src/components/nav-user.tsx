@@ -74,7 +74,7 @@ export function NavUser() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          aria-label="Profil admin"
+          aria-label="Profil"
           className="flex max-w-56 items-center gap-2 rounded-full py-1 pr-2 pl-1 text-left outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/25"
           type="button"
         >

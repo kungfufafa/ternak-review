@@ -61,7 +61,7 @@ const config = defineConfig(async () => {
       ? {}
       : {
           ssr: {
-            external: ['better-sqlite3'],
+            external: ['better-sqlite3', 'nodemailer'],
           },
         }),
     server: {

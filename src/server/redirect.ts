@@ -2,7 +2,8 @@ import { eq } from 'drizzle-orm'
 import { db } from '#/db'
 import { clicks, units } from '#/db/schema'
 import { hashIp, hashToken } from '#/lib/crypto'
-
+import { modeAllowed } from '#/lib/review-settings'
+import { googleReviewUrl } from './review'
 const CLICK_DEDUPE_MS = 5 * 60 * 1000
 const MAX_RECENT_CLICK_IDS = 10_000
 const recentClickIds = new Map<string, number>()
@@ -23,18 +24,17 @@ function rememberClick(id: string, now: number) {
   return true
 }
 
-export function googleReviewUrl(placeId: string) {
-  return `https://search.google.com/local/writereview?placeid=${encodeURIComponent(placeId)}`
-}
-
 export type RedirectResult =
   | { kind: 'activate'; publicId: string }
+  | { kind: 'manage'; publicId: string; unitId: string }
   | { kind: 'google'; url: string; unitId: string }
+  | { kind: 'feedback'; publicId: string; unitId: string }
   | { kind: 'inactive'; publicId: string }
   | { kind: 'not_found' }
 
 export async function resolveRedirect(
   publicId: string,
+  sessionOwnerId?: string | null,
 ): Promise<RedirectResult> {
   const unit = await db.query.units.findFirst({
     where: eq(units.publicId, publicId.toUpperCase()),
@@ -51,7 +51,26 @@ export async function resolveRedirect(
     return { kind: 'inactive', publicId: unit.publicId }
   }
 
+  if (
+    unit.status === 'ACTIVE' &&
+    sessionOwnerId &&
+    unit.ownerId === sessionOwnerId
+  ) {
+    return { kind: 'manage', publicId: unit.publicId, unitId: unit.id }
+  }
+
   if (unit.status === 'ACTIVE' && unit.outlet?.googlePlaceId) {
+    if (
+      unit.serviceTier !== 'BASIC' &&
+      unit.reviewMode !== 'GOOGLE_DIRECT' &&
+      modeAllowed(unit.serviceTier, unit.reviewMode)
+    ) {
+      return {
+        kind: 'feedback',
+        publicId: unit.publicId,
+        unitId: unit.id,
+      }
+    }
     return {
       kind: 'google',
       url: googleReviewUrl(unit.outlet.googlePlaceId),

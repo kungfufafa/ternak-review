@@ -1,6 +1,11 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
-import { activateUnit, getActivationCard } from '#/server/activation'
+import {
+  activateUnit,
+  getActivationCard,
+  rebindUnitOutlet,
+  verifyActivationAccess,
+} from '#/server/activation'
 import {
   adminExists,
   changeOwnerPassword,
@@ -44,10 +49,60 @@ import {
   hashRateLimitIdentifier,
 } from '#/server/request'
 import { AFFILIATE_PLATFORM_KEYS } from '#/types/marketing'
+import { servicePackageSchema } from '#/lib/review-settings'
+import {
+  getServicePackages,
+  updateServicePackage,
+} from '#/server/service-packages'
+import {
+  getPublicFeedbackCard,
+  listUnitFeedback,
+  resolveFeedbackDestination,
+  retryFeedback,
+  submitAnonymousFeedback,
+  updateUnitReviewSettings,
+} from '#/server/review'
+import {
+  getWhatsappGatewayStatus,
+  isWhatsappGatewayOpen,
+  queueWhatsappCommand,
+  testWhatsapp,
+} from '#/server/whatsapp'
+import {
+  requestEmailLoginOtp,
+  requestLoginOtp,
+  verifyEmailLoginOtp,
+  verifyLoginOtp,
+} from '#/server/otp-login'
+import {
+  getSmtpPublicSettings,
+  isSmtpReady,
+  saveSmtpSettings,
+  testSmtp,
+} from '#/server/smtp'
+import { getOutboundLogSummary, listOutboundLogs } from '#/server/outbox'
+import {
+  assignUnitToHolder,
+  createHolder,
+  getHolder,
+  listAssignableHolders,
+  listHolders,
+  resetHolderPassword,
+  resetHolderPin,
+  setHolderStatus,
+  unassignUnit,
+  updateHolderProfile,
+} from '#/server/users'
 
 async function requireAdmin() {
   const owner = await getSessionOwner()
-  if (!owner) throw new Error('Unauthorized')
+  if (!owner || owner.role !== 'ADMIN') throw new Error('Unauthorized')
+  return owner
+}
+
+async function requireUser() {
+  const owner = await getSessionOwner()
+  if (!owner || owner.role !== 'USER') throw new Error('Unauthorized')
   return owner
 }
 
@@ -58,6 +113,8 @@ export const getCurrentOwnerFn = createServerFn({ method: 'GET' }).handler(
       ? {
           email: owner.email,
           ownerId: owner.ownerId,
+          name: owner.name,
+          role: owner.role,
           hasPassword: owner.hasPassword,
         }
       : null
@@ -83,8 +140,14 @@ const locSchema = z.object({
 
 async function limitPlaces(publicId: string) {
   const card = await getActivationCard(publicId)
-  if (!card || card.status !== 'IN_STOCK') {
-    throw new Error('Kartu tidak tersedia untuk aktivasi.')
+  if (!card) throw new Error('Kartu tidak ditemukan.')
+  const session = await getSessionOwner()
+  const mayRebind =
+    card.status === 'ACTIVE' &&
+    (session?.role === 'ADMIN' ||
+      (session?.role === 'USER' && session.ownerId === card.ownerId))
+  if (card.status !== 'IN_STOCK' && !mayRebind) {
+    throw new Error('Kartu tidak tersedia untuk memilih toko.')
   }
   await assertRateLimit(`places-client:${getClientFingerprint()}`, {
     max: 40,
@@ -136,19 +199,223 @@ export const placeDetailsFn = createServerFn({ method: 'POST' })
     return getPlaceDetails(data.placeId, data.sessionToken)
   })
 
+export const rebindUnitOutletFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      unitId: z.string().uuid(),
+      placeId: z.string().min(2).max(256),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return rebindUnitOutlet({ ...data, asAdmin: true })
+  })
+
+export const rebindMyUnitOutletFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      unitId: z.string().uuid(),
+      placeId: z.string().min(2).max(256),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const owner = await requireUser()
+    return rebindUnitOutlet({
+      ...data,
+      actorOwnerId: owner.ownerId,
+    })
+  })
+
+export const verifyActivationAccessFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      publicId: z.string().min(4).max(32),
+      pin: z.string().max(8).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const session = await getSessionOwner()
+    return verifyActivationAccess({
+      ...data,
+      sessionOwnerId: session?.ownerId ?? null,
+    })
+  })
+
 export const activateUnitFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       publicId: z.string().min(4).max(32),
       placeId: z.string().min(2).max(256),
       partnerRef: z.string().max(80).optional(),
+      reviewMode: z
+        .enum(['GOOGLE_DIRECT', 'OWNER_WHATSAPP', 'ANONYMOUS_WHATSAPP'])
+        .optional(),
+      ownerWhatsapp: z.string().trim().max(32).optional(),
+      pin: z.string().max(8).optional(),
     }),
   )
   .handler(async ({ data }) => {
+    const session = await getSessionOwner()
     return activateUnit({
       ...data,
       clientKey: getClientFingerprint(),
+      sessionOwnerId: session?.ownerId ?? null,
     })
+  })
+
+export const getFeedbackCardFn = createServerFn({ method: 'GET' })
+  .validator(z.object({ publicId: z.string().min(4).max(32) }))
+  .handler(async ({ data }) => getPublicFeedbackCard(data.publicId))
+
+export const resolveFeedbackDestinationFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      publicId: z.string().min(4).max(32),
+      rating: z.number().int().min(1).max(5),
+    }),
+  )
+  .handler(async ({ data }) => resolveFeedbackDestination(data))
+
+export const submitAnonymousFeedbackFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      publicId: z.string().min(4).max(32),
+      rating: z.number().int().min(1).max(5),
+      message: z.string().trim().min(1).max(2000),
+      submissionId: z.string().uuid(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await assertRateLimit(`feedback-client:${getClientFingerprint()}`, {
+      max: 10,
+      windowMs: 15 * 60_000,
+    })
+    await assertRateLimit(
+      `feedback-card:${hashRateLimitIdentifier(data.publicId)}`,
+      { max: 40, windowMs: 15 * 60_000 },
+    )
+    return submitAnonymousFeedback(data)
+  })
+
+export const otpLoginAvailableFn = createServerFn({ method: 'GET' }).handler(
+  async () => ({
+    whatsapp: await isWhatsappGatewayOpen(),
+    email: await isSmtpReady(),
+  }),
+)
+
+export const requestLoginOtpFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ whatsapp: z.string().trim().min(8).max(32) }))
+  .handler(async ({ data }) => {
+    await assertRateLimit(`otp-client:${getClientFingerprint()}`, {
+      max: 8,
+      windowMs: 15 * 60_000,
+    })
+    await assertRateLimit(
+      `otp-wa:${hashRateLimitIdentifier(data.whatsapp)}`,
+      { max: 5, windowMs: 15 * 60_000 },
+    )
+    return requestLoginOtp(data.whatsapp)
+  })
+
+export const verifyLoginOtpFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      whatsapp: z.string().trim().min(8).max(32),
+      code: z.string().trim().min(4).max(8),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await assertRateLimit(`otp-verify:${getClientFingerprint()}`, {
+      max: 15,
+      windowMs: 15 * 60_000,
+    })
+    return verifyLoginOtp(data.whatsapp, data.code)
+  })
+
+export const requestEmailLoginOtpFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ email: z.string().trim().email().max(254) }))
+  .handler(async ({ data }) => {
+    await assertRateLimit(`otp-email-client:${getClientFingerprint()}`, {
+      max: 8,
+      windowMs: 15 * 60_000,
+    })
+    await assertRateLimit(
+      `otp-email:${hashRateLimitIdentifier(data.email)}`,
+      { max: 5, windowMs: 15 * 60_000 },
+    )
+    return requestEmailLoginOtp(data.email)
+  })
+
+export const verifyEmailLoginOtpFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      email: z.string().trim().email().max(254),
+      code: z.string().trim().min(4).max(8),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await assertRateLimit(`otp-email-verify:${getClientFingerprint()}`, {
+      max: 15,
+      windowMs: 15 * 60_000,
+    })
+    return verifyEmailLoginOtp(data.email, data.code)
+  })
+
+export const getSmtpSettingsFn = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    await requireAdmin()
+    return getSmtpPublicSettings()
+  },
+)
+
+export const saveSmtpSettingsFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      provider: z.enum(['smtp', 'resend']).optional(),
+      host: z.string().trim().max(200).optional().or(z.literal('')),
+      port: z.number().int().min(1).max(65535),
+      secure: z.boolean(),
+      username: z.string().trim().max(200).optional().or(z.literal('')),
+      password: z.string().max(400).optional().or(z.literal('')),
+      fromName: z.string().trim().max(80).optional().or(z.literal('')),
+      fromEmail: z.string().trim().max(254),
+      enabled: z.boolean(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return saveSmtpSettings({
+      ...data,
+      host: data.host ?? '',
+      username: data.username || undefined,
+      password: data.password || undefined,
+      fromName: data.fromName || undefined,
+    })
+  })
+
+export const testSmtpFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ to: z.string().trim().email().max(254) }))
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return testSmtp(data.to)
+  })
+
+export const listOutboundLogsFn = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      channel: z.enum(['email', 'whatsapp']).optional(),
+      page: z.coerce.number().int().min(1).max(500).optional(),
+      pageSize: z.coerce.number().int().min(1).max(100).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    const [list, summary] = await Promise.all([
+      listOutboundLogs(data),
+      getOutboundLogSummary(),
+    ])
+    return { ...list, summary }
   })
 
 export const loginPasswordFn = createServerFn({ method: 'POST' })
@@ -243,6 +510,77 @@ export const updateUnitPartnerFn = createServerFn({ method: 'POST' })
     return updateUnitPartner(data.unitId, data.partnerRef ?? null)
   })
 
+export const getServicePackagesFn = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    await requireAdmin()
+    return getServicePackages()
+  },
+)
+
+export const updateServicePackageFn = createServerFn({ method: 'POST' })
+  .validator(servicePackageSchema)
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return updateServicePackage(data)
+  })
+
+export const updateUnitReviewSettingsFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      unitId: z.string().uuid(),
+      serviceTier: z.enum(['BASIC', 'PLUS', 'PRO']),
+      reviewMode: z.enum([
+        'GOOGLE_DIRECT',
+        'OWNER_WHATSAPP',
+        'ANONYMOUS_WHATSAPP',
+      ]),
+      ownerWhatsapp: z.string().trim().max(32).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return updateUnitReviewSettings(data)
+  })
+
+export const listUnitFeedbackFn = createServerFn({ method: 'GET' })
+  .validator(z.object({ unitId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return listUnitFeedback(data.unitId)
+  })
+
+export const retryFeedbackFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ feedbackId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return { ok: await retryFeedback(data.feedbackId) }
+  })
+
+export const getWhatsappGatewayStatusFn = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    await requireAdmin()
+    return getWhatsappGatewayStatus()
+  },
+)
+
+export const queueWhatsappCommandFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ command: z.enum(['CONNECT', 'RECONNECT', 'LOGOUT']) }))
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return queueWhatsappCommand(data.command)
+  })
+
+export const testWhatsappFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ to: z.string().trim().min(8).max(32) }))
+  .handler(async ({ data }) => {
+    const owner = await requireAdmin()
+    await assertRateLimit(`wa-test:${owner.ownerId}`, {
+      max: 8,
+      windowMs: 15 * 60_000,
+    })
+    return testWhatsapp(data.to)
+  })
+
 export const deleteUnitFn = createServerFn({ method: 'POST' })
   .validator(z.object({ unitId: z.string().uuid() }))
   .handler(async ({ data }) => {
@@ -290,7 +628,8 @@ export const changePasswordFn = createServerFn({ method: 'POST' })
     }),
   )
   .handler(async ({ data }) => {
-    const owner = await requireAdmin()
+    const owner = await getSessionOwner()
+    if (!owner) throw new Error('Unauthorized')
     await assertRateLimit(
       `password:${hashRateLimitIdentifier(owner.ownerId)}`,
     )
@@ -404,4 +743,191 @@ export const deleteAffiliateLeadFn = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     await requireAdmin()
     return deleteAffiliateLead(data.leadId)
+  })
+
+export const listHoldersFn = createServerFn({ method: 'GET' })
+  .validator(
+    z
+      .object({
+        q: z.string().max(200).optional(),
+        page: z.coerce.number().int().min(1).optional(),
+        pageSize: z.coerce.number().int().min(1).max(100).optional(),
+      })
+      .optional(),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return listHolders(data ?? {})
+  })
+
+export const listAssignableHoldersFn = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    await requireAdmin()
+    return listAssignableHolders()
+  },
+)
+
+export const getHolderFn = createServerFn({ method: 'GET' })
+  .validator(z.object({ userId: z.string().min(1).max(80) }))
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    if (!z.string().uuid().safeParse(data.userId).success) return null
+    return getHolder(data.userId)
+  })
+
+export const createHolderFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      email: z.string().trim().email().max(254).optional().or(z.literal('')),
+      password: z.string().max(200).optional().or(z.literal('')),
+      whatsapp: z.string().trim().max(32).optional().or(z.literal('')),
+      name: z.string().trim().max(80).optional(),
+      pin: z.string().max(8).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return createHolder({
+      email: data.email || undefined,
+      password: data.password || undefined,
+      whatsapp: data.whatsapp || undefined,
+      name: data.name,
+      pin: data.pin,
+    })
+  })
+
+export const setHolderStatusFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      userId: z.string().uuid(),
+      status: z.enum(['ACTIVE', 'DISABLED']),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return setHolderStatus(data.userId, data.status)
+  })
+
+export const resetHolderPinFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      userId: z.string().uuid(),
+      pin: z.string().max(8).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return resetHolderPin(data.userId, data.pin)
+  })
+
+export const resetHolderPasswordFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      userId: z.string().uuid(),
+      password: z.string().min(12).max(200),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return resetHolderPassword(data.userId, data.password)
+  })
+
+export const updateHolderProfileFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      userId: z.string().uuid(),
+      name: z.string().trim().max(80).optional(),
+      whatsapp: z.string().trim().max(32).optional().or(z.literal('')),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return updateHolderProfile(data.userId, {
+      name: data.name,
+      whatsapp: data.whatsapp,
+    })
+  })
+
+export const assignUnitToHolderFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      ownerId: z.string().uuid(),
+      unitId: z.string().uuid().optional(),
+      publicId: z.string().min(4).max(32).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return assignUnitToHolder(data)
+  })
+
+export const unassignUnitFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ unitId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return unassignUnit(data.unitId)
+  })
+
+export const listMyUnitsFn = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    const owner = await requireUser()
+    const holder = await getHolder(owner.ownerId)
+    return holder
+  },
+)
+
+export const getMyUnitDetailFn = createServerFn({ method: 'GET' })
+  .validator(z.object({ unitId: z.string().min(1).max(80) }))
+  .handler(async ({ data }) => {
+    const owner = await requireUser()
+    if (!z.string().uuid().safeParse(data.unitId).success) return null
+    const detail = await getUnitDetail(data.unitId)
+    if (!detail || detail.holder?.id !== owner.ownerId) return null
+    return detail
+  })
+
+export const activateMyUnitFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      publicId: z.string().min(4).max(32),
+      placeId: z.string().min(2).max(256),
+      reviewMode: z
+        .enum(['GOOGLE_DIRECT', 'OWNER_WHATSAPP', 'ANONYMOUS_WHATSAPP'])
+        .optional(),
+      ownerWhatsapp: z.string().trim().max(32).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const owner = await requireUser()
+    return activateUnit({
+      ...data,
+      sessionOwnerId: owner.ownerId,
+      clientKey: getClientFingerprint(),
+    })
+  })
+
+export const updateMyUnitReviewSettingsFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      unitId: z.string().uuid(),
+      reviewMode: z.enum([
+        'GOOGLE_DIRECT',
+        'OWNER_WHATSAPP',
+        'ANONYMOUS_WHATSAPP',
+      ]),
+      ownerWhatsapp: z.string().trim().max(32).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const owner = await requireUser()
+    const detail = await getUnitDetail(data.unitId)
+    if (!detail || detail.holder?.id !== owner.ownerId) {
+      throw new Error('Kartu tidak ditemukan.')
+    }
+    return updateUnitReviewSettings({
+      unitId: data.unitId,
+      serviceTier: detail.serviceTier,
+      reviewMode: data.reviewMode,
+      ownerWhatsapp: data.ownerWhatsapp,
+    })
   })

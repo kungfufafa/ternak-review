@@ -6,3 +6,5 @@ IP_HASH_SALT=change-me-to-a-different-long-random-string
 ADMIN_SETUP_TOKEN=change-me-to-another-long-random-string
 GOOGLE_MAPS_API_KEY=
 AFFILIATE_WEBHOOK_URL=
+# Local test without a phone: npm run gateway:stub
+WHATSAPP_GATEWAY_TOKEN=

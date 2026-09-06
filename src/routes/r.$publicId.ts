@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { getAppUrl } from '#/lib/env'
+import { getSessionOwner } from '#/server/auth'
 import { logClick, resolveRedirect } from '#/server/redirect'
 import { getTrustedClientIp } from '#/server/request'
 
@@ -8,7 +9,8 @@ export const Route = createFileRoute('/r/$publicId')({
     handlers: {
       GET: async ({ params, request }) => {
         const publicId = params.publicId?.toUpperCase() ?? ''
-        const result = await resolveRedirect(publicId)
+        const session = await getSessionOwner()
+        const result = await resolveRedirect(publicId, session?.ownerId)
         const appUrl = getAppUrl()
 
         if (result.kind === 'not_found') {
@@ -27,6 +29,12 @@ export const Route = createFileRoute('/r/$publicId')({
             302,
           )
         }
+        if (result.kind === 'manage') {
+          return Response.redirect(
+            `${appUrl}/app/units/${encodeURIComponent(result.unitId)}`,
+            302,
+          )
+        }
 
         const ua = request.headers.get('user-agent')
         try {
@@ -37,6 +45,13 @@ export const Route = createFileRoute('/r/$publicId')({
           })
         } catch (err) {
           console.error('[click-log]', err)
+        }
+
+        if (result.kind === 'feedback') {
+          return Response.redirect(
+            `${appUrl}/feedback/${encodeURIComponent(result.publicId)}`,
+            302,
+          )
         }
 
         return Response.redirect(result.url, 302)

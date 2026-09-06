@@ -1,6 +1,6 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute, Link, redirect } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
-import { UserIcon } from 'lucide-react'
+import { KeyRoundIcon, UserIcon } from 'lucide-react'
 import { useState } from 'react'
 import { AuthShell, AuthTitle } from '#/components/auth-shell'
 import { PlacePicker } from '#/components/place-picker'
@@ -20,10 +20,12 @@ import { Spinner } from '#/components/ui/spinner'
 import {
   activateUnitFn,
   getActivationCardFn,
+  getCurrentOwnerFn,
   placeDetailsFn,
+  verifyActivationAccessFn,
 } from '#/server/functions'
 
-type Step = 'outlet' | 'confirm' | 'done'
+type Step = 'pin' | 'outlet' | 'confirm' | 'done'
 
 export const Route = createFileRoute('/activate')({
   validateSearch: (
@@ -41,15 +43,24 @@ export const Route = createFileRoute('/activate')({
   loaderDeps: ({ search }) => ({ id: search.id }),
   loader: async ({ deps }) => {
     if (!deps.id) {
-      return { card: null as null }
+      return { card: null as null, session: null }
     }
-    const card = await getActivationCardFn({
-      data: { publicId: deps.id },
-    })
+    const [card, session] = await Promise.all([
+      getActivationCardFn({
+        data: { publicId: deps.id },
+      }),
+      getCurrentOwnerFn(),
+    ])
     if (!card) {
-      return { card: null as null }
+      return { card: null as null, session }
     }
     if (card.status === 'ACTIVE') {
+      if (session?.ownerId === card.ownerId) {
+        throw redirect({
+          params: { unitId: card.id },
+          to: '/app/units/$unitId',
+        })
+      }
       throw redirect({ href: `/r/${card.publicId}` })
     }
     if (card.status === 'INACTIVE') {
@@ -58,7 +69,7 @@ export const Route = createFileRoute('/activate')({
         to: '/r-status',
       })
     }
-    return { card }
+    return { card, session }
   },
   component: ActivatePage,
   head: () => ({
@@ -68,12 +79,20 @@ export const Route = createFileRoute('/activate')({
 
 function ActivatePage() {
   const { id: prefillId = '', ref: prefillRef = '' } = Route.useSearch()
-  const { card } = Route.useLoaderData()
+  const { card, session } = Route.useLoaderData()
   const detailsFn = useServerFn(placeDetailsFn)
   const activateFn = useServerFn(activateUnitFn)
+  const verifyPinFn = useServerFn(verifyActivationAccessFn)
 
   const publicId = (card?.publicId ?? prefillId).toUpperCase()
-  const [step, setStep] = useState<Step>('outlet')
+  const isHolder = Boolean(session?.ownerId && session.ownerId === card?.ownerId)
+  const otherAccount = Boolean(
+    session?.role === 'USER' && session.ownerId !== card?.ownerId,
+  )
+  const [step, setStep] = useState<Step>(() =>
+    isHolder ? 'outlet' : 'pin',
+  )
+  const [pin, setPin] = useState('')
   const [partnerRef, setPartnerRef] = useState(prefillRef)
   const [sessionToken, setSessionToken] = useState(() => crypto.randomUUID())
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null)
@@ -90,6 +109,21 @@ function ActivatePage() {
     publicId: string
     outletName: string
   } | null>(null)
+
+  async function onVerifyPin(event: React.FormEvent) {
+    event.preventDefault()
+    if (!publicId) return
+    setError(null)
+    setBusy(true)
+    try {
+      await verifyPinFn({ data: { publicId, pin } })
+      setStep('outlet')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'PIN salah.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function onPickPlace(placeId: string) {
     setError(null)
@@ -119,6 +153,7 @@ function ActivatePage() {
           publicId,
           placeId: selectedPlaceId,
           partnerRef: partnerRef.trim() || undefined,
+          pin: isHolder ? undefined : pin,
         },
       })
       setResult({
@@ -147,11 +182,36 @@ function ActivatePage() {
     )
   }
 
+  if (!card.ownerId) {
+    return (
+      <AuthShell center>
+        <AuthTitle
+          title={
+            <>
+              Kartu belum <em className="text-pine italic">di-assign</em>
+            </>
+          }
+        />
+        <Alert>
+          Kartu ini belum disiapkan ke akun. Minta penjual memasangkannya, atau
+          masuk kalau akunmu sudah ada.
+        </Alert>
+        <Button asChild className="w-full" size="lg" variant="outline">
+          <Link to="/login">Masuk dashboard</Link>
+        </Button>
+      </AuthShell>
+    )
+  }
+
   return (
     <AuthShell wide>
       <AuthTitle
         title={
-          step === 'outlet' ? (
+          step === 'pin' ? (
+            <>
+              Masukkan <em className="text-pine italic">PIN</em>
+            </>
+          ) : step === 'outlet' ? (
             <>
               Pilih <em className="text-pine italic">toko</em>
             </>
@@ -167,6 +227,43 @@ function ActivatePage() {
         }
       />
       {error ? <Alert variant="danger">{error}</Alert> : null}
+      {otherAccount && step === 'pin' ? (
+        <Alert>
+          Kamu masuk dengan akun lain. Pakai PIN pemegang kartu ini, atau masuk
+          pakai akun yang memegangnya.
+        </Alert>
+      ) : null}
+
+      {step === 'pin' ? (
+        <form className="flex flex-col gap-4" onSubmit={onVerifyPin}>
+          <p className="text-sm text-muted-foreground">
+            PIN 4 digit dari penjual. Kalau ini kartumu, lebih gampang masuk
+            dashboard — tidak perlu PIN.
+          </p>
+          <InputGroup>
+            <InputGroupInput
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              maxLength={4}
+              onChange={(event) => setPin(event.target.value.replace(/\D/g, ''))}
+              pattern="\d{4}"
+              placeholder="••••"
+              required
+              value={pin}
+            />
+            <InputGroupAddon align="inline-start">
+              <KeyRoundIcon />
+            </InputGroupAddon>
+          </InputGroup>
+          <Button disabled={busy || pin.length !== 4} size="lg" type="submit">
+            {busy ? <Spinner data-icon="inline-start" /> : null}
+            {busy ? 'Memeriksa…' : 'Lanjut'}
+          </Button>
+          <Button asChild size="lg" variant="outline">
+            <Link to="/login">Masuk dashboard</Link>
+          </Button>
+        </form>
+      ) : null}
 
       {step === 'outlet' ? (
         <PlacePicker
@@ -200,16 +297,22 @@ function ActivatePage() {
               ) : null}
             </CardContent>
           </Card>
-          <InputGroup>
-            <InputGroupInput
-              onChange={(event) => setPartnerRef(event.target.value)}
-              placeholder="Nama kamu (opsional)"
-              value={partnerRef}
-            />
-            <InputGroupAddon align="inline-start">
-              <UserIcon />
-            </InputGroupAddon>
-          </InputGroup>
+          {prefillRef || partnerRef ? (
+            <InputGroup>
+              <InputGroupInput
+                onChange={(event) => setPartnerRef(event.target.value)}
+                placeholder="Nama kamu (opsional)"
+                value={partnerRef}
+              />
+              <InputGroupAddon align="inline-start">
+                <UserIcon />
+              </InputGroupAddon>
+            </InputGroup>
+          ) : null}
+          <p className="text-sm text-muted-foreground">
+            Salah toko? Tekan Ganti. Jalur review bisa diatur nanti dari
+            dashboard.
+          </p>
           <div className="flex gap-2">
             <Button
               className="flex-1"
@@ -237,14 +340,31 @@ function ActivatePage() {
         <Card>
           <CardContent className="p-6">
             <p className="text-muted-foreground">
-              Tamu tinggal tempel HP atau scan QR — langsung ke review{' '}
+              Kartu sudah nempel ke{' '}
               <span className="text-foreground">{result.outletName}</span>.
+              Tamu tinggal tempel atau scan.
             </p>
           </CardContent>
-          <CardFooter>
-            <Button asChild className="w-full" size="lg">
-              <a href={`/r/${result.publicId}`}>Coba</a>
-            </Button>
+          <CardFooter className="flex flex-col gap-2">
+            {isHolder ? (
+              <>
+                <Button asChild className="w-full" size="lg">
+                  <Link to="/app">Pasang kartu berikutnya</Link>
+                </Button>
+                <Button asChild className="w-full" size="lg" variant="outline">
+                  <Link
+                    params={{ unitId: card.id }}
+                    to="/app/units/$unitId"
+                  >
+                    Lihat toko ini
+                  </Link>
+                </Button>
+              </>
+            ) : (
+              <Button asChild className="w-full" size="lg">
+                <a href={`/r/${result.publicId}`}>Coba sebagai tamu</a>
+              </Button>
+            )}
           </CardFooter>
         </Card>
       ) : null}

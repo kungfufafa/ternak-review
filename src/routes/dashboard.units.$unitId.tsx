@@ -26,19 +26,36 @@ import {
 } from '#/components/ui/card'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '#/components/ui/field'
 import { Input } from '#/components/ui/input'
+import { Select } from '#/components/ui/input'
 import { Spinner } from '#/components/ui/spinner'
 import {
+  interceptFlowCopy,
+  interceptedPathLabel,
+  modeAllowed,
+} from '#/lib/review-settings'
+import type { getUnitDetail } from '#/server/clicks'
+import {
+  assignUnitToHolderFn,
   deleteUnitFn,
   getUnitDetailFn,
+  listAssignableHoldersFn,
+  retryFeedbackFn,
   toggleUnitFn,
+  unassignUnitFn,
   updateUnitPartnerFn,
+  updateUnitReviewSettingsFn,
 } from '#/server/functions'
+
+type UnitDetail = NonNullable<Awaited<ReturnType<typeof getUnitDetail>>>
 
 export const Route = createFileRoute('/dashboard/units/$unitId')({
   loader: async ({ params }) => {
-    const detail = await getUnitDetailFn({ data: { unitId: params.unitId } })
+    const [detail, holders] = await Promise.all([
+      getUnitDetailFn({ data: { unitId: params.unitId } }),
+      listAssignableHoldersFn(),
+    ])
     if (!detail) throw notFound()
-    return { detail }
+    return { detail, holders }
   },
   component: UnitDetailPage,
   head: () => ({
@@ -47,36 +64,33 @@ export const Route = createFileRoute('/dashboard/units/$unitId')({
 })
 
 function UnitDetailPage() {
-  const { detail } = Route.useLoaderData()
-  return <UnitDetailEditor key={detail.id} detail={detail} />
+  const { detail, holders } = Route.useLoaderData()
+  return <UnitDetailEditor holders={holders} key={detail.id} detail={detail} />
 }
 
 function UnitDetailEditor({
   detail,
+  holders,
 }: {
-  detail: {
-    id: string
-    publicId: string
-    status: string
-    partnerRef: string | null
-    totalClicks: number
-    redirectUrl: string
-    nfcEncodedAt: number | null
-    batch: { id: string; label: string } | null
-    daily: Array<{ date: string; count: number }>
-    outlet: {
-      name: string
-      address: string | null
-      photoUrl: string | null
-      googlePlaceId: string
-    } | null
-  }
+  detail: UnitDetail
+  holders: Awaited<ReturnType<typeof listAssignableHoldersFn>>
 }) {
   const toggle = useServerFn(toggleUnitFn)
   const updatePartner = useServerFn(updateUnitPartnerFn)
+  const updateReviewSettings = useServerFn(updateUnitReviewSettingsFn)
+  const assignHolder = useServerFn(assignUnitToHolderFn)
+  const unassignHolder = useServerFn(unassignUnitFn)
+  const retryFeedback = useServerFn(retryFeedbackFn)
   const removeUnit = useServerFn(deleteUnitFn)
   const router = useRouter()
   const [partnerRef, setPartnerRef] = useState(detail.partnerRef ?? '')
+  const [serviceTier, setServiceTier] = useState(detail.serviceTier)
+  const [reviewMode, setReviewMode] = useState(() =>
+    modeAllowed(detail.serviceTier, detail.reviewMode)
+      ? detail.reviewMode
+      : 'GOOGLE_DIRECT',
+  )
+  const [ownerWhatsapp, setOwnerWhatsapp] = useState(detail.ownerWhatsapp ?? '')
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -85,7 +99,13 @@ function UnitDetailEditor({
   const [deleting, setDeleting] = useState(false)
   const [toggleOpen, setToggleOpen] = useState(false)
   const [toggling, setToggling] = useState(false)
+  const [reviewBusy, setReviewBusy] = useState(false)
+  const [holderId, setHolderId] = useState(detail.holder?.id ?? '')
+  const [holderBusy, setHolderBusy] = useState(false)
   const willDeactivate = detail.status === 'ACTIVE'
+  const servicePackage = detail.servicePackages.find(
+    (item) => item.serviceTier === serviceTier,
+  )!
 
   async function onSavePartner(event: FormEvent) {
     event.preventDefault()
@@ -109,6 +129,36 @@ function UnitDetailEditor({
       setError(err instanceof Error ? err.message : 'Gagal menyimpan.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function onSaveReviewSettings(event: FormEvent) {
+    event.preventDefault()
+    setReviewBusy(true)
+    setError(null)
+    setSaved(false)
+    try {
+      const result = await updateReviewSettings({
+        data: {
+          unitId: detail.id,
+          serviceTier,
+          reviewMode,
+          ownerWhatsapp: ownerWhatsapp.trim() || undefined,
+        },
+      })
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      setServiceTier(result.serviceTier)
+      setReviewMode(result.reviewMode)
+      setOwnerWhatsapp(result.ownerWhatsapp ?? '')
+      setSaved(true)
+      await router.invalidate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menyimpan jalur review.')
+    } finally {
+      setReviewBusy(false)
     }
   }
 
@@ -245,6 +295,72 @@ function UnitDetailEditor({
 
         <Card>
           <CardHeader>
+            <CardTitle>Pemegang</CardTitle>
+            <CardDescription>
+              User yang memegang kartu ini. PIN aktivasi publik memakai PIN
+              akun tersebut.
+            </CardDescription>
+          </CardHeader>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              setHolderBusy(true)
+              setError(null)
+              setSaved(false)
+              void (async () => {
+                try {
+                  if (!holderId) {
+                    await unassignHolder({ data: { unitId: detail.id } })
+                  } else {
+                    await assignHolder({
+                      data: { unitId: detail.id, ownerId: holderId },
+                    })
+                  }
+                  setSaved(true)
+                  await router.invalidate({ sync: true })
+                } catch (err) {
+                  setError(
+                    err instanceof Error ? err.message : 'Gagal mengatur pemegang.',
+                  )
+                } finally {
+                  setHolderBusy(false)
+                }
+              })()
+            }}
+          >
+            <CardContent>
+              <Field>
+                <FieldLabel htmlFor="unit-holder">Akun pemegang</FieldLabel>
+                <Select
+                  id="unit-holder"
+                  onChange={(event) => setHolderId(event.target.value)}
+                  value={holderId}
+                >
+                  <option value="">Belum di-assign</option>
+                  {holders.map((holder) => (
+                    <option key={holder.id} value={holder.id}>
+                      {holder.name ? `${holder.name} · ${holder.email}` : holder.email}
+                    </option>
+                  ))}
+                </Select>
+                <FieldDescription>
+                  {detail.holder
+                    ? `Sekarang: ${detail.holder.name ?? detail.holder.email}`
+                    : 'Kartu tanpa pemegang tidak bisa diaktivasi lewat scan publik.'}
+                </FieldDescription>
+              </Field>
+            </CardContent>
+            <CardFooter>
+              <Button disabled={holderBusy} type="submit">
+                {holderBusy ? <Spinner data-icon="inline-start" /> : null}
+                Simpan pemegang
+              </Button>
+            </CardFooter>
+          </form>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Rekanan</CardTitle>
             <CardDescription>
               Tag sales/affiliate untuk kartu ini. Boleh dikosongkan.
@@ -281,6 +397,152 @@ function UnitDetailEditor({
               </Button>
             </CardFooter>
           </form>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Jalur review</CardTitle>
+            <CardDescription>
+              Pilih paket dan mode untuk kartu ini. Jika mode tidak tersedia pada
+              paket baru, jalur otomatis menjadi Google langsung.
+            </CardDescription>
+          </CardHeader>
+          <form onSubmit={onSaveReviewSettings}>
+            <CardContent className="flex flex-col gap-4">
+              <Field>
+                <FieldLabel htmlFor="unit-tier">Paket</FieldLabel>
+                <Select
+                  id="unit-tier"
+                  onChange={(event) => {
+                    const nextPackage = detail.servicePackages.find(
+                      (item) => item.serviceTier === event.target.value,
+                    )
+                    if (!nextPackage) return
+                    setServiceTier(nextPackage.serviceTier)
+                    if (!modeAllowed(nextPackage.serviceTier, reviewMode)) {
+                      setReviewMode('GOOGLE_DIRECT')
+                    }
+                    setSaved(false)
+                  }}
+                  value={serviceTier}
+                >
+                  {detail.servicePackages.map((item) => (
+                    <option key={item.serviceTier} value={item.serviceTier}>
+                      {item.name}
+                    </option>
+                  ))}
+                </Select>
+                <FieldDescription>
+                  Nama dan batas intersep mengikuti pengaturan paket.{' '}
+                  <Link className="text-pine underline underline-offset-4" to="/admin/packages">
+                    Atur paket
+                  </Link>
+                </FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="unit-review-mode">Mode aktif</FieldLabel>
+                <Select
+                  id="unit-review-mode"
+                  onChange={(event) =>
+                    setReviewMode(event.target.value as typeof reviewMode)
+                  }
+                  value={reviewMode}
+                >
+                  <option value="GOOGLE_DIRECT">Google langsung</option>
+                  <option disabled={serviceTier === 'BASIC'} value="OWNER_WHATSAPP">
+                    WhatsApp owner
+                  </option>
+                  <option disabled={serviceTier !== 'PRO'} value="ANONYMOUS_WHATSAPP">
+                    Masukan anonim
+                  </option>
+                </Select>
+              </Field>
+              <div className="rounded-xl bg-muted/50 p-3 text-sm">
+                <p className="font-medium">Alur paket {servicePackage.name}</p>
+                <p className="mt-1 text-muted-foreground">
+                  {reviewMode === 'GOOGLE_DIRECT'
+                    ? 'Setiap scan langsung membuka halaman tulis Google Review di Google Maps.'
+                    : interceptFlowCopy(
+                        servicePackage.interceptMaxRating,
+                        interceptedPathLabel(reviewMode),
+                      )}
+                </p>
+              </div>
+              {reviewMode !== 'GOOGLE_DIRECT' ? (
+                <Field>
+                  <FieldLabel htmlFor="unit-owner-whatsapp">
+                    WhatsApp owner
+                  </FieldLabel>
+                  <Input
+                    id="unit-owner-whatsapp"
+                    inputMode="tel"
+                    maxLength={32}
+                    onChange={(event) => setOwnerWhatsapp(event.target.value)}
+                    placeholder="08xxxxxxxxxx"
+                    required
+                    value={ownerWhatsapp}
+                  />
+                  <FieldDescription>
+                    Nomor akan dinormalisasi ke format internasional.
+                  </FieldDescription>
+                </Field>
+              ) : null}
+              {error ? (
+                <p className="text-sm text-destructive">{error}</p>
+              ) : null}
+              {saved ? (
+                <p className="text-sm text-success">Perubahan disimpan.</p>
+              ) : null}
+            </CardContent>
+            <CardFooter>
+              <Button disabled={reviewBusy} type="submit">
+                {reviewBusy ? <Spinner data-icon="inline-start" /> : null}
+                {reviewBusy ? 'Menyimpan…' : 'Simpan jalur review'}
+              </Button>
+            </CardFooter>
+          </form>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Masukan anonim</CardTitle>
+            <CardDescription>
+              Pesan tidak menyimpan nama atau nomor tamu. Status menunjukkan
+              proses antrean WhatsApp.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {detail.feedback.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Belum ada masukan.</p>
+            ) : (
+              detail.feedback.map((item) => (
+                <div className="rounded-xl border border-border p-3" key={item.id}>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span className="font-medium">Rating {item.rating}/5</span>
+                    <span className="text-muted-foreground">{item.status}</span>
+                  </div>
+                  <p className="mt-2 whitespace-pre-wrap text-sm">{item.message}</p>
+                  {item.deliveryError ? (
+                    <p className="mt-2 text-xs text-destructive">{item.deliveryError}</p>
+                  ) : null}
+                  {item.status === 'FAILED' || item.status === 'UNCERTAIN' ? (
+                    <Button
+                      className="mt-3"
+                      onClick={async () => {
+                        await retryFeedback({ data: { feedbackId: item.id } })
+                        await router.invalidate()
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Coba kirim lagi
+                    </Button>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </CardContent>
         </Card>
 
         <div className="rounded-2xl bg-card p-5">

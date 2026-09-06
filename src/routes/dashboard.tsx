@@ -6,6 +6,7 @@ export const Route = createFileRoute('/dashboard')({
   beforeLoad: async () => {
     const owner = await getCurrentOwnerFn()
     if (!owner) throw redirect({ to: '/login' })
+    if (owner.role !== 'ADMIN') throw redirect({ to: '/app' })
     return { owner }
   },
   component: DashboardLayout,

@@ -30,6 +30,31 @@ services:
       retries: 3
       start_period: 20s
 
+  whatsapp-gateway:
+    build: ./gateway
+    profiles: ["whatsapp"]
+    init: true
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      WHATSAPP_GATEWAY_DB: /var/lib/ternak-review/whatsapp.db
+      WHATSAPP_GATEWAY_WORKER_ID: primary
+    volumes:
+      - whatsapp-gateway-data:/var/lib/ternak-review
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      app:
+        condition: service_started
+
 volumes:
   review-data:
   review-backups:
+  whatsapp-gateway-data:

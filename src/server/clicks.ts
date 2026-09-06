@@ -20,6 +20,8 @@ import {
   reportingMonthStart,
   shiftReportingDay,
 } from '#/lib/reporting-time'
+import { listUnitFeedback } from './review'
+import { getServicePackages } from './service-packages'
 
 export type UnitStatus = 'IN_STOCK' | 'ACTIVE' | 'INACTIVE'
 
@@ -267,7 +269,7 @@ export function summarizeClickBuckets(
 export async function getUnitDetail(unitId: string) {
   const unit = await db.query.units.findFirst({
     where: eq(units.id, unitId),
-    with: { outlet: true, batch: true },
+    with: { outlet: true, batch: true, owner: true },
   })
   if (!unit) return null
 
@@ -296,13 +298,30 @@ export async function getUnitDetail(unitId: string) {
     const date = shiftReportingDay(firstDay, i)
     return { date, count: map.get(date) ?? 0 }
   })
+  const [feedback, servicePackages] = await Promise.all([
+    listUnitFeedback(unit.id),
+    getServicePackages(),
+  ])
 
   return {
     id: unit.id,
     publicId: unit.publicId,
     type: unit.type,
     status: unit.status,
+    serviceTier: unit.serviceTier,
+    servicePackages,
+    reviewMode: unit.reviewMode,
+    ownerWhatsapp: unit.ownerWhatsapp,
     partnerRef: unit.partnerRef,
+    holder: unit.owner
+      ? {
+          id: unit.owner.id,
+          email: unit.owner.email,
+          name: unit.owner.name,
+          status: unit.owner.status,
+          role: unit.owner.role,
+        }
+      : null,
     activatedAt: stamp(unit.activatedAt),
     nfcEncodedAt: stamp(unit.nfcEncodedAt),
     redirectUrl: `${getAppUrl()}/r/${unit.publicId}`,
@@ -319,6 +338,7 @@ export async function getUnitDetail(unitId: string) {
       : null,
     totalClicks: Number(totalRow?.total ?? 0),
     daily,
+    feedback,
   }
 }
 

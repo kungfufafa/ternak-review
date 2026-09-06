@@ -115,6 +115,14 @@ export function getAffiliateWebhookUrl() {
   return readEnv('AFFILIATE_WEBHOOK_URL')?.trim() ?? ''
 }
 
+export function getWhatsappGatewayToken() {
+  return readEnv('WHATSAPP_GATEWAY_TOKEN') ?? 'local-whatsapp-gateway-token'
+}
+
+export function isWhatsappGatewayConfigured() {
+  return Boolean(readEnv('WHATSAPP_GATEWAY_TOKEN'))
+}
+
 export function assertProductionConfig() {
   if (!isProduction()) return
 

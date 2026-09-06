@@ -26,17 +26,24 @@ function StatusPage() {
         title={
           inactive ? (
             <>
-              Sedang <em className="text-pine italic">nonaktif</em>
+              Sedang <em className="text-pine italic">istirahat</em>
             </>
           ) : (
             <>
-              Tidak <em className="text-pine italic">ditemukan</em>
+              Kartu tidak <em className="text-pine italic">ketemu</em>
             </>
           )
         }
       />
+      <p className="mb-4 text-sm text-muted-foreground">
+        {inactive
+          ? 'Pemegang bisa mengaktifkan lagi dari dashboard. Tamu coba scan ulang nanti.'
+          : 'Coba tempel atau scan kartunya sekali lagi. Kalau masih sama, hubungi penjual.'}
+      </p>
       <Button asChild className="w-full" size="lg">
-        <Link to="/">Beranda</Link>
+        <Link to={inactive ? '/login' : '/'}>
+          {inactive ? 'Masuk dashboard' : 'Beranda'}
+        </Link>
       </Button>
     </AuthShell>
   )

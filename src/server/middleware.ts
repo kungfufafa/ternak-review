@@ -43,6 +43,8 @@ export const securityHeadersMiddleware = createMiddleware().server(
       pathname === '/login' ||
       pathname === '/activate' ||
       pathname.startsWith('/r/') ||
+      pathname.startsWith('/feedback/') ||
+      pathname.startsWith('/api/internal/') ||
       pathname.startsWith('/admin') ||
       pathname.startsWith('/dashboard') ||
       pathname.startsWith('/_serverFn/')

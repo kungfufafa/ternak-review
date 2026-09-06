@@ -82,8 +82,8 @@ function AdminHomePage() {
             Operasional <em className="text-pine italic">hari ini</em>
           </h1>
           <p className="max-w-xl text-muted-foreground">
-            Pantau produksi, stok, aktivasi toko, dan kunjungan ke Google
-            Review dari satu tempat.
+            Pantau produksi, stok, aktivasi toko, dan scan kartu dari satu
+            tempat.
           </p>
         </div>
         <Button asChild variant="outline">
@@ -210,8 +210,8 @@ function AdminHomePage() {
           <div>
             <h2 className="font-medium tracking-tight">Ringkasan</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Kunjungan berarti kartu berhasil membuka halaman Google Review,
-              bukan review yang selesai dikirim.
+              Scan berarti kartu berhasil dibuka. Sebagian kartu bisa membuka
+              feedback sebelum tamu memilih Google Review.
             </p>
           </div>
         </div>
@@ -264,7 +264,7 @@ function AdminHomePage() {
           <Sparkline
             className="h-44"
             data={summary.daily}
-            label="Grafik kunjungan ke Google Review selama 14 hari terakhir"
+            label="Grafik scan kartu selama 14 hari terakhir"
           />
           <div className="mt-3 flex justify-between text-xs text-muted-foreground">
             <span>{formatShortDay(summary.daily[0]?.date)}</span>

@@ -1,0 +1,1 @@
+ALTER TABLE `smtp_settings` ADD `provider` text DEFAULT 'smtp' NOT NULL;
