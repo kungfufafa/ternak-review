@@ -9,14 +9,20 @@
   },
   "vars": {
     "NODE_ENV": "production",
+    "APP_URL": "https://ternakreview.com",
   },
+  "workers_dev": true,
+  "preview_urls": true,
+  "routes": [
+    { "pattern": "ternakreview.com/*", "zone_name": "ternakreview.com" },
+    { "pattern": "www.ternakreview.com/*", "zone_name": "ternakreview.com" },
+  ],
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "ternak-review",
       "migrations_dir": "drizzle",
-      // Ganti dengan id dari: npx wrangler d1 create ternak-review
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "8e0872b5-675a-4511-8764-ae0ed44b3370",
     },
   ],
 }

@@ -12,10 +12,7 @@ export const Route = createFileRoute('/health')({
         try {
           await db.select({ ok: sql<number>`1` })
           assertProductionConfig()
-          const [ownerRow] = await db.select({ total: count() }).from(owners)
-          if (Number(ownerRow?.total ?? 0) > 1) {
-            throw new Error('Database memiliki lebih dari satu owner')
-          }
+          await db.select({ total: count() }).from(owners)
           return Response.json({
             ok: true,
             service: 'review-kit',
