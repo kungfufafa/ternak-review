@@ -1,6 +1,7 @@
-import { asc, count, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
+import { asc, count, desc, eq, isNotNull, sql } from 'drizzle-orm'
 import { db, insertBatchWithUnits } from '#/db'
 import { stockBatches, units } from '#/db/schema'
+import { inJsonEach } from '#/db/sql'
 import { generatePublicId } from '#/lib/crypto'
 import { getAppUrl } from '#/lib/env'
 import { batchNextStep } from '#/lib/stock-progress'
@@ -56,17 +57,14 @@ export function unitsToCsv(
 async function uniquePublicIds(need: number) {
   const publicIds = new Set<string>()
   while (publicIds.size < need) {
-    publicIds.add(generatePublicId())
-  }
-
-  const taken = await db
-    .select({ publicId: units.publicId })
-    .from(units)
-    .where(inArray(units.publicId, [...publicIds]))
-  for (const row of taken) publicIds.delete(row.publicId)
-
-  while (publicIds.size < need) {
-    publicIds.add(generatePublicId())
+    while (publicIds.size < need) {
+      publicIds.add(generatePublicId())
+    }
+    const taken = await db
+      .select({ publicId: units.publicId })
+      .from(units)
+      .where(inJsonEach(units.publicId, [...publicIds]))
+    for (const row of taken) publicIds.delete(row.publicId)
   }
   return [...publicIds]
 }

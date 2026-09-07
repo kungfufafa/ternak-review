@@ -11,7 +11,14 @@ import {
   sql,
 } from 'drizzle-orm'
 import { db } from '#/db'
-import { clicks, outlets, owners, stockBatches, units } from '#/db/schema'
+import {
+  clicks,
+  outlets,
+  owners,
+  reviewFeedbacks,
+  stockBatches,
+  units,
+} from '#/db/schema'
 import { sqlDayBucket } from '#/db/sql'
 import { getAppUrl } from '#/lib/env'
 import {
@@ -202,6 +209,13 @@ export async function listUnits(input?: {
       batchLabel: row.batchLabel ?? null,
       activatedAt: stamp(row.activatedAt),
       nfcEncodedAt: stamp(row.nfcEncodedAt),
+      canReset: unitCanReset({
+        status: row.status,
+        holderId: row.holderId,
+        outletName: row.outletName,
+        activatedAt: row.activatedAt,
+        partnerRef: row.partnerRef,
+      }),
     })),
     total,
     page: safePage,
@@ -245,6 +259,63 @@ export async function deleteUnit(unitId: string) {
   }
 
   await db.delete(units).where(eq(units.id, unitId))
+  return { ok: true as const }
+}
+
+export function unitCanReset(unit: {
+  status: UnitStatus
+  holderId?: string | null
+  outletId?: string | null
+  outletName?: string | null
+  activatedAt?: Date | number | null
+  partnerRef?: string | null
+}) {
+  return (
+    unit.status !== 'IN_STOCK' ||
+    Boolean(unit.holderId) ||
+    Boolean(unit.outletId) ||
+    Boolean(unit.outletName) ||
+    Boolean(unit.activatedAt) ||
+    Boolean(unit.partnerRef)
+  )
+}
+
+export async function resetUnitToStock(unitId: string) {
+  const unit = await db.query.units.findFirst({
+    where: eq(units.id, unitId),
+  })
+  if (!unit) return { ok: false as const, error: 'Kartu tidak ditemukan.' }
+  if (
+    !unitCanReset({
+      status: unit.status,
+      holderId: unit.ownerId,
+      outletId: unit.outletId,
+      activatedAt: unit.activatedAt,
+      partnerRef: unit.partnerRef,
+    })
+  ) {
+    return {
+      ok: false as const,
+      error: 'Kartu ini sudah di gudang sebagai stok baru.',
+    }
+  }
+
+  await db.delete(clicks).where(eq(clicks.unitId, unitId))
+  await db.delete(reviewFeedbacks).where(eq(reviewFeedbacks.unitId, unitId))
+  await db
+    .update(units)
+    .set({
+      status: 'IN_STOCK',
+      outletId: null,
+      ownerId: null,
+      activatedAt: null,
+      partnerRef: null,
+      serviceTier: 'BASIC',
+      reviewMode: 'GOOGLE_DIRECT',
+      ownerWhatsapp: null,
+    })
+    .where(eq(units.id, unitId))
+
   return { ok: true as const }
 }
 

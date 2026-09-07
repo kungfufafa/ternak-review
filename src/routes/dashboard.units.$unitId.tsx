@@ -36,6 +36,7 @@ import {
   deleteUnitFn,
   getUnitDetailFn,
   listAssignableHoldersFn,
+  resetUnitFn,
   retryFeedbackFn,
   toggleUnitFn,
   unassignUnitFn,
@@ -79,6 +80,7 @@ function UnitDetailEditor({
   const unassignHolder = useServerFn(unassignUnitFn)
   const retryFeedback = useServerFn(retryFeedbackFn)
   const removeUnit = useServerFn(deleteUnitFn)
+  const resetUnit = useServerFn(resetUnitFn)
   const router = useRouter()
   const [partnerRef, setPartnerRef] = useState(detail.partnerRef ?? '')
   const [serviceTier, setServiceTier] = useState(detail.serviceTier)
@@ -91,6 +93,8 @@ function UnitDetailEditor({
   const [deleting, setDeleting] = useState(false)
   const [toggleOpen, setToggleOpen] = useState(false)
   const [toggling, setToggling] = useState(false)
+  const [resetOpen, setResetOpen] = useState(false)
+  const [resetting, setResetting] = useState(false)
   const [reviewBusy, setReviewBusy] = useState(false)
   const [holderId, setHolderId] = useState(detail.holder?.id ?? '')
   const [holderBusy, setHolderBusy] = useState(false)
@@ -101,6 +105,12 @@ function UnitDetailEditor({
   const holderDirty = holderId !== currentHolderId
   const willDeactivate = detail.status === 'ACTIVE'
   const inStock = detail.status === 'IN_STOCK'
+  const canReset =
+    detail.status !== 'IN_STOCK' ||
+    Boolean(detail.holder) ||
+    Boolean(detail.outlet) ||
+    Boolean(detail.activatedAt) ||
+    Boolean(detail.partnerRef)
   const holderSubmitLabel = !currentHolderId && holderId
     ? 'Tetapkan pemegang'
     : currentHolderId && !holderId
@@ -231,6 +241,15 @@ function UnitDetailEditor({
                 variant="outline"
               >
                 {willDeactivate ? 'Nonaktifkan' : 'Aktifkan kembali'}
+              </Button>
+            ) : null}
+            {canReset ? (
+              <Button
+                onClick={() => setResetOpen(true)}
+                type="button"
+                variant="outline"
+              >
+                Reset ke gudang
               </Button>
             ) : null}
             {inStock && !detail.holder ? (
@@ -668,6 +687,37 @@ function UnitDetailEditor({
         pending={toggling}
         title={willDeactivate ? 'Nonaktifkan kartu?' : 'Aktifkan lagi?'}
         variant={willDeactivate ? 'destructive' : 'default'}
+      />
+
+      <ConfirmDelete
+        confirmLabel="Reset ke gudang"
+        description={`${detail.publicId} kembali belum aktif, lepas dari toko dan pemegang. Kode QR/NFC tetap sama, bisa diaktifkan ke toko baru. Riwayat scan dan masukan dihapus.`}
+        onConfirm={async () => {
+          setResetting(true)
+          setError(null)
+          try {
+            const result = await resetUnit({ data: { unitId: detail.id } })
+            if (!result.ok) {
+              fail(result.error)
+              setResetOpen(false)
+              return
+            }
+            setResetOpen(false)
+            flash('Kartu direset ke gudang. Bisa diaktifkan ke toko baru.')
+            await router.invalidate({ sync: true })
+          } catch (err) {
+            fail(err instanceof Error ? err.message : 'Gagal mereset kartu.')
+            setResetOpen(false)
+          } finally {
+            setResetting(false)
+          }
+        }}
+        onOpenChange={(open) => {
+          if (!resetting) setResetOpen(open)
+        }}
+        open={resetOpen}
+        pending={resetting}
+        title="Reset kartu ke gudang?"
       />
 
       <ConfirmDelete

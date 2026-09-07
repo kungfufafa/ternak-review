@@ -19,6 +19,7 @@ import {
   getBatchPrintData,
   listStockBatches,
 } from '../src/server/stock.ts'
+import { buildPrintPdf } from '../src/lib/card-pdf.ts'
 import { serializeMobileBatch } from '../src/server/mobile-stock.ts'
 import {
   clearGooglePlacesKey,
@@ -98,6 +99,7 @@ import {
   getAdminDashboardSummary,
   getUnitDetail,
   listUnits,
+  resetUnitToStock,
   setUnitActiveState,
   summarizeClickBuckets,
 } from '../src/server/clicks.ts'
@@ -1090,6 +1092,62 @@ async function checkStockOwnership() {
   if (holderSearch.total !== 1 || holderSearch.units[0]?.publicId !== assigned.publicId) {
     throw new Error('Admin must be able to find allocated cards by holder name')
   }
+
+  const installed = await listUnits({ batchId: batch.batchId, status: 'ACTIVE' })
+  const toReset = installed.units[0]
+  if (!toReset?.canReset) {
+    throw new Error('An installed card must be resettable to warehouse stock')
+  }
+  const reset = await resetUnitToStock(toReset.id)
+  if (!reset.ok) throw new Error(reset.error)
+  const afterReset = await getUnitDetail(toReset.id)
+  if (
+    !afterReset ||
+    afterReset.status !== 'IN_STOCK' ||
+    afterReset.outlet ||
+    afterReset.holder ||
+    afterReset.activatedAt
+  ) {
+    throw new Error('Reset must return the card to unused warehouse stock')
+  }
+  await activateUnit({
+    publicId: toReset.publicId,
+    placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+    sessionRole: 'ADMIN',
+  })
+  const reactivated = await getActivationCard(toReset.publicId)
+  if (reactivated?.status !== 'ACTIVE') {
+    throw new Error('A reset card must be activatable again')
+  }
+
+  const large = await generateStockBatch({ count: 500, label: 'QA-PRINT-500' })
+  if (large.units.length !== 500) {
+    throw new Error('Must generate 500 unique cards for print')
+  }
+  const printPack = await getBatchPrintData({ batchId: large.batchId })
+  if (printPack.units.length !== 500) {
+    throw new Error('Print data must include all 500 cards')
+  }
+  const samplePdf = await buildPrintPdf({
+    cards: printPack.units.slice(0, 3).map((unit) => ({
+      publicId: unit.publicId,
+      redirectUrl: unit.redirectUrl,
+    })),
+    layout: 'sheet',
+  })
+  const pdfHead = Buffer.from(samplePdf.subarray(0, 5)).toString('latin1')
+  if (pdfHead !== '%PDF-') {
+    throw new Error('Percetakan file must be a PDF CorelDRAW can open')
+  }
+  const pdfText = Buffer.from(samplePdf).toString('latin1')
+  if ((pdfText.match(/\/Type\s*\/Page(?!s)/g) ?? []).length < 3) {
+    throw new Error('One print file must contain many card pages')
+  }
+  const removedLarge = await deleteStockBatch(large.batchId)
+  if (!removedLarge.ok) {
+    throw new Error('An unused 500-card batch must be removable')
+  }
+
   console.log('stock ownership flow passed')
 }
 

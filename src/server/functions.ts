@@ -21,6 +21,7 @@ import {
   getAdminDashboardSummary,
   getUnitDetail,
   listUnits,
+  resetUnitToStock,
   setUnitActiveState,
   updateUnitPartner,
 } from '#/server/clicks'
@@ -667,6 +668,13 @@ export const deleteUnitFn = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     await requireAdmin()
     return deleteUnit(data.unitId)
+  })
+
+export const resetUnitFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ unitId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return resetUnitToStock(data.unitId)
   })
 
 export const generateStockFn = createServerFn({ method: 'POST' })

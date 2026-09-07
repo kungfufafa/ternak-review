@@ -4,7 +4,7 @@ import {
   redirect,
   useNavigate,
 } from '@tanstack/react-router'
-import { PrinterIcon } from 'lucide-react'
+import { FileDownIcon, PrinterIcon } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { AppUrlBanner } from '#/components/app-url-banner'
 import { ProductionSteps } from '#/components/production-steps'
@@ -22,6 +22,11 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from '#/components/ui/toggle-group'
+import {
+  buildPrintPdf,
+  downloadBytes,
+  printPdfFilename,
+} from '#/lib/card-pdf'
 import { cardQrMap } from '#/lib/qr'
 import { chunk, cn } from '#/lib/utils'
 import {
@@ -33,6 +38,7 @@ import {
 type PrintLayout = 'sheet' | 'a4'
 
 const CARDS_PER_A4 = 4
+const PRINT_RANGE_DEFAULT = 500
 
 export const Route = createFileRoute('/admin/stock/print')({
   validateSearch: (
@@ -68,13 +74,16 @@ function StockPrintPage() {
   const [marks, setMarks] = useState<Record<string, string>>({})
   const [readyCount, setReadyCount] = useState(0)
   const [from, setFrom] = useState(1)
-  const [to, setTo] = useState(units.length > 100 ? 50 : units.length)
+  const [to, setTo] = useState(Math.min(units.length, PRINT_RANGE_DEFAULT))
   const [printNonce, setPrintNonce] = useState(0)
   const [trial, setTrial] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [exportDone, setExportDone] = useState(0)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   useEffect(() => {
     setFrom(1)
-    setTo(units.length > 100 ? 50 : units.length)
+    setTo(Math.min(units.length, PRINT_RANGE_DEFAULT))
     setMarks({})
     setReadyCount(0)
   }, [units])
@@ -149,6 +158,31 @@ function StockPrintPage() {
     ? '4 kartu per A4. Percobaan mencetak 1 lembar (4 kartu) supaya tidak bergeser.'
     : '1 kartu 9,8×9,8 cm di kertas 10×10 cm, untuk vendor.'
 
+  async function onDownloadCorel() {
+    if (ranged.length === 0) return
+    setExporting(true)
+    setExportDone(0)
+    setExportError(null)
+    try {
+      const bytes = await buildPrintPdf({
+        cards: ranged,
+        layout,
+        onProgress: (done) => setExportDone(done),
+      })
+      downloadBytes(
+        bytes,
+        printPdfFilename(batch.label, ranged.length),
+        'application/pdf',
+      )
+    } catch (err) {
+      setExportError(
+        err instanceof Error ? err.message : 'Gagal membuat file percetakan.',
+      )
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="bg-background text-foreground">
       <style>
@@ -199,7 +233,30 @@ function StockPrintPage() {
             )}
             {qrReady ? `Cetak ${ranged.length}` : 'Menyiapkan QR…'}
           </Button>
+          <Button
+            disabled={exporting || ranged.length === 0}
+            onClick={() => void onDownloadCorel()}
+            type="button"
+            variant="outline"
+          >
+            {exporting ? (
+              <Spinner data-icon="inline-start" />
+            ) : (
+              <FileDownIcon data-icon="inline-start" />
+            )}
+            {exporting
+              ? `Menyusun ${exportDone}/${ranged.length}…`
+              : `Unduh CorelDRAW · ${ranged.length} kartu`}
+          </Button>
         </div>
+        <p className="max-w-xl text-sm text-muted-foreground">
+          Satu file berisi semua kartu di rentang ini. Kirim ke percetakan —
+          buka di CorelDRAW (File → Buka). Tiap halaman satu kartu 10×10 cm
+          {a4 ? ', atau 4 kartu per A4' : ''}.
+        </p>
+        {exportError ? (
+          <p className="text-sm text-destructive">{exportError}</p>
+        ) : null}
 
         <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
             <section className="rounded-2xl bg-card p-6 sm:p-10">
@@ -301,8 +358,8 @@ function StockPrintPage() {
                   ) : null}
                   <FieldDescription>
                     {paperHint}
-                    {units.length > 100
-                      ? ' Batch besar: cetak bertahap (misalnya 50 per kali) supaya browser tidak berat.'
+                    {units.length > PRINT_RANGE_DEFAULT
+                      ? ` Batch besar: default ${PRINT_RANGE_DEFAULT} kartu. Ubah rentang atau pilih Semua.`
                       : ''}
                   </FieldDescription>
                 </FieldGroup>

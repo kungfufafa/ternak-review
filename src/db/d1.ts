@@ -1,11 +1,15 @@
 import type { BatchItem } from 'drizzle-orm/batch'
+import { getTableColumns } from 'drizzle-orm'
 import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1'
 import { env } from 'cloudflare:workers'
 import * as schema from './schema.ts'
 import { stockBatches, units } from './schema.ts'
+import { sqlVariableChunkSize } from './sql.ts'
 import type { AppDb, InsertedStockBatch, NewStockBatch, NewStockUnit } from './types.ts'
 
-const INSERT_CHUNK = 80
+const INSERT_CHUNK = sqlVariableChunkSize(
+  Object.keys(getTableColumns(units)).length,
+)
 
 type D1Db = DrizzleD1Database<typeof schema>
 

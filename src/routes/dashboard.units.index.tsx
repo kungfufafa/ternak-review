@@ -1,10 +1,13 @@
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
+import { useServerFn } from '@tanstack/react-start'
 import { SearchIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { ConfirmDelete } from '#/components/confirm-delete'
 import { DataTable, DataTableCell, DataTableHead } from '#/components/data-table'
 import { ListPager } from '#/components/list-pager'
 import { PageHeader } from '#/components/page'
 import { StatusBadge } from '#/components/ui/badge'
+import { Alert } from '#/components/ui/alert'
 import { Select } from '#/components/ui/input'
 import {
   Empty,
@@ -23,7 +26,7 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from '#/components/ui/toggle-group'
-import { listStockBatchesFn, listUnitsFn } from '#/server/functions'
+import { listStockBatchesFn, listUnitsFn, resetUnitFn } from '#/server/functions'
 
 type UnitStatus = 'IN_STOCK' | 'ACTIVE' | 'INACTIVE'
 
@@ -109,7 +112,15 @@ function UnitsListPage() {
   const { list, batches } = Route.useLoaderData()
   const { partner, status, ownership, q, batch } = Route.useSearch()
   const navigate = useNavigate({ from: '/dashboard/units/' })
+  const router = useRouter()
+  const resetUnit = useServerFn(resetUnitFn)
   const [draft, setDraft] = useState(q ?? '')
+  const [resetTarget, setResetTarget] = useState<{
+    id: string
+    publicId: string
+  } | null>(null)
+  const [resetting, setResetting] = useState(false)
+  const [resetError, setResetError] = useState<string | null>(null)
   const hasFilters = Boolean(q || status || ownership || partner || batch)
 
   useEffect(() => {
@@ -135,7 +146,7 @@ function UnitsListPage() {
   return (
     <>
       <PageHeader
-        description="Pantau NFC, tentukan pemegang, dan ikuti aktivasi setiap kartu. Buka detail kartu untuk mengatur pemegangnya."
+        description="Pantau NFC, tentukan pemegang, dan ikuti aktivasi setiap kartu. Reset mengembalikan kartu ke gudang supaya bisa dipasang ke toko baru dengan kode QR yang sama."
         title="Semua kartu"
       />
 
@@ -233,6 +244,7 @@ function UnitsListPage() {
             ))}
           </Select>
         ) : null}
+        {resetError ? <Alert variant="danger">{resetError}</Alert> : null}
         {partner ? (
           <p className="text-sm text-muted-foreground">
             Tag <span className="text-foreground">{partner}</span>
@@ -289,9 +301,12 @@ function UnitsListPage() {
         <div className="flex flex-col gap-4">
           <ul className="grid gap-2 md:hidden">
             {list.units.map((u) => (
-              <li key={u.id}>
+              <li
+                className="overflow-hidden rounded-2xl bg-card ring-1 ring-border"
+                key={u.id}
+              >
                 <Link
-                  className="block rounded-2xl bg-card p-4 ring-1 ring-border transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                  className="block p-4 transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                   params={{ unitId: u.id }}
                   to="/dashboard/units/$unitId"
                 >
@@ -350,6 +365,21 @@ function UnitsListPage() {
                     </div>
                   </dl>
                 </Link>
+                {u.canReset ? (
+                  <div className="border-t border-border px-4 py-3">
+                    <Button
+                      onClick={() => {
+                        setResetError(null)
+                        setResetTarget({ id: u.id, publicId: u.publicId })
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Reset ke gudang
+                    </Button>
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -366,6 +396,7 @@ function UnitsListPage() {
                   'NFC',
                   'Status',
                   'Aktivasi',
+                  '',
                 ]}
               />
               <tbody>
@@ -407,6 +438,21 @@ function UnitsListPage() {
                         ? new Date(u.activatedAt).toLocaleDateString('id-ID')
                         : '—'}
                     </DataTableCell>
+                    <DataTableCell>
+                      {u.canReset ? (
+                        <Button
+                          onClick={() => {
+                            setResetError(null)
+                            setResetTarget({ id: u.id, publicId: u.publicId })
+                          }}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Reset
+                        </Button>
+                      ) : null}
+                    </DataTableCell>
                   </tr>
                 ))}
               </tbody>
@@ -428,6 +474,39 @@ function UnitsListPage() {
           />
         </div>
       )}
+
+      <ConfirmDelete
+        confirmLabel="Reset ke gudang"
+        description={`${resetTarget?.publicId ?? 'Kartu'} kembali belum aktif, lepas dari toko dan pemegang. Kode QR/NFC tetap sama, bisa diaktifkan ke toko baru. Riwayat scan dan masukan dihapus.`}
+        onConfirm={async () => {
+          if (!resetTarget) return
+          setResetting(true)
+          setResetError(null)
+          try {
+            const result = await resetUnit({ data: { unitId: resetTarget.id } })
+            if (!result.ok) {
+              setResetError(result.error)
+              setResetTarget(null)
+              return
+            }
+            setResetTarget(null)
+            await router.invalidate({ sync: true })
+          } catch (err) {
+            setResetError(
+              err instanceof Error ? err.message : 'Gagal mereset kartu.',
+            )
+            setResetTarget(null)
+          } finally {
+            setResetting(false)
+          }
+        }}
+        onOpenChange={(open) => {
+          if (!resetting && !open) setResetTarget(null)
+        }}
+        open={Boolean(resetTarget)}
+        pending={resetting}
+        title="Reset kartu ke gudang?"
+      />
     </>
   )
 }
