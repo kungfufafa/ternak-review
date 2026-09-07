@@ -61,7 +61,7 @@ export const Route = createFileRoute('/activate')({
       if (session?.role === 'ADMIN') {
         throw redirect({ params: { unitId: card.id }, to: '/dashboard/units/$unitId' })
       }
-      if (session?.ownerId === card.ownerId) {
+      if (card.isHolder) {
         throw redirect({
           params: { unitId: card.id },
           to: '/app/units/$unitId',
@@ -95,15 +95,15 @@ function ActivatePage() {
 
   const publicId = (card?.publicId ?? prefillId).toUpperCase()
   const isAdmin = session?.role === 'ADMIN'
-  const isHolder = Boolean(session?.ownerId && session.ownerId === card?.ownerId)
+  const isHolder = Boolean(card?.isHolder)
   const publicUnassigned = Boolean(
-    !session && card?.status === 'IN_STOCK' && !card.ownerId,
+    !session && card?.status === 'IN_STOCK' && !card.hasOwner,
   )
   const skipPin = isAdmin || isHolder || publicUnassigned
   const otherAccount = Boolean(
     session?.role === 'USER' &&
-      card?.ownerId &&
-      session.ownerId !== card.ownerId,
+      card?.hasOwner &&
+      !card.isHolder,
   )
   const [step, setStep] = useState<Step>(() => (skipPin ? 'outlet' : 'pin'))
   const [pin, setPin] = useState('')
@@ -192,7 +192,12 @@ function ActivatePage() {
     setBusy(true)
     try {
       const details = await detailsFn({
-        data: { placeId, publicId, sessionToken },
+        data: {
+          placeId,
+          publicId,
+          pin: skipPin ? undefined : pin,
+          sessionToken,
+        },
       })
       setSelectedPlaceId(details.placeId)
       setPlacePreview(details)
@@ -281,7 +286,7 @@ function ActivatePage() {
       ) : null}
       {isAdmin && (step === 'outlet' || step === 'confirm') ? (
         <p className="text-sm text-muted-foreground">
-          {card.ownerId
+          {card.hasOwner
             ? 'Kamu mengaktifkan sebagai admin. Pemegang yang sudah terhubung tetap mengelola kartu ini.'
             : 'Belum ada pemegang. Setelah toko terpasang, tetapkan akun di halaman kartu agar toko bisa kelola dari aplikasi.'}
         </p>
@@ -296,7 +301,7 @@ function ActivatePage() {
       {step === 'pin' ? (
         <form className="flex flex-col gap-4" onSubmit={onVerifyPin}>
           <p className="text-sm text-muted-foreground">
-            {card.ownerId
+            {card.hasOwner
               ? 'Masukkan PIN aktivasi 4 digit dari admin, atau masuk dengan akun pemegang kartu ini untuk melanjutkan tanpa PIN.'
               : 'Kartu belum memiliki pemegang. PIN aktivasi akunmu akan menghubungkan kartu ini ke akun tersebut. Jika belum punya akun atau PIN, hubungi admin.'}
           </p>
@@ -323,7 +328,7 @@ function ActivatePage() {
             <Button disabled={busy} onClick={() => void onSwitchAccount()} size="lg" type="button" variant="outline">
               Keluar dan masuk dengan akun pemegang
             </Button>
-          ) : card.ownerId ? (
+          ) : card.hasOwner ? (
             <Button asChild size="lg" variant="outline">
               <Link search={{ activation: publicId, ref: partnerRef || undefined }} to="/login">Masuk tanpa PIN</Link>
             </Button>
@@ -334,6 +339,7 @@ function ActivatePage() {
       {step === 'outlet' ? (
         <PlacePicker
           disabled={busy}
+          pin={skipPin ? undefined : pin}
           onPick={(placeId) => {
             void onPickPlace(placeId)
           }}
@@ -428,7 +434,7 @@ function ActivatePage() {
               <>
                 <Button asChild className="w-full" size="lg">
                   <Link params={{ unitId: card.id }} to="/dashboard/units/$unitId">
-                    {card.ownerId ? 'Buka detail kartu' : 'Tetapkan pemegang'}
+                    {card.hasOwner ? 'Buka detail kartu' : 'Tetapkan pemegang'}
                   </Link>
                 </Button>
                 <Button asChild className="w-full" size="lg" variant="outline">

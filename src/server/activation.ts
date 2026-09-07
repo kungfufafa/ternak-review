@@ -3,7 +3,7 @@ import { db } from '#/db'
 import { outlets, owners, units } from '#/db/schema'
 import { hashPin, normalizePin, pinMatches } from '#/lib/pin'
 import { getPlaceDetails } from './places'
-import { assertRateLimit, consumeRateLimit } from './rate-limit'
+import { assertRateLimit, clearRateLimit, consumeRateLimit } from './rate-limit'
 import { hashRateLimitIdentifier } from './request'
 import {
   normalizeReviewSettings,
@@ -44,9 +44,38 @@ export async function getActivationCard(publicId: string) {
   }
 }
 
+/**
+ * Return only activation metadata that the current viewer needs. In
+ * particular, a public QR lookup must not disclose the holder's contact
+ * number or ownership identifier.
+ */
+export async function getActivationCardForViewer(
+  publicId: string,
+  viewer: { ownerId: string; role: 'ADMIN' | 'USER' } | null,
+) {
+  const card = await getActivationCard(publicId)
+  if (!card) return null
+  const isAdmin = viewer?.role === 'ADMIN'
+  const isHolder = viewer?.role === 'USER' && viewer.ownerId === card.ownerId
+  return {
+    id: card.id,
+    publicId: card.publicId,
+    status: card.status,
+    serviceTier: card.serviceTier,
+    servicePackage: card.servicePackage,
+    servicePackages: card.servicePackages,
+    whatsappGatewayOpen: card.whatsappGatewayOpen,
+    reviewMode: card.reviewMode,
+    hasOwner: Boolean(card.ownerId),
+    isHolder,
+    ownerWhatsapp: isAdmin || isHolder ? card.ownerWhatsapp : null,
+  }
+}
+
 export async function verifyActivationAccess(input: {
   publicId: string
   pin?: string
+  clientKey?: string | null
   sessionOwnerId?: string | null
   sessionRole?: 'ADMIN' | 'USER' | null
 }) {
@@ -75,17 +104,6 @@ export async function activateUnit(input: {
   sessionRole?: 'ADMIN' | 'USER' | null
 }) {
   const publicId = input.publicId.trim().toUpperCase()
-  await assertRateLimit(
-    `activate-card:${hashRateLimitIdentifier(publicId)}`,
-    { max: 20, windowMs: 60 * 60_000 },
-  )
-  if (input.clientKey) {
-    await assertRateLimit(`activate-client:${input.clientKey}`, {
-      max: 20,
-      windowMs: 60 * 60_000,
-    })
-  }
-
   const unit = await db.query.units.findFirst({
     where: eq(units.publicId, publicId),
     with: { owner: true },
@@ -95,6 +113,28 @@ export async function activateUnit(input: {
     throw new Error('Kartu ini sudah terpasang ke toko.')
   }
   const actor = await assertHolderMayActivate(unit, input)
+
+  // Do this only after the caller has proved access. Otherwise an attacker
+  // can spend the shared card bucket with bad PIN submissions and block the
+  // legitimate holder or admin from finishing activation. A truly public,
+  // unassigned card uses the client bucket only, so abuse before assignment
+  // cannot poison the later holder's card bucket.
+  if (
+    actor.holderOwnerId ||
+    input.sessionOwnerId ||
+    input.sessionRole === 'ADMIN'
+  ) {
+    await assertRateLimit(
+      `activate-card:${hashRateLimitIdentifier(publicId)}`,
+      { max: 20, windowMs: 60 * 60_000 },
+    )
+  }
+  if (input.clientKey) {
+    await assertRateLimit(`activate-client:${input.clientKey}`, {
+      max: 20,
+      windowMs: 60 * 60_000,
+    })
+  }
 
   const settings = normalizeReviewSettings({
     serviceTier: input.serviceTier ?? (unit.serviceTier as ServiceTier),
@@ -198,11 +238,16 @@ export async function rebindUnitOutlet(input: {
   return { outlet: details }
 }
 
-async function rejectBadPin(publicId: string): Promise<never> {
-  const limit = await consumeRateLimit(
-    `pin-fail:${hashRateLimitIdentifier(publicId)}`,
-    { max: 5, windowMs: 15 * 60_000 },
-  )
+const PIN_LIMIT = { max: 5, windowMs: 15 * 60_000 } as const
+
+function pinRateLimitKey(publicId: string, clientKey?: string | null) {
+  return `pin-fail:${hashRateLimitIdentifier(publicId)}:${hashRateLimitIdentifier(clientKey ?? 'server')}`
+}
+
+function rejectBadPin(limit: {
+  limited: boolean
+  remaining: number
+}): never {
   if (limit.limited || limit.remaining === 0) {
     throw new Error(
       'Terlalu banyak PIN yang tidak cocok. Coba lagi dalam 15 menit, atau hubungi admin untuk memeriksa pemegang dan PIN kartu.',
@@ -211,6 +256,28 @@ async function rejectBadPin(publicId: string): Promise<never> {
   throw new Error(
     `PIN belum cocok. Masih ${limit.remaining} kesempatan. Gunakan PIN aktivasi dari admin, bukan kode OTP untuk masuk.`,
   )
+}
+
+async function reservePinAttempt(publicId: string, clientKey?: string | null) {
+  const limit = await consumeRateLimit(
+    pinRateLimitKey(publicId, clientKey),
+    PIN_LIMIT,
+  )
+  if (limit.limited) {
+    throw new Error(
+      'Terlalu banyak PIN yang tidak cocok. Coba lagi dalam 15 menit, atau hubungi admin untuk memeriksa pemegang dan PIN kartu.',
+    )
+  }
+  return limit
+}
+
+async function clearSuccessfulPinAttempt(
+  publicId: string,
+  clientKey?: string | null,
+) {
+  await clearRateLimit(pinRateLimitKey(publicId, clientKey), {
+    windowMs: PIN_LIMIT.windowMs,
+  })
 }
 
 async function findHolderByPin(pin: string) {
@@ -243,6 +310,7 @@ async function assertHolderMayActivate(
   },
   input: {
     pin?: string
+    clientKey?: string | null
     sessionOwnerId?: string | null
     sessionRole?: 'ADMIN' | 'USER' | null
   },
@@ -259,9 +327,16 @@ async function assertHolderMayActivate(
     if (input.sessionOwnerId && input.sessionOwnerId === unit.ownerId) {
       return { holderOwnerId: unit.ownerId }
     }
-    if (!input.pin || !pinMatches(input.pin, unit.owner.pinHash)) {
-      await rejectBadPin(unit.publicId)
+    if (!input.pin) {
+      throw new Error(
+        'Masukkan PIN pemegang, atau masuk sebagai admin untuk pasang tanpa PIN.',
+      )
     }
+    const limit = await reservePinAttempt(unit.publicId, input.clientKey)
+    if (!pinMatches(input.pin, unit.owner.pinHash)) {
+      rejectBadPin(limit)
+    }
+    await clearSuccessfulPinAttempt(unit.publicId, input.clientKey)
     return { holderOwnerId: unit.ownerId }
   }
   if (!input.pin && !input.sessionOwnerId && !input.sessionRole) {
@@ -272,13 +347,15 @@ async function assertHolderMayActivate(
       'Masukkan PIN pemegang, atau masuk sebagai admin untuk pasang tanpa PIN.',
     )
   }
+  const limit = await reservePinAttempt(unit.publicId, input.clientKey)
   const matches = await findHolderByPin(input.pin)
   if (matches.length > 1) {
     throw new Error('PIN digunakan oleh lebih dari satu akun. Minta admin menetapkan kartu ke akunmu, lalu masuk dengan akun tersebut untuk aktivasi tanpa PIN.')
   }
   const holder = matches[0]
   if (!holder) {
-    await rejectBadPin(unit.publicId)
+    rejectBadPin(limit)
   }
+  await clearSuccessfulPinAttempt(unit.publicId, input.clientKey)
   return { holderOwnerId: holder.id }
 }

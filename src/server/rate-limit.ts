@@ -1,4 +1,4 @@
-import { lt, sql } from 'drizzle-orm'
+import { and, eq, lt, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import { rateLimits } from '#/db/schema'
 
@@ -62,4 +62,24 @@ export async function assertRateLimit(
       'Terlalu banyak percobaan. Coba lagi dalam beberapa menit.',
     )
   }
+}
+
+/** Remove the current window after a request proves it was authorized. */
+export async function clearRateLimit(
+  bucketKey: string,
+  options?: { windowMs?: number },
+) {
+  if (bucketKey.length > 160) throw new Error('Rate-limit key terlalu panjang')
+  const windowMs = options?.windowMs ?? WINDOW_MS
+  const windowStart = new Date(
+    Math.floor(Date.now() / windowMs) * windowMs,
+  )
+  await db
+    .delete(rateLimits)
+    .where(
+      and(
+        eq(rateLimits.bucketKey, bucketKey),
+        eq(rateLimits.windowStart, windowStart),
+      ),
+    )
 }

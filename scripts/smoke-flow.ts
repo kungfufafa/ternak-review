@@ -45,6 +45,7 @@ import { markNfcEncoded } from '../src/server/nfc.ts'
 import {
   activateUnit,
   getActivationCard,
+  getActivationCardForViewer,
   rebindUnitOutlet,
   verifyActivationAccess,
 } from '../src/server/activation.ts'
@@ -342,6 +343,27 @@ async function checkHolderAccounts() {
   await assignUnitToHolder({ ownerId: holder.id, publicId: cardA.publicId })
   await assignUnitToHolder({ ownerId: holder.id, publicId: cardB.publicId })
 
+  await db
+    .update(units)
+    .set({ ownerWhatsapp: '6281234567890' })
+    .where(eq(units.publicId, cardA.publicId))
+  const publicAssignedCard = await getActivationCardForViewer(cardA.publicId, null)
+  if (
+    !publicAssignedCard?.hasOwner ||
+    publicAssignedCard.isHolder ||
+    publicAssignedCard.ownerWhatsapp !== null ||
+    'ownerId' in publicAssignedCard
+  ) {
+    throw new Error('Public activation metadata must hide holder identity and WhatsApp')
+  }
+  const holderAssignedCard = await getActivationCardForViewer(cardA.publicId, {
+    ownerId: holder.id,
+    role: 'USER',
+  })
+  if (holderAssignedCard?.ownerWhatsapp !== '6281234567890') {
+    throw new Error('The holder may still see their own activation settings')
+  }
+
   const mine = await getHolder(holder.id)
   if (!mine || mine.cards.length !== 2) {
     throw new Error('Holder dashboard must list assigned cards only')
@@ -385,6 +407,41 @@ async function checkHolderAccounts() {
   await verifyActivationAccess({
     publicId: cardC.publicId,
     sessionRole: 'ADMIN',
+  })
+
+  const lockoutBatch = await generateStockBatch({ count: 1, label: 'QA-PIN-LOCKOUT' })
+  const lockoutCard = lockoutBatch.units[0]
+  if (!lockoutCard) throw new Error('Expected PIN lockout test card')
+  await assignUnitToHolder({ ownerId: holder.id, publicId: lockoutCard.publicId })
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await expectReject(
+      () =>
+        verifyActivationAccess({
+          publicId: lockoutCard.publicId,
+          pin: '2581',
+          clientKey: 'attacker-client',
+        }),
+      `PIN lockout wrong attempt ${attempt + 1}`,
+    )
+  }
+  await expectReject(
+    () =>
+      verifyActivationAccess({
+        publicId: lockoutCard.publicId,
+        pin: '2580',
+        clientKey: 'attacker-client',
+      }),
+    'Correct PIN after the same client is locked out',
+  )
+  await verifyActivationAccess({
+    publicId: lockoutCard.publicId,
+    pin: '2580',
+    clientKey: 'holder-client',
+  })
+  await activateUnit({
+    publicId: lockoutCard.publicId,
+    placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+    sessionOwnerId: holder.id,
   })
 
   const claimBatch = await generateStockBatch({ count: 3, label: 'QA-CLAIM' })

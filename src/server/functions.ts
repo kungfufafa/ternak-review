@@ -3,6 +3,7 @@ import { z } from 'zod'
 import {
   activateUnit,
   getActivationCard,
+  getActivationCardForViewer,
   rebindUnitOutlet,
   verifyActivationAccess,
 } from '#/server/activation'
@@ -143,7 +144,8 @@ export const adminExistsFn = createServerFn({ method: 'GET' }).handler(
 export const getActivationCardFn = createServerFn({ method: 'GET' })
   .validator(z.object({ publicId: z.string().min(4).max(32) }))
   .handler(async ({ data }) => {
-    return getActivationCard(data.publicId)
+    const session = await getSessionOwner()
+    return getActivationCardForViewer(data.publicId, session)
   })
 
 const locSchema = z.object({
@@ -151,7 +153,7 @@ const locSchema = z.object({
   lng: z.number().gte(-180).lte(180),
 })
 
-async function limitPlaces(publicId: string) {
+async function limitPlaces(publicId: string, pin?: string) {
   const card = await getActivationCard(publicId)
   if (!card) throw new Error('Kartu tidak ditemukan.')
   const session = await getSessionOwner()
@@ -159,17 +161,27 @@ async function limitPlaces(publicId: string) {
     card.status === 'ACTIVE' &&
     (session?.role === 'ADMIN' ||
       (session?.role === 'USER' && session.ownerId === card.ownerId))
-  if (card.status !== 'IN_STOCK' && !mayRebind) {
+  if (card.status === 'IN_STOCK') {
+    await verifyActivationAccess({
+      publicId: card.publicId,
+      pin,
+      clientKey: getClientFingerprint(),
+      sessionOwnerId: session?.ownerId ?? null,
+      sessionRole: session?.role ?? null,
+    })
+  } else if (!mayRebind) {
     throw new Error('Kartu tidak tersedia untuk memilih toko.')
   }
   await assertRateLimit(`places-client:${getClientFingerprint()}`, {
     max: 40,
     windowMs: 60_000,
   })
-  await assertRateLimit(
-    `places-card:${hashRateLimitIdentifier(card.publicId)}`,
-    { max: 200, windowMs: 15 * 60_000 },
-  )
+  if (card.ownerId || mayRebind) {
+    await assertRateLimit(
+      `places-card:${hashRateLimitIdentifier(card.publicId)}`,
+      { max: 200, windowMs: 15 * 60_000 },
+    )
+  }
 }
 
 export const placesStatusFn = createServerFn({ method: 'GET' }).handler(
@@ -230,19 +242,24 @@ export const searchPlacesFn = createServerFn({ method: 'POST' })
       publicId: z.string().min(4).max(32),
       loc: locSchema.optional(),
       sessionToken: z.string().uuid().optional(),
+      pin: z.string().max(8).optional(),
     }),
   )
   .handler(async ({ data }) => {
-    await limitPlaces(data.publicId)
+    await limitPlaces(data.publicId, data.pin)
     return autocompletePlaces(data)
   })
 
 export const nearbyPlacesFn = createServerFn({ method: 'POST' })
   .validator(
-    z.object({ publicId: z.string().min(4).max(32), loc: locSchema }),
+    z.object({
+      publicId: z.string().min(4).max(32),
+      loc: locSchema,
+      pin: z.string().max(8).optional(),
+    }),
   )
   .handler(async ({ data }) => {
-    await limitPlaces(data.publicId)
+    await limitPlaces(data.publicId, data.pin)
     return nearbyPlaces(data)
   })
 
@@ -252,10 +269,11 @@ export const placeDetailsFn = createServerFn({ method: 'POST' })
       placeId: z.string().min(2).max(256),
       publicId: z.string().min(4).max(32),
       sessionToken: z.string().uuid().optional(),
+      pin: z.string().max(8).optional(),
     }),
   )
   .handler(async ({ data }) => {
-    await limitPlaces(data.publicId)
+    await limitPlaces(data.publicId, data.pin)
     return getPlaceDetails(data.placeId, data.sessionToken)
   })
 
@@ -297,6 +315,7 @@ export const verifyActivationAccessFn = createServerFn({ method: 'POST' })
     const session = await getSessionOwner()
     return verifyActivationAccess({
       ...data,
+      clientKey: getClientFingerprint(),
       sessionOwnerId: session?.ownerId ?? null,
       sessionRole: session?.role ?? null,
     })
