@@ -194,7 +194,7 @@ function AdminStockPage() {
         <div className="mx-auto w-full max-w-xs lg:mx-0">
           <KitPreview />
           <p className="mt-3 text-center text-xs text-muted-foreground">
-            Begini kartunya nanti, 10×10 cm
+            Begini kartunya nanti, 9,8×9,8 cm
           </p>
         </div>
 

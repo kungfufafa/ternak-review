@@ -147,7 +147,7 @@ function StockPrintPage() {
 
   const paperHint = a4
     ? '4 kartu per A4. Percobaan mencetak 1 lembar (4 kartu) supaya tidak bergeser.'
-    : '1 kartu per halaman 10×10 cm, untuk vendor.'
+    : '1 kartu 9,8×9,8 cm di kertas 10×10 cm, untuk vendor.'
 
   return (
     <div className="bg-background text-foreground">
@@ -164,7 +164,7 @@ function StockPrintPage() {
           </h1>
           <p className="max-w-lg text-muted-foreground">
             {batch.label} · {ranged.length} dari {units.length}
-            {a4 ? ' · A4 isi 4' : ' · 10×10 cm'}
+            {a4 ? ' · A4 isi 4' : ' · 9,8×9,8 cm'}
           </p>
         </div>
 
@@ -261,7 +261,7 @@ function StockPrintPage() {
                       value={layout}
                       variant="outline"
                     >
-                      <ToggleGroupItem value="sheet">10×10 cm</ToggleGroupItem>
+                      <ToggleGroupItem value="sheet">9,8×9,8 cm</ToggleGroupItem>
                       <ToggleGroupItem value="a4">A4 isi 4</ToggleGroupItem>
                     </ToggleGroup>
                   </Field>
