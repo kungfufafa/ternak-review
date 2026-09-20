@@ -25,6 +25,7 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import { PlaceRatingLine } from '#/components/place-rating'
 import { ReviewPathFields } from '#/components/review-path-fields'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '#/components/ui/field'
 import { Input, Select } from '#/components/ui/input'
@@ -299,6 +300,19 @@ function UnitDetailEditor({
                   <p className="mt-1 text-sm text-muted-foreground">
                     {detail.outlet.address}
                   </p>
+                ) : null}
+                {detail.outlet.baselineRating != null ||
+                detail.outlet.baselineUserRatingCount != null ? (
+                  <div className="mt-3">
+                    <p className="text-xs text-muted-foreground">
+                      Google Review saat kartu dipasang
+                    </p>
+                    <PlaceRatingLine
+                      className="mt-1"
+                      rating={detail.outlet.baselineRating}
+                      userRatingCount={detail.outlet.baselineUserRatingCount}
+                    />
+                  </div>
                 ) : null}
                 {detail.batch ? (
                   <p className="mt-1 text-sm text-muted-foreground">

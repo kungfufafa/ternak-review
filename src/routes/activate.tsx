@@ -4,6 +4,7 @@ import { KeyRoundIcon, UserIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { AuthShell, AuthTitle } from '#/components/auth-shell'
 import { PlacePicker } from '#/components/place-picker'
+import { PlaceRatingLine } from '#/components/place-rating'
 import { ReviewPathFields } from '#/components/review-path-fields'
 import { Alert } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
@@ -18,6 +19,7 @@ import {
   InputGroupInput,
 } from '#/components/ui/input-group'
 import { Spinner } from '#/components/ui/spinner'
+import { DEFAULT_TRIAL_DAYS } from '#/lib/place-rating'
 import type { ServiceTier } from '#/lib/review-settings'
 import {
   activateUnitFn,
@@ -33,13 +35,16 @@ type Step = 'pin' | 'outlet' | 'confirm' | 'done'
 export const Route = createFileRoute('/activate')({
   validateSearch: (
     search: Record<string, unknown>,
-  ): { id?: string; ref?: string } => {
-    const next: { id?: string; ref?: string } = {}
+  ): { id?: string; ref?: string; place?: string } => {
+    const next: { id?: string; ref?: string; place?: string } = {}
     if (typeof search.id === 'string' && search.id.length > 0) {
       next.id = search.id
     }
     if (typeof search.ref === 'string' && search.ref.trim().length > 0) {
       next.ref = search.ref.trim().slice(0, 80)
+    }
+    if (typeof search.place === 'string' && search.place.length > 1) {
+      next.place = search.place
     }
     return next
   },
@@ -84,7 +89,7 @@ export const Route = createFileRoute('/activate')({
 })
 
 function ActivatePage() {
-  const { id: prefillId = '', ref: prefillRef = '' } = Route.useSearch()
+  const { id: prefillId = '', ref: prefillRef = '', place: prefillPlace } = Route.useSearch()
   const { card, session } = Route.useLoaderData()
   const detailsFn = useServerFn(placeDetailsFn)
   const activateFn = useServerFn(activateUnitFn)
@@ -122,13 +127,18 @@ function ActivatePage() {
     formattedAddress: string | null
     photoUrl: string | null
     googleMapsUri: string | null
+    rating: number | null
+    userRatingCount: number | null
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{
     publicId: string
     outletName: string
+    pickupLabel: string | null
+    installKind: 'TRIAL' | 'SOLD'
   } | null>(null)
+  const prefillStarted = useRef(false)
   const flowCardRef = useRef<{ id: string; ref: string } | null>(null)
 
   useEffect(() => {
@@ -145,6 +155,7 @@ function ActivatePage() {
       setPlacePreview(null)
       setError(null)
       setResult(null)
+      prefillStarted.current = false
       return
     }
     if (currentFlow.ref !== prefillRef) {
@@ -157,6 +168,14 @@ function ActivatePage() {
       setStep((current) => (current === 'pin' ? 'outlet' : current))
     }
   }, [card, prefillRef, skipPin])
+
+  useEffect(() => {
+    if (!prefillPlace || !skipPin || !card || step !== 'outlet' || prefillStarted.current) {
+      return
+    }
+    prefillStarted.current = true
+    void onPickPlace(prefillPlace)
+  }, [card, prefillPlace, skipPin, step])
 
   async function onSwitchAccount() {
     setBusy(true)
@@ -209,8 +228,7 @@ function ActivatePage() {
     }
   }
 
-  async function onActivate(event: React.FormEvent) {
-    event.preventDefault()
+  async function onActivate(installKind: 'TRIAL' | 'SOLD') {
     if (!selectedPlaceId || !publicId) return
     setError(null)
     setBusy(true)
@@ -223,11 +241,14 @@ function ActivatePage() {
           serviceTier,
           ownerWhatsapp: ownerWhatsapp.trim() || undefined,
           pin: skipPin ? undefined : pin,
+          installKind,
         },
       })
       setResult({
         publicId: res.publicId,
         outletName: res.outlet.name,
+        pickupLabel: res.prospect?.pickupLabel ?? null,
+        installKind,
       })
       setStep('done')
     } catch (err) {
@@ -349,7 +370,13 @@ function ActivatePage() {
       ) : null}
 
       {step === 'confirm' && placePreview ? (
-        <form className="flex flex-col gap-4" onSubmit={onActivate}>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void onActivate('TRIAL')
+          }}
+        >
           <Card>
             {placePreview.photoUrl ? (
               <img
@@ -367,6 +394,16 @@ function ActivatePage() {
                   {placePreview.formattedAddress}
                 </p>
               ) : null}
+              <PlaceRatingLine
+                className="mt-3"
+                rating={placePreview.rating}
+                showHint={isAdmin}
+                userRatingCount={placePreview.userRatingCount}
+              />
+              <p className="mt-2 text-xs text-muted-foreground">
+                Rating dan jumlah ulasan ini adalah kondisi Google Review
+                sebelum kartu dipasang.
+              </p>
             </CardContent>
           </Card>
           {prefillRef || partnerRef ? (
@@ -393,12 +430,24 @@ function ActivatePage() {
             whatsappGatewayOpen={card.whatsappGatewayOpen}
           />
           <p className="text-sm text-muted-foreground">
-            Pastikan nama dan alamat toko benar. Setelah diaktifkan, tamu yang
-            tap atau scan akan mengikuti jalur review paket ini.
+            Scan QR atau tap NFC masuk ke sini. Pilih trial dulu, atau langsung
+            closing kalau tokonya sudah deal.
           </p>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2">
+            <Button disabled={busy} size="lg" type="submit">
+              {busy ? <Spinner data-icon="inline-start" /> : null}
+              {busy ? 'Mengaktifkan…' : `Mulai trial ${DEFAULT_TRIAL_DAYS} hari`}
+            </Button>
             <Button
-              className="flex-1"
+              disabled={busy}
+              onClick={() => void onActivate('SOLD')}
+              size="lg"
+              type="button"
+              variant="outline"
+            >
+              Langsung closing
+            </Button>
+            <Button
               disabled={busy}
               onClick={() => {
                 setSessionToken(crypto.randomUUID())
@@ -408,13 +457,9 @@ function ActivatePage() {
               }}
               size="lg"
               type="button"
-              variant="outline"
+              variant="ghost"
             >
               Ganti toko
-            </Button>
-            <Button className="flex-1" disabled={busy} size="lg" type="submit">
-              {busy ? <Spinner data-icon="inline-start" /> : null}
-              {busy ? 'Mengaktifkan…' : 'Aktifkan kartu'}
             </Button>
           </div>
         </form>
@@ -424,9 +469,20 @@ function ActivatePage() {
         <Card>
           <CardContent className="p-6">
             <p className="text-muted-foreground">
-              Kartu aktif untuk{' '}
-              <span className="text-foreground">{result.outletName}</span>.
-              Tamu tinggal tempel atau scan.
+              {result.installKind === 'TRIAL' ? (
+                <>
+                  Trial jalan di{' '}
+                  <span className="text-foreground">{result.outletName}</span>.
+                  Tamu tinggal tempel atau scan.
+                  {result.pickupLabel ? ` ${result.pickupLabel}.` : ''}
+                </>
+              ) : (
+                <>
+                  Closing di{' '}
+                  <span className="text-foreground">{result.outletName}</span>.
+                  Kartu tetap di toko. Tamu tinggal tempel atau scan.
+                </>
+              )}
             </p>
           </CardContent>
           <CardFooter className="flex flex-col gap-2">
@@ -436,6 +492,9 @@ function ActivatePage() {
                   <Link params={{ unitId: card.id }} to="/dashboard/units/$unitId">
                     {card.hasOwner ? 'Buka detail kartu' : 'Tetapkan pemegang'}
                   </Link>
+                </Button>
+                <Button asChild className="w-full" size="lg" variant="outline">
+                  <Link to="/admin/prospects">Lihat jadwal ambil</Link>
                 </Button>
                 <Button asChild className="w-full" size="lg" variant="outline">
                   <a href={`/r/${result.publicId}`}>Coba sebagai tamu</a>

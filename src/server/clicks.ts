@@ -28,6 +28,7 @@ import {
   reportingMonthStart,
   shiftReportingDay,
 } from '#/lib/reporting-time'
+import { collectProspectForUnit } from './prospects'
 import { listUnitFeedback } from './review'
 import { getServicePackages } from './service-packages'
 import { isWhatsappGatewayOpen } from './whatsapp-status'
@@ -316,6 +317,8 @@ export async function resetUnitToStock(unitId: string) {
     })
     .where(eq(units.id, unitId))
 
+  await collectProspectForUnit(unitId)
+
   return { ok: true as const }
 }
 
@@ -432,6 +435,9 @@ export async function getUnitDetail(unitId: string) {
           address: unit.outlet.formattedAddress,
           photoUrl: unit.outlet.photoUrl,
           googlePlaceId: unit.outlet.googlePlaceId,
+          baselineRating: unit.outlet.baselineRating,
+          baselineUserRatingCount: unit.outlet.baselineUserRatingCount,
+          baselineCapturedAt: stamp(unit.outlet.baselineCapturedAt),
         }
       : null,
     totalClicks: Number(totalRow?.total ?? 0),

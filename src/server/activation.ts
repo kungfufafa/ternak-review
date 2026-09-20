@@ -1,8 +1,20 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '#/db'
-import { outlets, owners, units } from '#/db/schema'
+import { owners, units } from '#/db/schema'
 import { hashPin, normalizePin, pinMatches } from '#/lib/pin'
+import { upsertOutletFromPlace } from './outlets'
 import { getPlaceDetails } from './places'
+import { resetUnitToStock } from './clicks'
+import {
+  collectProspectForUnit,
+  convertProspectToSold,
+  findInstalledUnitForPlace,
+  getProspect,
+  listReadyStockCards,
+  markProspectInstalledForPlace,
+  upsertProspectRecord,
+} from './prospects'
+import type { PlaceSuggestion } from './places'
 import { assertRateLimit, clearRateLimit, consumeRateLimit } from './rate-limit'
 import { hashRateLimitIdentifier } from './request'
 import {
@@ -102,6 +114,8 @@ export async function activateUnit(input: {
   pin?: string
   sessionOwnerId?: string | null
   sessionRole?: 'ADMIN' | 'USER' | null
+  installKind?: 'TRIAL' | 'SOLD'
+  trialDays?: number
 }) {
   const publicId = input.publicId.trim().toUpperCase()
   const unit = await db.query.units.findFirst({
@@ -143,27 +157,7 @@ export async function activateUnit(input: {
   })
 
   const details = await getPlaceDetails(input.placeId)
-
-  const [outlet] = await db
-    .insert(outlets)
-    .values({
-      googlePlaceId: details.placeId,
-      name: details.name,
-      formattedAddress: details.formattedAddress,
-      photoUrl: details.photoUrl,
-    })
-    .onConflictDoUpdate({
-      target: outlets.googlePlaceId,
-      set: {
-        name: details.name,
-        formattedAddress: details.formattedAddress,
-        photoUrl: details.photoUrl,
-        updatedAt: new Date(),
-      },
-    })
-    .returning({ id: outlets.id })
-  if (!outlet) throw new Error('Gagal menyimpan outlet')
-  const outletId = outlet.id
+  const outletId = await upsertOutletFromPlace(details)
 
   const partnerRef = normalizePartnerRef(input.partnerRef)
   const [updated] = await db
@@ -189,11 +183,31 @@ export async function activateUnit(input: {
     throw new Error('Aktivasi gagal — kartu mungkin sudah diklaim')
   }
 
+  await upsertProspectRecord({
+    googlePlaceId: details.placeId,
+    name: details.name,
+    formattedAddress: details.formattedAddress,
+    rating: details.rating,
+    userRatingCount: details.userRatingCount,
+    googleMapsUri: details.googleMapsUri,
+    primaryType: details.primaryType,
+    partnerRef,
+    createdByOwnerId: input.sessionOwnerId,
+  })
+  const prospect = await markProspectInstalledForPlace({
+    googlePlaceId: details.placeId,
+    unitId: updated.id,
+    partnerRef,
+    installKind: input.installKind ?? 'TRIAL',
+    trialDays: input.trialDays,
+  })
+
   return {
     unitId: updated.id,
     publicId: updated.publicId,
     outlet: details,
     partnerRef,
+    prospect,
   }
 }
 
@@ -215,28 +229,127 @@ export async function rebindUnitOutlet(input: {
     throw new Error('Kartu ini bukan punya akunmu.')
   }
   const details = await getPlaceDetails(input.placeId)
-  const [outlet] = await db
-    .insert(outlets)
-    .values({
-      googlePlaceId: details.placeId,
-      name: details.name,
-      formattedAddress: details.formattedAddress,
-      photoUrl: details.photoUrl,
-    })
-    .onConflictDoUpdate({
-      target: outlets.googlePlaceId,
-      set: {
-        name: details.name,
-        formattedAddress: details.formattedAddress,
-        photoUrl: details.photoUrl,
-        updatedAt: new Date(),
-      },
-    })
-    .returning({ id: outlets.id })
-  if (!outlet) throw new Error('Gagal menyimpan toko.')
-  await db.update(units).set({ outletId: outlet.id }).where(eq(units.id, unit.id))
+  let nextKind: 'TRIAL' | 'SOLD' = 'SOLD'
+  if (unit.outlet?.googlePlaceId !== details.placeId) {
+    const previous = await collectProspectForUnit(unit.id)
+    if (previous?.installKind === 'TRIAL') nextKind = 'TRIAL'
+  }
+  const outletId = await upsertOutletFromPlace(details)
+  await db.update(units).set({ outletId }).where(eq(units.id, unit.id))
+  await upsertProspectRecord({
+    googlePlaceId: details.placeId,
+    name: details.name,
+    formattedAddress: details.formattedAddress,
+    rating: details.rating,
+    userRatingCount: details.userRatingCount,
+    googleMapsUri: details.googleMapsUri,
+    primaryType: details.primaryType,
+    partnerRef: unit.partnerRef,
+  })
+  await markProspectInstalledForPlace({
+    googlePlaceId: details.placeId,
+    unitId: unit.id,
+    partnerRef: unit.partnerRef,
+    installKind: nextKind,
+  })
   return { outlet: details }
 }
+
+async function nextReadyPublicId(publicId?: string) {
+  const requested = publicId?.trim().toUpperCase()
+  if (requested) return requested
+  const ready = await listReadyStockCards(1)
+  const card = ready[0]
+  if (!card) {
+    throw new Error('Tidak ada kartu gudang. Produksi kartu dulu, lalu pasang dari sini.')
+  }
+  return card.publicId
+}
+
+export async function attachProspectToCard(input: {
+  prospectId: string
+  publicId?: string
+  sessionOwnerId?: string | null
+  trialDays?: number
+}) {
+  const prospect = await getProspect(input.prospectId)
+  if (!prospect) throw new Error('Prospek tidak ditemukan.')
+  if (prospect.installState === 'sold' && prospect.unitId) {
+    throw new Error('Toko ini sudah closing dan kartunya masih terpasang.')
+  }
+  if (prospect.unitId && (prospect.installState === 'trial' || prospect.installState === 'due')) {
+    throw new Error(
+      prospect.installState === 'due'
+        ? 'Kartu trial sudah harus diambil dulu.'
+        : 'Toko ini masih trial. Ambil kartu atau closing dulu.',
+    )
+  }
+  const occupied = await findInstalledUnitForPlace(prospect.googlePlaceId)
+  if (occupied) {
+    throw new Error('Toko ini sudah punya kartu terpasang.')
+  }
+  const result = await activateUnit({
+    publicId: await nextReadyPublicId(input.publicId),
+    placeId: prospect.googlePlaceId,
+    partnerRef: prospect.partnerRef ?? undefined,
+    sessionRole: 'ADMIN',
+    sessionOwnerId: input.sessionOwnerId ?? null,
+    installKind: 'TRIAL',
+    trialDays: input.trialDays,
+  })
+  return {
+    ...result,
+    prospect: await getProspect(input.prospectId),
+  }
+}
+
+export async function attachPlaceToCard(input: {
+  place: PlaceSuggestion
+  publicId?: string
+  notes?: string
+  partnerRef?: string
+  sessionOwnerId?: string | null
+  trialDays?: number
+}) {
+  const saved = await upsertProspectRecord({
+    googlePlaceId: input.place.placeId,
+    name: input.place.name,
+    formattedAddress: input.place.address,
+    rating: input.place.rating,
+    userRatingCount: input.place.userRatingCount,
+    googleMapsUri: input.place.googleMapsUri,
+    primaryType: input.place.primaryType,
+    notes: input.notes,
+    partnerRef: input.partnerRef,
+    createdByOwnerId: input.sessionOwnerId,
+  })
+  return attachProspectToCard({
+    prospectId: saved.prospect.id,
+    publicId: input.publicId,
+    sessionOwnerId: input.sessionOwnerId,
+    trialDays: input.trialDays,
+  })
+}
+
+export async function collectProspectTrial(id: string) {
+  const prospect = await getProspect(id)
+  if (!prospect) throw new Error('Prospek tidak ditemukan.')
+  if (prospect.installKind !== 'TRIAL' || prospect.trialCollectedAt) {
+    throw new Error('Prospek ini tidak sedang trial.')
+  }
+  if (!prospect.unitId) {
+    throw new Error('Kartu trial sudah tidak terpasang.')
+  }
+  const reset = await resetUnitToStock(prospect.unitId)
+  if (!reset.ok) {
+    throw new Error(reset.error)
+  }
+  const collected = await getProspect(id)
+  if (!collected) throw new Error('Prospek tidak ditemukan.')
+  return collected
+}
+
+export { convertProspectToSold }
 
 const PIN_LIMIT = { max: 5, windowMs: 15 * 60_000 } as const
 

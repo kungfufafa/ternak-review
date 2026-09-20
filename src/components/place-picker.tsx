@@ -30,6 +30,7 @@ import {
   ItemTitle,
 } from '#/components/ui/item'
 import { Spinner } from '#/components/ui/spinner'
+import { PlaceRatingLine } from '#/components/place-rating'
 import { nearbyPlacesFn, searchPlacesFn } from '#/server/functions'
 import type { PlaceSuggestion } from '#/server/places'
 
@@ -290,6 +291,13 @@ export function PlacePicker({
                     ) : (
                       <ItemDescription>Alamat belum tersedia</ItemDescription>
                     )}
+                    {place.rating != null || place.userRatingCount != null ? (
+                      <PlaceRatingLine
+                        className="mt-1"
+                        rating={place.rating}
+                        userRatingCount={place.userRatingCount}
+                      />
+                    ) : null}
                   </ItemContent>
                   <ItemActions className="ml-2 shrink-0">
                     <span className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors group-hover/item:bg-accent group-hover/item:text-accent-foreground">

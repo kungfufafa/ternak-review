@@ -18,19 +18,23 @@ export function mapsSearchUrl(input: {
 export function mapsEmbedUrl(input: {
   name: string
   address?: string | null
+  zoom?: number
 }) {
   const query = input.address
     ? `${input.name}, ${input.address}`
     : input.name
-  return `https://www.google.com/maps?q=${encodeURIComponent(query)}&hl=id&z=16&output=embed`
+  const zoom = input.zoom ?? 16
+  return `https://www.google.com/maps?q=${encodeURIComponent(query)}&hl=id&z=${zoom}&output=embed`
 }
 
 export function GoogleMapsEmbed({
   name,
   address,
+  zoom,
 }: {
   name: string
   address?: string | null
+  zoom?: number
 }) {
   return (
     <iframe
@@ -38,7 +42,7 @@ export function GoogleMapsEmbed({
       className="h-52 w-full border-0 sm:h-72"
       loading="lazy"
       referrerPolicy="no-referrer-when-downgrade"
-      src={mapsEmbedUrl({ name, address })}
+      src={mapsEmbedUrl({ name, address, zoom })}
       title={name}
     />
   )
