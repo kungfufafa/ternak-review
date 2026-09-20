@@ -432,6 +432,9 @@ export async function getUnitDetail(unitId: string) {
           address: unit.outlet.formattedAddress,
           photoUrl: unit.outlet.photoUrl,
           googlePlaceId: unit.outlet.googlePlaceId,
+          baselineRating: unit.outlet.baselineRating,
+          baselineUserRatingCount: unit.outlet.baselineUserRatingCount,
+          baselineCapturedAt: stamp(unit.outlet.baselineCapturedAt),
         }
       : null,
     totalClicks: Number(totalRow?.total ?? 0),

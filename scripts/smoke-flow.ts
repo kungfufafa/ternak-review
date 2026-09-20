@@ -89,11 +89,22 @@ import { isSmtpReady, saveSmtpSettings, sendAppEmail } from '../src/server/smtp.
 import { listOutboundLogs } from '../src/server/outbox.ts'
 import {
   autocompletePlaces,
+  getPlaceDetails,
   nearbyPlaces,
+  textSearchPlaces,
 } from '../src/server/places.ts'
+import {
+  closingBand,
+  closingHint,
+  formatPlaceRating,
+} from '../src/lib/place-rating.ts'
+import {
+  listProspects,
+  saveProspect,
+} from '../src/server/prospects.ts'
 import { eq, or } from 'drizzle-orm'
 import { db } from '../src/db/index.ts'
-import { reviewFeedbacks, units, whatsappCommands, whatsappGatewayState, whatsappOutbox } from '../src/db/schema.ts'
+import { outlets, reviewFeedbacks, units, whatsappCommands, whatsappGatewayState, whatsappOutbox } from '../src/db/schema.ts'
 import {
   deleteUnit,
   getAdminDashboardSummary,
@@ -503,6 +514,17 @@ async function checkHolderAccounts() {
   if ((await resolveRedirect(cardA.publicId)).kind !== 'google') {
     throw new Error('Guests must still open Google Review after activation')
   }
+  const activatedPlace = await getPlaceDetails('ChIJN1t_tDeuEmsRUsoyG83frY4')
+  const activatedDetail = await getUnitDetail(activated.id)
+  if (
+    activatedDetail?.outlet?.baselineRating !== activatedPlace.rating ||
+    activatedDetail.outlet.baselineUserRatingCount !==
+      activatedPlace.userRatingCount
+  ) {
+    throw new Error(
+      'Activation must store Google rating and review count from before the card is filled',
+    )
+  }
   const ownerTap = await resolveRedirect(cardA.publicId, holder.id)
   if (ownerTap.kind !== 'manage' || ownerTap.unitId !== activated.id) {
     throw new Error('Holder tapping their own card must open the dashboard, not Google')
@@ -514,6 +536,70 @@ async function checkHolderAccounts() {
   })
   if (rebound.outlet.placeId !== 'DEV_dG9rby1iYXJ1') {
     throw new Error('Holder must be able to move a card to the correct shop')
+  }
+  const reboundDetail = await getUnitDetail(activated.id)
+  if (
+    reboundDetail?.outlet?.googlePlaceId !== 'DEV_dG9rby1iYXJ1' ||
+    reboundDetail.outlet.baselineRating == null
+  ) {
+    throw new Error('Rebind must capture baseline rating for the new shop')
+  }
+  const firstShopAgain = await db.query.outlets.findFirst({
+    where: eq(outlets.googlePlaceId, 'ChIJN1t_tDeuEmsRUsoyG83frY4'),
+  })
+  if (
+    firstShopAgain?.baselineRating !== activatedPlace.rating ||
+    firstShopAgain.baselineUserRatingCount !== activatedPlace.userRatingCount
+  ) {
+    throw new Error('Rebind must keep the original shop baseline snapshot')
+  }
+
+  const prospectPlace = 'DEV_dG9rby1wcm9zcGVr'
+  const savedProspect = await saveProspect({
+    placeId: prospectPlace,
+    partnerRef: 'andi',
+    notes: 'Kafe seberang kampus',
+  })
+  if (
+    !savedProspect.created ||
+    savedProspect.prospect.rating == null ||
+    savedProspect.prospect.userRatingCount == null ||
+    savedProspect.prospect.partnerRef !== 'andi'
+  ) {
+    throw new Error('Saving a prospect must store Google name, rating, and review count')
+  }
+  const savedAgain = await saveProspect({ placeId: prospectPlace })
+  if (
+    savedAgain.created ||
+    savedAgain.prospect.rating !== savedProspect.prospect.rating ||
+    savedAgain.prospect.userRatingCount !== savedProspect.prospect.userRatingCount
+  ) {
+    throw new Error('Re-saving a prospect must keep the first rating snapshot')
+  }
+  const prospectBatch = await generateStockBatch({ count: 1, label: 'QA-PROSPECT' })
+  const prospectCard = prospectBatch.units[0]
+  if (!prospectCard) throw new Error('Expected prospect card')
+  await activateUnit({
+    publicId: prospectCard.publicId,
+    placeId: prospectPlace,
+    sessionRole: 'ADMIN',
+  })
+  const listedProspects = await listProspects({ partner: 'andi' })
+  const won = listedProspects.prospects.find(
+    (row) => row.googlePlaceId === savedProspect.prospect.googlePlaceId,
+  )
+  if (!won || won.status !== 'WON' || won.unitId == null) {
+    throw new Error('Activating a card for a saved shop must mark the prospect won')
+  }
+  const prospectCardDetail = await getUnitDetail(
+    (await getActivationCard(prospectCard.publicId))!.id,
+  )
+  if (
+    prospectCardDetail?.outlet?.baselineRating !== savedProspect.prospect.rating ||
+    prospectCardDetail.outlet.baselineUserRatingCount !==
+      savedProspect.prospect.userRatingCount
+  ) {
+    throw new Error('Won prospect must keep the pre-card Google rating snapshot')
   }
   await expectReject(
     () =>
@@ -1230,13 +1316,36 @@ async function main() {
 
   const auto = await autocompletePlaces({ query: 'kopi susu' })
   const near = await nearbyPlaces({ loc: { lat: -6.2, lng: 106.816 } })
+  const text = await textSearchPlaces({ query: 'kopi susu' })
   if (auto.places.length === 0) throw new Error('Expected autocomplete hits')
   if (near.places.length === 0) throw new Error('Expected nearby hits')
+  if (text.places.length === 0) throw new Error('Expected text search hits')
+  if (
+    near.places[0]?.rating == null ||
+    near.places[0]?.userRatingCount == null ||
+    text.places[0]?.rating == null
+  ) {
+    throw new Error('Stub places must expose Google rating and review count')
+  }
+  if (closingBand({ rating: 4.6, userRatingCount: 8 }) !== 'hot') {
+    throw new Error('Few reviews must be a hot closing target')
+  }
+  if (closingBand({ rating: 4.8, userRatingCount: 200 }) !== 'cool') {
+    throw new Error('Busy listings must be cooler closing targets')
+  }
+  if (!formatPlaceRating({ rating: 4.2, userRatingCount: 18 }).includes('18')) {
+    throw new Error('Rating label must include review count')
+  }
+  if (!closingHint({ rating: 3.6, userRatingCount: 6 }).includes('rendah')) {
+    throw new Error('Low-rating hint must mention the weak score')
+  }
   console.log('places', {
     auto: auto.source,
     autoName: auto.places[0]?.name,
     near: near.source,
     nearName: near.places[0]?.name,
+    nearRating: near.places[0]?.rating,
+    nearReviews: near.places[0]?.userRatingCount,
   })
 
   const before = await resolveRedirect(tagged.publicId)

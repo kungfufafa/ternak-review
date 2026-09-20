@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import {
   activateUnit,
+  attachProspectToCard,
   getActivationCard,
   getActivationCardForViewer,
   rebindUnitOutlet,
@@ -16,6 +17,7 @@ import {
   registerWithPassword,
 } from '#/server/auth'
 import { assertAppUrlForProduction, getAppUrlInfo } from '#/lib/env'
+import { PROSPECT_CATEGORIES } from '#/lib/place-rating'
 import {
   deleteUnit,
   getAdminDashboardSummary,
@@ -29,7 +31,15 @@ import {
   autocompletePlaces,
   getPlaceDetails,
   nearbyPlaces,
+  textSearchPlaces,
 } from '#/server/places'
+import {
+  deleteProspect,
+  listProspects,
+  listReadyStockCards,
+  saveProspect,
+  updateProspect,
+} from '#/server/prospects'
 import {
   clearGooglePlacesKey,
   getGooglePlacesPublicSettings,
@@ -1088,5 +1098,134 @@ export const updateMyUnitReviewSettingsFn = createServerFn({ method: 'POST' })
       unitId: data.unitId,
       serviceTier: detail.serviceTier,
       ownerWhatsapp: data.ownerWhatsapp,
+    })
+  })
+
+const prospectCategorySchema = z.enum(['kopi', 'makan', 'toko', 'rawat', 'semua'])
+
+async function limitAdminPlaces() {
+  await requireAdmin()
+  await assertRateLimit(`prospect-places:${getClientFingerprint()}`, {
+    max: 40,
+    windowMs: 60_000,
+  })
+}
+
+export const prospectNearbyPlacesFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      loc: locSchema,
+      category: prospectCategorySchema.optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await limitAdminPlaces()
+    const category = data.category ?? 'semua'
+    const includedTypes = [...PROSPECT_CATEGORIES[category].types]
+    return nearbyPlaces({
+      loc: data.loc,
+      includedTypes: includedTypes.length > 0 ? includedTypes : undefined,
+    })
+  })
+
+export const prospectSearchPlacesFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      query: z.string().min(2).max(200),
+      loc: locSchema.optional(),
+      category: prospectCategorySchema.optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await limitAdminPlaces()
+    const category = data.category ?? 'semua'
+    const types = PROSPECT_CATEGORIES[category].types
+    return textSearchPlaces({
+      query: data.query,
+      loc: data.loc,
+      includedType: types[0],
+    })
+  })
+
+export const saveProspectFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      placeId: z.string().min(2).max(256),
+      notes: z.string().max(500).optional(),
+      partnerRef: z.string().max(80).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const admin = await requireAdmin()
+    await assertRateLimit(`prospect-save:${getClientFingerprint()}`, {
+      max: 40,
+      windowMs: 15 * 60_000,
+    })
+    return saveProspect({
+      ...data,
+      createdByOwnerId: admin.ownerId,
+    })
+  })
+
+export const listProspectsFn = createServerFn({ method: 'GET' })
+  .validator(
+    z.object({
+      q: z.string().max(120).optional(),
+      status: z.enum(['NEW', 'CONTACTED', 'WON', 'LOST']).optional(),
+      partner: z.string().max(80).optional(),
+      page: z.number().int().min(1).optional(),
+      pageSize: z.number().int().min(1).max(100).optional(),
+      sort: z.enum(['reviews', 'rating', 'recent']).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return listProspects(data)
+  })
+
+export const updateProspectFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      id: z.string().uuid(),
+      status: z.enum(['NEW', 'CONTACTED', 'WON', 'LOST']).optional(),
+      notes: z.string().max(500).optional(),
+      partnerRef: z.string().max(80).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return updateProspect(data)
+  })
+
+export const deleteProspectFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ id: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return deleteProspect(data.id)
+  })
+
+export const listReadyStockCardsFn = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    await requireAdmin()
+    return listReadyStockCards()
+  },
+)
+
+export const attachProspectToCardFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      prospectId: z.string().uuid(),
+      publicId: z.string().min(4).max(32),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const admin = await requireAdmin()
+    await assertRateLimit(`prospect-attach:${getClientFingerprint()}`, {
+      max: 20,
+      windowMs: 60 * 60_000,
+    })
+    return attachProspectToCard({
+      ...data,
+      sessionOwnerId: admin.ownerId,
     })
   })

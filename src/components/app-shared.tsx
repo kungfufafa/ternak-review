@@ -10,6 +10,7 @@ import {
   ScrollTextIcon,
   Settings2Icon,
   StoreIcon,
+  TargetIcon,
   UsersIcon,
 } from "lucide-react"
 
@@ -82,6 +83,12 @@ export function getNavGroups(pathname: string): SidebarNavGroup[] {
           path: "/dashboard/units",
           icon: <StoreIcon />,
           isActive: onUnits,
+        },
+        {
+          title: "Prospek toko",
+          path: "/admin/prospects",
+          icon: <TargetIcon />,
+          isActive: pathname.startsWith("/admin/prospects"),
         },
       ],
     },

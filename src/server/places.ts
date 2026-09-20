@@ -1,5 +1,9 @@
 import { isProduction } from '#/lib/env'
 import {
+  normalizeRating,
+  normalizeReviewCount,
+} from '#/lib/place-rating'
+import {
   isGooglePlacesConfigured,
   resolveGoogleMapsApiKey,
 } from '#/server/google'
@@ -13,6 +17,10 @@ export type PlaceSuggestion = {
   name: string
   address: string | null
   description: string
+  rating: number | null
+  userRatingCount: number | null
+  googleMapsUri: string | null
+  primaryType: string | null
 }
 
 export type PlaceDetails = {
@@ -21,6 +29,9 @@ export type PlaceDetails = {
   formattedAddress: string | null
   photoUrl: string | null
   googleMapsUri: string | null
+  rating: number | null
+  userRatingCount: number | null
+  primaryType: string | null
 }
 
 export type PlaceSearchResult = {
@@ -43,13 +54,30 @@ async function assertPlacesConfiguredForProduction() {
   }
 }
 
+function stubRating(placeId: string) {
+  let hash = 0
+  for (const ch of placeId) hash = (hash + ch.charCodeAt(0)) % 97
+  return {
+    rating: Math.round((3.2 + (hash % 18) / 10) * 10) / 10,
+    userRatingCount: 4 + ((hash * 7) % 180),
+  }
+}
+
 function suggestion(
   placeId: string,
   name: string,
   address: string | null,
+  extra?: {
+    rating?: number | null
+    userRatingCount?: number | null
+    googleMapsUri?: string | null
+    primaryType?: string | null
+    stubMetrics?: boolean
+  },
 ): PlaceSuggestion {
   const trimmedName = name.trim() || 'Google Maps place'
   const trimmedAddress = address?.trim() || null
+  const metrics = extra?.stubMetrics ? stubRating(placeId) : extra
   return {
     placeId,
     name: trimmedName,
@@ -57,6 +85,10 @@ function suggestion(
     description: trimmedAddress
       ? `${trimmedName} — ${trimmedAddress}`
       : trimmedName,
+    rating: normalizeRating(metrics?.rating ?? null),
+    userRatingCount: normalizeReviewCount(metrics?.userRatingCount ?? null),
+    googleMapsUri: extra?.googleMapsUri ?? null,
+    primaryType: extra?.primaryType ?? null,
   }
 }
 
@@ -69,6 +101,7 @@ function stubPlaces(query: string): PlaceSearchResult {
         `DEV_${Buffer.from(q).toString('base64url').slice(0, 24)}`,
         q,
         'Alamat uji (API key Google belum diisi)',
+        { stubMetrics: true, primaryType: 'cafe' },
       ),
     ],
   }
@@ -175,6 +208,7 @@ async function autocompletePlacesNew(
 
 export async function nearbyPlaces(input: {
   loc: LatLng
+  includedTypes?: string[]
 }): Promise<PlaceSearchResult> {
   await assertPlacesConfiguredForProduction()
   if (!(await isGooglePlacesConfigured())) {
@@ -185,36 +219,113 @@ export async function nearbyPlaces(input: {
           `DEV_${Buffer.from('nearby').toString('base64url').slice(0, 24)}`,
           'Outlet terdekat (uji)',
           'Isi API key Google di Admin → Google Maps',
+          { stubMetrics: true, primaryType: 'cafe' },
         ),
       ],
     }
   }
 
-  return nearbyPlacesNew(input.loc)
+  return nearbyPlacesNew(input.loc, input.includedTypes)
 }
 
-async function nearbyPlacesNew(loc: LatLng): Promise<PlaceSearchResult> {
+async function nearbyPlacesNew(
+  loc: LatLng,
+  includedTypes?: string[],
+): Promise<PlaceSearchResult> {
+  const body: Record<string, unknown> = {
+    languageCode: 'id',
+    regionCode: 'ID',
+    maxResultCount: 20,
+    rankPreference: 'DISTANCE',
+    locationRestriction: locationCircle(loc, NEARBY_RADIUS_M),
+  }
+  const types = includedTypes?.filter((type) => type.trim().length > 0) ?? []
+  if (types.length > 0) body.includedTypes = types
+
   const data = await placesNew<{
     places?: Array<{
       id?: string
       displayName?: { text?: string }
       formattedAddress?: string
+      rating?: number
+      userRatingCount?: number
+      googleMapsUri?: string
+      primaryType?: string
     }>
   }>('/places:searchNearby', {
-    fieldMask: 'places.id,places.displayName,places.formattedAddress',
-    body: {
-      languageCode: 'id',
-      regionCode: 'ID',
-      maxResultCount: 20,
-      rankPreference: 'DISTANCE',
-      locationRestriction: locationCircle(loc, NEARBY_RADIUS_M),
-    },
+    fieldMask:
+      'places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.googleMapsUri,places.primaryType',
+    body,
   })
 
   const places = (data.places ?? [])
     .map((p) => {
       if (!p.id || !p.displayName?.text) return null
-      return suggestion(p.id, p.displayName.text, p.formattedAddress ?? null)
+      return suggestion(p.id, p.displayName.text, p.formattedAddress ?? null, {
+        rating: p.rating,
+        userRatingCount: p.userRatingCount,
+        googleMapsUri: p.googleMapsUri,
+        primaryType: p.primaryType,
+      })
+    })
+    .filter((row): row is PlaceSuggestion => row !== null)
+
+  return { source: 'google', places }
+}
+
+export async function textSearchPlaces(input: {
+  query: string
+  loc?: LatLng | null
+  includedType?: string
+}): Promise<PlaceSearchResult> {
+  await assertPlacesConfiguredForProduction()
+  const q = input.query.trim()
+  const configured = await isGooglePlacesConfigured()
+  if (q.length < 2) return { source: configured ? 'google' : 'stub', places: [] }
+  if (!configured) return stubPlaces(q)
+  return textSearchPlacesNew(q, input.loc, input.includedType)
+}
+
+async function textSearchPlacesNew(
+  query: string,
+  loc?: LatLng | null,
+  includedType?: string,
+): Promise<PlaceSearchResult> {
+  const body: Record<string, unknown> = {
+    textQuery: query,
+    languageCode: 'id',
+    regionCode: 'ID',
+    pageSize: 20,
+  }
+  if (loc) body.locationBias = locationCircle(loc, SEARCH_BIAS_RADIUS_M)
+  else body.regionCode = 'ID'
+  if (includedType?.trim()) body.includedType = includedType.trim()
+
+  const data = await placesNew<{
+    places?: Array<{
+      id?: string
+      displayName?: { text?: string }
+      formattedAddress?: string
+      rating?: number
+      userRatingCount?: number
+      googleMapsUri?: string
+      primaryType?: string
+    }>
+  }>('/places:searchText', {
+    fieldMask:
+      'places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.googleMapsUri,places.primaryType',
+    body,
+  })
+
+  const places = (data.places ?? [])
+    .map((p) => {
+      if (!p.id || !p.displayName?.text) return null
+      return suggestion(p.id, p.displayName.text, p.formattedAddress ?? null, {
+        rating: p.rating,
+        userRatingCount: p.userRatingCount,
+        googleMapsUri: p.googleMapsUri,
+        primaryType: p.primaryType,
+      })
     })
     .filter((row): row is PlaceSuggestion => row !== null)
 
@@ -238,6 +349,7 @@ export async function getPlaceDetails(
     const name = id.startsWith('DEV_')
       ? Buffer.from(id.slice(4), 'base64url').toString('utf8') || 'Outlet Uji'
       : 'Outlet Uji'
+    const metrics = stubRating(id)
     return {
       placeId: id,
       name,
@@ -248,6 +360,9 @@ export async function getPlaceDetails(
       googleMapsUri: id.startsWith('DEV_')
         ? null
         : `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(id)}`,
+      rating: metrics.rating,
+      userRatingCount: metrics.userRatingCount,
+      primaryType: 'cafe',
     }
   }
 
@@ -268,9 +383,13 @@ async function getPlaceDetailsNew(
     displayName?: { text?: string }
     formattedAddress?: string
     googleMapsUri?: string
+    rating?: number
+    userRatingCount?: number
+    primaryType?: string
   }>(url, {
     method: 'GET',
-    fieldMask: 'id,displayName,formattedAddress,googleMapsUri',
+    fieldMask:
+      'id,displayName,formattedAddress,googleMapsUri,rating,userRatingCount,primaryType',
   })
 
   const resolvedId = data.id ?? placeId
@@ -285,5 +404,8 @@ async function getPlaceDetailsNew(
     googleMapsUri:
       data.googleMapsUri ??
       `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(resolvedId)}`,
+    rating: normalizeRating(data.rating ?? null),
+    userRatingCount: normalizeReviewCount(data.userRatingCount ?? null),
+    primaryType: data.primaryType ?? null,
   }
 }

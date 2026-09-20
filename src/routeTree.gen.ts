@@ -26,6 +26,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminGoogleRouteImport } from './routes/admin.google'
 import { Route as AdminLogsRouteImport } from './routes/admin.logs'
 import { Route as AdminPackagesRouteImport } from './routes/admin.packages'
+import { Route as AdminProspectsRouteImport } from './routes/admin.prospects'
 import { Route as AdminSiteRouteImport } from './routes/admin.site'
 import { Route as AdminSmtpRouteImport } from './routes/admin.smtp'
 import { Route as AdminStockRouteImport } from './routes/admin.stock'
@@ -138,6 +139,11 @@ const AdminLogsRoute = AdminLogsRouteImport.update({
 const AdminPackagesRoute = AdminPackagesRouteImport.update({
   id: '/packages',
   path: '/packages',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminProspectsRoute = AdminProspectsRouteImport.update({
+  id: '/prospects',
+  path: '/prospects',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminSiteRoute = AdminSiteRouteImport.update({
@@ -299,6 +305,7 @@ export interface FileRoutesByFullPath {
   '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/packages': typeof AdminPackagesRoute
+  '/admin/prospects': typeof AdminProspectsRoute
   '/admin/site': typeof AdminSiteRoute
   '/admin/smtp': typeof AdminSmtpRoute
   '/admin/stock': typeof AdminStockRouteWithChildren
@@ -343,6 +350,7 @@ export interface FileRoutesByTo {
   '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/packages': typeof AdminPackagesRoute
+  '/admin/prospects': typeof AdminProspectsRoute
   '/admin/site': typeof AdminSiteRoute
   '/admin/smtp': typeof AdminSmtpRoute
   '/admin/whatsapp': typeof AdminWhatsappRoute
@@ -390,6 +398,7 @@ export interface FileRoutesById {
   '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/packages': typeof AdminPackagesRoute
+  '/admin/prospects': typeof AdminProspectsRoute
   '/admin/site': typeof AdminSiteRoute
   '/admin/smtp': typeof AdminSmtpRoute
   '/admin/stock': typeof AdminStockRouteWithChildren
@@ -439,6 +448,7 @@ export interface FileRouteTypes {
     | '/admin/google'
     | '/admin/logs'
     | '/admin/packages'
+    | '/admin/prospects'
     | '/admin/site'
     | '/admin/smtp'
     | '/admin/stock'
@@ -483,6 +493,7 @@ export interface FileRouteTypes {
     | '/admin/google'
     | '/admin/logs'
     | '/admin/packages'
+    | '/admin/prospects'
     | '/admin/site'
     | '/admin/smtp'
     | '/admin/whatsapp'
@@ -529,6 +540,7 @@ export interface FileRouteTypes {
     | '/admin/google'
     | '/admin/logs'
     | '/admin/packages'
+    | '/admin/prospects'
     | '/admin/site'
     | '/admin/smtp'
     | '/admin/stock'
@@ -707,6 +719,13 @@ declare module '@tanstack/react-router' {
       path: '/packages'
       fullPath: '/admin/packages'
       preLoaderRoute: typeof AdminPackagesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/prospects': {
+      id: '/admin/prospects'
+      path: '/prospects'
+      fullPath: '/admin/prospects'
+      preLoaderRoute: typeof AdminProspectsRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/site': {
@@ -928,6 +947,7 @@ interface AdminRouteChildren {
   AdminGoogleRoute: typeof AdminGoogleRoute
   AdminLogsRoute: typeof AdminLogsRoute
   AdminPackagesRoute: typeof AdminPackagesRoute
+  AdminProspectsRoute: typeof AdminProspectsRoute
   AdminSiteRoute: typeof AdminSiteRoute
   AdminSmtpRoute: typeof AdminSmtpRoute
   AdminStockRoute: typeof AdminStockRouteWithChildren
@@ -943,6 +963,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminGoogleRoute: AdminGoogleRoute,
   AdminLogsRoute: AdminLogsRoute,
   AdminPackagesRoute: AdminPackagesRoute,
+  AdminProspectsRoute: AdminProspectsRoute,
   AdminSiteRoute: AdminSiteRoute,
   AdminSmtpRoute: AdminSmtpRoute,
   AdminStockRoute: AdminStockRouteWithChildren,
@@ -1014,13 +1035,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

@@ -4,6 +4,7 @@ import { KeyRoundIcon, UserIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { AuthShell, AuthTitle } from '#/components/auth-shell'
 import { PlacePicker } from '#/components/place-picker'
+import { PlaceRatingLine } from '#/components/place-rating'
 import { ReviewPathFields } from '#/components/review-path-fields'
 import { Alert } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
@@ -122,6 +123,8 @@ function ActivatePage() {
     formattedAddress: string | null
     photoUrl: string | null
     googleMapsUri: string | null
+    rating: number | null
+    userRatingCount: number | null
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -367,6 +370,16 @@ function ActivatePage() {
                   {placePreview.formattedAddress}
                 </p>
               ) : null}
+              <PlaceRatingLine
+                className="mt-3"
+                rating={placePreview.rating}
+                showHint={isAdmin}
+                userRatingCount={placePreview.userRatingCount}
+              />
+              <p className="mt-2 text-xs text-muted-foreground">
+                Rating dan jumlah ulasan ini adalah kondisi Google Review
+                sebelum kartu dipasang.
+              </p>
             </CardContent>
           </Card>
           {prefillRef || partnerRef ? (

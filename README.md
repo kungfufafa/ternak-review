@@ -107,6 +107,7 @@ Baileys. Stub menolak `APP_URL` non-localhost dan `NODE_ENV=production`.
 | `/admin/affiliate` | Lead afiliasi + webhook Sheets |
 | `/admin/packages` | Nama paket dan batas bintang intersep |
 | `/admin/users` | Buat pemegang kartu, PIN, assign kartu |
+| `/admin/prospects` | Cari toko Google Review, lihat rating & jumlah ulasan, simpan prospek sebelum kartu dipasang |
 | `/app` | Dashboard pemegang kartu |
 | `/admin/whatsapp` | Pairing gateway, atau mode uji `npm run gateway:stub` |
 | `/admin/smtp` | Email keluar: Resend (API key) atau SMTP klasik |

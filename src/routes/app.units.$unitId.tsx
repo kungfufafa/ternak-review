@@ -2,6 +2,7 @@ import { createFileRoute, Link, notFound, redirect, useRouter } from '@tanstack/
 import { useServerFn } from '@tanstack/react-start'
 import { useState, type FormEvent } from 'react'
 import { PlacePicker } from '#/components/place-picker'
+import { PlaceRatingLine } from '#/components/place-rating'
 import { PageHeader } from '#/components/page'
 import { Sparkline } from '#/components/Sparkline'
 import { StatusBadge } from '#/components/ui/badge'
@@ -56,6 +57,8 @@ function MyUnitPage() {
     placeId: string
     name: string
     address: string | null
+    rating: number | null
+    userRatingCount: number | null
   } | null>(null)
   const [ownerWhatsapp, setOwnerWhatsapp] = useState(detail.ownerWhatsapp ?? '')
   const [busy, setBusy] = useState(false)
@@ -83,6 +86,8 @@ function MyUnitPage() {
         placeId: details.placeId,
         name: details.name,
         address: details.formattedAddress,
+        rating: details.rating,
+        userRatingCount: details.userRatingCount,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memuat toko.')
@@ -170,6 +175,14 @@ function MyUnitPage() {
               {detail.outlet.address}
             </p>
           ) : null}
+          {detail.outlet.baselineRating != null ||
+          detail.outlet.baselineUserRatingCount != null ? (
+            <PlaceRatingLine
+              className="mt-3"
+              rating={detail.outlet.baselineRating}
+              userRatingCount={detail.outlet.baselineUserRatingCount}
+            />
+          ) : null}
           {isActive ? (
             <Button
               className="mt-3"
@@ -207,6 +220,11 @@ function MyUnitPage() {
                     {pendingPlace.address ? (
                       <p className="text-sm text-muted-foreground">{pendingPlace.address}</p>
                     ) : null}
+                    <PlaceRatingLine
+                      className="mt-2"
+                      rating={pendingPlace.rating}
+                      userRatingCount={pendingPlace.userRatingCount}
+                    />
                   </div>
                   <Button disabled={busy} onClick={() => void onRebind()} type="button">
                     {busy ? <Spinner data-icon="inline-start" /> : null}

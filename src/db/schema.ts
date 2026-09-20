@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -82,6 +83,10 @@ export const outlets = sqliteTable('outlets', {
   name: text('name').notNull(),
   formattedAddress: text('formatted_address'),
   photoUrl: text('photo_url'),
+  /** Google rating at first card install / first capture. Never overwritten. */
+  baselineRating: real('baseline_rating'),
+  baselineUserRatingCount: integer('baseline_user_rating_count'),
+  baselineCapturedAt: integer('baseline_captured_at', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(now),
@@ -143,6 +148,48 @@ export const units = sqliteTable(
   ],
 )
 
+export const prospects = sqliteTable(
+  'prospects',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    googlePlaceId: text('google_place_id').notNull().unique(),
+    name: text('name').notNull(),
+    formattedAddress: text('formatted_address'),
+    rating: real('rating'),
+    userRatingCount: integer('user_rating_count'),
+    googleMapsUri: text('google_maps_uri'),
+    primaryType: text('primary_type'),
+    notes: text('notes'),
+    status: text('status', {
+      enum: ['NEW', 'CONTACTED', 'WON', 'LOST'],
+    })
+      .notNull()
+      .default('NEW'),
+    partnerRef: text('partner_ref'),
+    createdByOwnerId: text('created_by_owner_id').references(() => owners.id, {
+      onDelete: 'set null',
+    }),
+    unitId: text('unit_id').references(() => units.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(now),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(now),
+  },
+  (t) => [
+    check(
+      'prospects_status_check',
+      sql`${t.status} IN ('NEW', 'CONTACTED', 'WON', 'LOST')`,
+    ),
+    index('prospects_status_idx').on(t.status),
+    index('prospects_partner_idx').on(t.partnerRef),
+    index('prospects_created_idx').on(t.createdAt),
+  ],
+)
+
 export const clicks = sqliteTable(
   'clicks',
   {
@@ -201,6 +248,7 @@ export const affiliateLeads = sqliteTable(
 export const ownersRelations = relations(owners, ({ many }) => ({
   units: many(units),
   sessions: many(sessions),
+  prospects: many(prospects),
 }))
 
 export const stockBatchesRelations = relations(stockBatches, ({ many }) => ({
@@ -225,6 +273,18 @@ export const unitsRelations = relations(units, ({ one, many }) => ({
     references: [stockBatches.id],
   }),
   clicks: many(clicks),
+  prospects: many(prospects),
+}))
+
+export const prospectsRelations = relations(prospects, ({ one }) => ({
+  createdBy: one(owners, {
+    fields: [prospects.createdByOwnerId],
+    references: [owners.id],
+  }),
+  unit: one(units, {
+    fields: [prospects.unitId],
+    references: [units.id],
+  }),
 }))
 
 export const clicksRelations = relations(clicks, ({ one }) => ({
