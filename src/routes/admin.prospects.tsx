@@ -11,6 +11,9 @@ import {
   MapPinIcon,
   SearchIcon,
 } from 'lucide-react'
+import {
+  GoogleMapsEmbed,
+} from '#/components/google-maps-embed'
 import { useEffect, useId, useRef, useState } from 'react'
 import { z } from 'zod'
 import { ConfirmDelete } from '#/components/confirm-delete'
@@ -55,6 +58,7 @@ import { useDebounced } from '#/hooks/use-debounced'
 import {
   PROSPECT_CATEGORIES,
   PROSPECT_STATUS_LABEL,
+  isPotentialProspect,
   type ProspectCategory,
   type ProspectStatus,
 } from '#/lib/place-rating'
@@ -66,7 +70,9 @@ import {
   listReadyStockCardsFn,
   prospectNearbyPlacesFn,
   prospectSearchPlacesFn,
+  saveProspectBatchFn,
   saveProspectFn,
+  scanCityProspectsFn,
   updateProspectFn,
 } from '#/server/functions'
 import type { PlaceSuggestion } from '#/server/places'
@@ -122,6 +128,8 @@ function ProspectsPage() {
   const router = useRouter()
   const nearbyFn = useServerFn(prospectNearbyPlacesFn)
   const searchFn = useServerFn(prospectSearchPlacesFn)
+  const scanCityFn = useServerFn(scanCityProspectsFn)
+  const saveBatchFn = useServerFn(saveProspectBatchFn)
   const saveFn = useServerFn(saveProspectFn)
   const updateFn = useServerFn(updateProspectFn)
   const deleteFn = useServerFn(deleteProspectFn)
@@ -133,7 +141,13 @@ function ProspectsPage() {
   const [draft, setDraft] = useState(search.q ?? '')
   const [partnerDraft, setPartnerDraft] = useState(search.partner ?? '')
   const [query, setQuery] = useState('')
-  const [category, setCategory] = useState<ProspectCategory>('kopi')
+  const [city, setCity] = useState('Cirebon')
+  const [scanMode, setScanMode] = useState<'nearby' | 'search' | 'city'>('nearby')
+  const [scannedCity, setScannedCity] = useState<{
+    name: string
+    address: string | null
+  } | null>(null)
+  const [category, setCategory] = useState<ProspectCategory>('semua')
   const [loc, setLoc] = useState<Loc | null>(null)
   const [geoState, setGeoState] = useState<'idle' | 'asking' | 'ready' | 'denied'>('idle')
   const [places, setPlaces] = useState<PlaceSuggestion[]>([])
@@ -148,6 +162,7 @@ function ProspectsPage() {
   const [attachFor, setAttachFor] = useState<string | null>(null)
   const [publicId, setPublicId] = useState('')
   const [attaching, setAttaching] = useState(false)
+  const [savingBatch, setSavingBatch] = useState(false)
   const requestId = useRef(0)
   const locationRequestId = useRef(0)
   const debouncedQ = useDebounced(draft, 300)
@@ -188,6 +203,8 @@ function ProspectsPage() {
         data: { loc: nextLoc, category: nextCategory },
       })
       if (id !== requestId.current) return
+      setScanMode('nearby')
+      setScannedCity(null)
       setPlaces(res.places)
     } catch {
       if (id !== requestId.current) return
@@ -229,7 +246,7 @@ function ProspectsPage() {
   useEffect(() => {
     const q = query.trim()
     if (q.length < 2) {
-      if (loc) void loadNearby(loc)
+      if (loc && scanMode !== 'city') void loadNearby(loc)
       return
     }
     const timeout = window.setTimeout(async () => {
@@ -245,6 +262,8 @@ function ProspectsPage() {
           },
         })
         if (id !== requestId.current) return
+        setScanMode('search')
+        setScannedCity(null)
         setPlaces(res.places)
       } catch {
         if (id !== requestId.current) return
@@ -254,7 +273,96 @@ function ProspectsPage() {
       }
     }, 350)
     return () => window.clearTimeout(timeout)
-  }, [query, loc, category])
+  }, [query, loc, category, scanMode])
+
+  async function onScanCity(
+    event?: React.FormEvent,
+    nextCategory: ProspectCategory = category,
+  ) {
+    event?.preventDefault()
+    const nextCity = city.trim()
+    if (nextCity.length < 2) {
+      setPlacesError('Isi nama kota, misalnya Cirebon.')
+      return
+    }
+    const id = ++requestId.current
+    setPlacesBusy(true)
+    setPlacesError(null)
+    setError(null)
+    setNotice(null)
+    try {
+      const res = await scanCityFn({
+        data: {
+          city: nextCity,
+          category: nextCategory,
+          potentialOnly: true,
+        },
+      })
+      if (id !== requestId.current) return
+      setScanMode('city')
+      setScannedCity({ name: res.city.name, address: res.city.address })
+      setPlaces(res.places)
+      setQuery('')
+      if (res.places.length === 0) {
+        setPlacesError(
+          `Tidak ada toko potensial di ${res.city.name}. Coba kategori lain atau kota lain.`,
+        )
+      } else {
+        setNotice(
+          `${res.places.length} toko potensial di ${res.city.name} siap dipasangi kartu. Rating dan jumlah ulasan di bawah adalah kondisi sebelum kartu diisi.`,
+        )
+      }
+    } catch (err) {
+      if (id !== requestId.current) return
+      setPlacesError(
+        err instanceof Error ? err.message : 'Tidak bisa memetakan kota. Coba lagi.',
+      )
+    } finally {
+      if (id === requestId.current) setPlacesBusy(false)
+    }
+  }
+
+  async function onSavePotential() {
+    const targets = places.filter(
+      (place) =>
+        isPotentialProspect(place) && !savedPlaceIds.has(place.placeId),
+    )
+    if (targets.length === 0) {
+      setError('Semua toko potensial di hasil ini sudah tersimpan.')
+      return
+    }
+    setSavingBatch(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const res = await saveBatchFn({
+        data: {
+          places: targets,
+          notes: scannedCity
+            ? `Scan kota ${scannedCity.name}`
+            : city.trim()
+              ? `Scan kota ${city.trim()}`
+              : undefined,
+          partnerRef: search.partner,
+        },
+      })
+      setSavedIds((current) => {
+        const next = new Set(current)
+        for (const place of targets) next.add(place.placeId)
+        return next
+      })
+      setNotice(
+        `${res.created} toko potensial disimpan${res.existing > 0 ? `, ${res.existing} sudah ada` : ''}. Siap dipasangi kartu.`,
+      )
+      await router.invalidate({ sync: true })
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Gagal menyimpan toko potensial.',
+      )
+    } finally {
+      setSavingBatch(false)
+    }
+  }
 
   async function onSave(place: PlaceSuggestion, partnerRef?: string) {
     setSavingId(place.placeId)
@@ -334,7 +442,7 @@ function ProspectsPage() {
   return (
     <div className="flex w-full max-w-screen-xl flex-col gap-8">
       <PageHeader
-        description="Cari kopi, toko, atau bisnis lokal di Google Review. Lihat nama listing, rating, dan jumlah ulasan sekarang — simpan sebelum kartu dipasang supaya closing lebih mudah."
+        description="Petakan satu kota, misalnya Cirebon, lalu simpan toko potensial yang rating dan jumlah ulasannya masih rendah — sebelum kartu review dipasang."
         title="Prospek toko"
       />
 
@@ -343,19 +451,43 @@ function ProspectsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Cari listing Google</CardTitle>
+          <CardTitle>Petakan kota</CardTitle>
           <CardDescription>
-            Rating dan jumlah ulasan di sini adalah kondisi sebelum kartu review
-            diisi. Toko dengan sedikit ulasan biasanya paling mudah closing.
+            Isi nama kota. Sistem mencari kafe, resto, toko, dan salon di kota
+            itu, lalu menampilkan yang potensial dipasangi kartu — sedikit
+            ulasan Google, rating masih bisa naik.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          <form className="flex flex-col gap-3 sm:flex-row" onSubmit={(event) => void onScanCity(event)}>
+            <InputGroup className="flex-1">
+              <InputGroupInput
+                autoComplete="off"
+                onChange={(event) => setCity(event.target.value)}
+                placeholder="Cirebon, Bandung, Surabaya…"
+                value={city}
+              />
+              <InputGroupAddon align="inline-start">
+                <MapPinIcon />
+              </InputGroupAddon>
+            </InputGroup>
+            <Button disabled={placesBusy || city.trim().length < 2} type="submit">
+              {placesBusy && scanMode === 'city' ? (
+                <Spinner data-icon="inline-start" />
+              ) : null}
+              Petakan kota
+            </Button>
+          </form>
           <div className="flex flex-wrap gap-2">
             {(Object.keys(PROSPECT_CATEGORIES) as ProspectCategory[]).map((key) => (
               <Button
                 key={key}
                 onClick={() => {
                   setCategory(key)
+                  if (scanMode === 'city' && city.trim().length >= 2) {
+                    void onScanCity(undefined, key)
+                    return
+                  }
                   if (loc && query.trim().length < 2) void loadNearby(loc, key)
                 }}
                 size="sm"
@@ -366,31 +498,57 @@ function ProspectsPage() {
               </Button>
             ))}
           </div>
-          <InputGroup>
-            <InputGroupInput
-              aria-controls={listId}
-              autoComplete="off"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Cari kopi, toko, resto…"
-              value={query}
+          {scannedCity ? (
+            <GoogleMapsEmbed
+              address={scannedCity.address}
+              name={scannedCity.name}
+              zoom={13}
             />
-            <InputGroupAddon align="inline-start">
-              <SearchIcon />
-            </InputGroupAddon>
-          </InputGroup>
-          <Button
-            disabled={geoState === 'asking'}
-            onClick={requestLocation}
-            type="button"
-            variant="outline"
-          >
-            {geoState === 'asking' ? (
-              <Spinner data-icon="inline-start" />
-            ) : (
-              <LocateFixedIcon data-icon="inline-start" />
-            )}
-            {geoState === 'ready' ? 'Segarkan sekitar sini' : 'Pakai lokasi saya'}
-          </Button>
+          ) : null}
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <InputGroup className="flex-1">
+              <InputGroupInput
+                aria-controls={listId}
+                autoComplete="off"
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Atau cari nama toko spesifik…"
+                value={query}
+              />
+              <InputGroupAddon align="inline-start">
+                <SearchIcon />
+              </InputGroupAddon>
+            </InputGroup>
+            <Button
+              disabled={geoState === 'asking'}
+              onClick={requestLocation}
+              type="button"
+              variant="outline"
+            >
+              {geoState === 'asking' ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <LocateFixedIcon data-icon="inline-start" />
+              )}
+              {geoState === 'ready' ? 'Sekitar sini' : 'Lokasi saya'}
+            </Button>
+          </div>
+          {places.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm text-muted-foreground">
+                {scanMode === 'city' && scannedCity
+                  ? `${places.length} toko potensial di ${scannedCity.name}`
+                  : `${places.length} listing Google`}
+              </p>
+              <Button
+                disabled={savingBatch || placesBusy}
+                onClick={() => void onSavePotential()}
+                type="button"
+              >
+                {savingBatch ? <Spinner data-icon="inline-start" /> : null}
+                Simpan yang potensial
+              </Button>
+            </div>
+          ) : null}
           {placesError ? <Alert variant="danger">{placesError}</Alert> : null}
           {placesBusy && places.length === 0 ? (
             <p className="text-sm text-muted-foreground">Mencari listing Google…</p>

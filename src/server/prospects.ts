@@ -7,7 +7,7 @@ import {
   formatPlaceRating,
   type ProspectStatus,
 } from '#/lib/place-rating'
-import { getPlaceDetails } from '#/server/places'
+import { getPlaceDetails, type PlaceSuggestion } from '#/server/places'
 
 const DEFAULT_PAGE_SIZE = 20
 
@@ -84,15 +84,20 @@ export async function markProspectWonForPlace(input: {
   return updated ? serializeProspect(updated) : null
 }
 
-export async function saveProspect(input: {
-  placeId: string
-  notes?: string
-  partnerRef?: string
+export async function upsertProspectRecord(input: {
+  googlePlaceId: string
+  name: string
+  formattedAddress: string | null
+  rating: number | null
+  userRatingCount: number | null
+  googleMapsUri: string | null
+  primaryType: string | null
+  notes?: string | null
+  partnerRef?: string | null
   createdByOwnerId?: string | null
 }) {
-  const details = await getPlaceDetails(input.placeId)
   const existing = await db.query.prospects.findFirst({
-    where: eq(prospects.googlePlaceId, details.placeId),
+    where: eq(prospects.googlePlaceId, input.googlePlaceId),
   })
   const now = new Date()
   const notes = input.notes?.trim().slice(0, 500) || null
@@ -103,16 +108,16 @@ export async function saveProspect(input: {
     const [updated] = await db
       .update(prospects)
       .set({
-        name: details.name,
-        formattedAddress: details.formattedAddress,
-        googleMapsUri: details.googleMapsUri,
-        primaryType: details.primaryType,
+        name: input.name,
+        formattedAddress: input.formattedAddress,
+        googleMapsUri: input.googleMapsUri,
+        primaryType: input.primaryType,
         notes: notes ?? existing.notes,
         partnerRef: partnerRef ?? existing.partnerRef,
-        rating: keepSnapshot ? existing.rating : details.rating,
+        rating: keepSnapshot ? existing.rating : input.rating,
         userRatingCount: keepSnapshot
           ? existing.userRatingCount
-          : details.userRatingCount,
+          : input.userRatingCount,
         updatedAt: now,
       })
       .where(eq(prospects.id, existing.id))
@@ -124,13 +129,13 @@ export async function saveProspect(input: {
   const [created] = await db
     .insert(prospects)
     .values({
-      googlePlaceId: details.placeId,
-      name: details.name,
-      formattedAddress: details.formattedAddress,
-      rating: details.rating,
-      userRatingCount: details.userRatingCount,
-      googleMapsUri: details.googleMapsUri,
-      primaryType: details.primaryType,
+      googlePlaceId: input.googlePlaceId,
+      name: input.name,
+      formattedAddress: input.formattedAddress,
+      rating: input.rating,
+      userRatingCount: input.userRatingCount,
+      googleMapsUri: input.googleMapsUri,
+      primaryType: input.primaryType,
       notes,
       partnerRef,
       createdByOwnerId: input.createdByOwnerId ?? null,
@@ -138,6 +143,67 @@ export async function saveProspect(input: {
     .returning()
   if (!created) throw new Error('Gagal menyimpan prospek.')
   return { prospect: serializeProspect(created), created: true as const }
+}
+
+export async function saveProspect(input: {
+  placeId: string
+  notes?: string
+  partnerRef?: string
+  createdByOwnerId?: string | null
+}) {
+  const details = await getPlaceDetails(input.placeId)
+  return upsertProspectRecord({
+    googlePlaceId: details.placeId,
+    name: details.name,
+    formattedAddress: details.formattedAddress,
+    rating: details.rating,
+    userRatingCount: details.userRatingCount,
+    googleMapsUri: details.googleMapsUri,
+    primaryType: details.primaryType,
+    notes: input.notes,
+    partnerRef: input.partnerRef,
+    createdByOwnerId: input.createdByOwnerId,
+  })
+}
+
+export async function saveProspectBatch(input: {
+  places: PlaceSuggestion[]
+  notes?: string
+  partnerRef?: string
+  createdByOwnerId?: string | null
+}) {
+  const unique = new Map<string, PlaceSuggestion>()
+  for (const place of input.places) {
+    if (!place.placeId || !place.name.trim()) continue
+    unique.set(place.placeId, place)
+  }
+  if (unique.size === 0) {
+    throw new Error('Tidak ada toko potensial untuk disimpan.')
+  }
+  if (unique.size > 40) {
+    throw new Error('Maksimal 40 toko per sekali simpan.')
+  }
+  let created = 0
+  let existing = 0
+  const saved = []
+  for (const place of unique.values()) {
+    const result = await upsertProspectRecord({
+      googlePlaceId: place.placeId,
+      name: place.name,
+      formattedAddress: place.address,
+      rating: place.rating,
+      userRatingCount: place.userRatingCount,
+      googleMapsUri: place.googleMapsUri,
+      primaryType: place.primaryType,
+      notes: input.notes,
+      partnerRef: input.partnerRef,
+      createdByOwnerId: input.createdByOwnerId,
+    })
+    if (result.created) created += 1
+    else existing += 1
+    saved.push(result.prospect)
+  }
+  return { created, existing, prospects: saved }
 }
 
 export async function listProspects(input?: {

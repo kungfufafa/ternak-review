@@ -1,7 +1,11 @@
 import { isProduction } from '#/lib/env'
 import {
+  cityScanKeywords,
+  isPotentialProspect,
   normalizeRating,
   normalizeReviewCount,
+  sortPlacesByClosing,
+  type ProspectCategory,
 } from '#/lib/place-rating'
 import {
   isGooglePlacesConfigured,
@@ -11,6 +15,7 @@ import {
 const PLACES_NEW = 'https://places.googleapis.com/v1'
 const NEARBY_RADIUS_M = 1500
 const SEARCH_BIAS_RADIUS_M = 4000
+const CITY_RADIUS_M = 12_000
 
 export type PlaceSuggestion = {
   placeId: string
@@ -42,6 +47,15 @@ export type PlaceSearchResult = {
 export type LatLng = {
   lat: number
   lng: number
+}
+
+const STUB_CITY_CENTERS: Record<string, LatLng> = {
+  cirebon: { lat: -6.732, lng: 108.552 },
+  bandung: { lat: -6.9175, lng: 107.6191 },
+  jakarta: { lat: -6.2088, lng: 106.8456 },
+  surabaya: { lat: -7.2575, lng: 112.7521 },
+  yogyakarta: { lat: -7.7956, lng: 110.3695 },
+  semarang: { lat: -6.9667, lng: 110.4167 },
 }
 
 export { isGooglePlacesConfigured }
@@ -90,6 +104,25 @@ function suggestion(
     googleMapsUri: extra?.googleMapsUri ?? null,
     primaryType: extra?.primaryType ?? null,
   }
+}
+
+function stubCityPlaces(city: string): PlaceSuggestion[] {
+  const labels = [
+    { name: `Kopi ${city}`, type: 'cafe' },
+    { name: `Warung ${city}`, type: 'restaurant' },
+    { name: `Resto ${city}`, type: 'restaurant' },
+    { name: `Salon ${city}`, type: 'hair_salon' },
+    { name: `Toko ${city}`, type: 'store' },
+    { name: `Minimarket ${city}`, type: 'convenience_store' },
+  ]
+  return labels.map((row, index) =>
+    suggestion(
+      `DEV_${Buffer.from(`${city}:${row.type}:${index}`).toString('base64url').slice(0, 32)}`,
+      row.name,
+      `${city}, Indonesia (uji)`,
+      { stubMetrics: true, primaryType: row.type },
+    ),
+  )
 }
 
 function stubPlaces(query: string): PlaceSearchResult {
@@ -273,23 +306,139 @@ async function nearbyPlacesNew(
   return { source: 'google', places }
 }
 
+export type CityScanResult = {
+  source: 'google' | 'stub'
+  city: {
+    name: string
+    address: string | null
+    loc: LatLng | null
+  }
+  places: PlaceSuggestion[]
+  potentialCount: number
+}
+
+function stubCityCenter(city: string): CityScanResult['city'] {
+  const key = city.trim().toLowerCase()
+  return {
+    name: city.trim(),
+    address: `${city.trim()}, Indonesia`,
+    loc: STUB_CITY_CENTERS[key] ?? { lat: -6.2, lng: 106.816 },
+  }
+}
+
+export async function scanCityPlaces(input: {
+  city: string
+  category?: ProspectCategory
+  potentialOnly?: boolean
+}): Promise<CityScanResult> {
+  await assertPlacesConfiguredForProduction()
+  const city = input.city.trim().replace(/\s+/g, ' ')
+  if (city.length < 2) {
+    throw new Error('Isi nama kota, misalnya Cirebon.')
+  }
+  const category = input.category ?? 'semua'
+  const configured = await isGooglePlacesConfigured()
+  if (!configured) {
+    const places = sortPlacesByClosing(stubCityPlaces(city)).filter((place) =>
+      input.potentialOnly ? isPotentialProspect(place) : true,
+    )
+    return {
+      source: 'stub',
+      city: stubCityCenter(city),
+      places,
+      potentialCount: places.filter(isPotentialProspect).length,
+    }
+  }
+  return scanCityPlacesNew(city, category, input.potentialOnly === true)
+}
+
+async function resolveCityCenter(city: string): Promise<CityScanResult['city']> {
+  const data = await placesNew<{
+    places?: Array<{
+      displayName?: { text?: string }
+      formattedAddress?: string
+      location?: { latitude?: number; longitude?: number }
+    }>
+  }>('/places:searchText', {
+    fieldMask: 'places.displayName,places.formattedAddress,places.location',
+    body: {
+      textQuery: `${city}, Indonesia`,
+      languageCode: 'id',
+      regionCode: 'ID',
+      pageSize: 3,
+    },
+  })
+  const hit = (data.places ?? []).find(
+    (place) =>
+      typeof place.location?.latitude === 'number' &&
+      typeof place.location?.longitude === 'number',
+  )
+  if (!hit?.location) return stubCityCenter(city)
+  return {
+    name: hit.displayName?.text?.trim() || city,
+    address: hit.formattedAddress ?? `${city}, Indonesia`,
+    loc: {
+      lat: hit.location.latitude as number,
+      lng: hit.location.longitude as number,
+    },
+  }
+}
+
+async function scanCityPlacesNew(
+  city: string,
+  category: ProspectCategory,
+  potentialOnly: boolean,
+): Promise<CityScanResult> {
+  const cityCenter = await resolveCityCenter(city)
+  const keywords = cityScanKeywords(category)
+  const batches = await Promise.all(
+    keywords.map((keyword) =>
+      textSearchPlaces({
+        query: `${keyword} di ${city}`,
+        loc: cityCenter.loc,
+        radius: CITY_RADIUS_M,
+      }),
+    ),
+  )
+  const seen = new Set<string>()
+  const places: PlaceSuggestion[] = []
+  for (const batch of batches) {
+    for (const place of batch.places) {
+      if (seen.has(place.placeId)) continue
+      seen.add(place.placeId)
+      places.push(place)
+    }
+  }
+  const ranked = sortPlacesByClosing(places).filter((place) =>
+    potentialOnly ? isPotentialProspect(place) : true,
+  )
+  return {
+    source: 'google',
+    city: cityCenter,
+    places: ranked,
+    potentialCount: ranked.filter(isPotentialProspect).length,
+  }
+}
+
 export async function textSearchPlaces(input: {
   query: string
   loc?: LatLng | null
   includedType?: string
+  radius?: number
 }): Promise<PlaceSearchResult> {
   await assertPlacesConfiguredForProduction()
   const q = input.query.trim()
   const configured = await isGooglePlacesConfigured()
   if (q.length < 2) return { source: configured ? 'google' : 'stub', places: [] }
   if (!configured) return stubPlaces(q)
-  return textSearchPlacesNew(q, input.loc, input.includedType)
+  return textSearchPlacesNew(q, input.loc, input.includedType, input.radius)
 }
 
 async function textSearchPlacesNew(
   query: string,
   loc?: LatLng | null,
   includedType?: string,
+  radius?: number,
 ): Promise<PlaceSearchResult> {
   const body: Record<string, unknown> = {
     textQuery: query,
@@ -297,7 +446,7 @@ async function textSearchPlacesNew(
     regionCode: 'ID',
     pageSize: 20,
   }
-  if (loc) body.locationBias = locationCircle(loc, SEARCH_BIAS_RADIUS_M)
+  if (loc) body.locationBias = locationCircle(loc, radius ?? SEARCH_BIAS_RADIUS_M)
   else body.regionCode = 'ID'
   if (includedType?.trim()) body.includedType = includedType.trim()
 

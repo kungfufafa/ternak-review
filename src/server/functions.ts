@@ -31,6 +31,7 @@ import {
   autocompletePlaces,
   getPlaceDetails,
   nearbyPlaces,
+  scanCityPlaces,
   textSearchPlaces,
 } from '#/server/places'
 import {
@@ -38,6 +39,7 @@ import {
   listProspects,
   listReadyStockCards,
   saveProspect,
+  saveProspectBatch,
   updateProspect,
 } from '#/server/prospects'
 import {
@@ -1125,6 +1127,59 @@ export const prospectNearbyPlacesFn = createServerFn({ method: 'POST' })
     return nearbyPlaces({
       loc: data.loc,
       includedTypes: includedTypes.length > 0 ? includedTypes : undefined,
+    })
+  })
+
+export const scanCityProspectsFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      city: z.string().trim().min(2).max(80),
+      category: prospectCategorySchema.optional(),
+      potentialOnly: z.boolean().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    await assertRateLimit(`prospect-city:${getClientFingerprint()}`, {
+      max: 12,
+      windowMs: 15 * 60_000,
+    })
+    return scanCityPlaces(data)
+  })
+
+export const saveProspectBatchFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      places: z
+        .array(
+          z.object({
+            placeId: z.string().min(2).max(256),
+            name: z.string().trim().min(1).max(200),
+            address: z.string().max(300).nullable(),
+            description: z.string().max(500),
+            rating: z.number().min(0).max(5).nullable(),
+            userRatingCount: z.number().int().min(0).nullable(),
+            googleMapsUri: z.string().max(500).nullable(),
+            primaryType: z.string().max(80).nullable(),
+          }),
+        )
+        .min(1)
+        .max(40),
+      notes: z.string().max(500).optional(),
+      partnerRef: z.string().max(80).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const admin = await requireAdmin()
+    await assertRateLimit(`prospect-batch:${getClientFingerprint()}`, {
+      max: 8,
+      windowMs: 15 * 60_000,
+    })
+    return saveProspectBatch({
+      places: data.places,
+      notes: data.notes,
+      partnerRef: data.partnerRef,
+      createdByOwnerId: admin.ownerId,
     })
   })
 

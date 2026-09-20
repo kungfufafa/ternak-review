@@ -106,3 +106,33 @@ export const PROSPECT_STATUS_LABEL: Record<ProspectStatus, string> = {
   WON: 'Closing',
   LOST: 'Tidak jadi',
 }
+
+const CITY_SCAN_KEYWORDS: Record<Exclude<ProspectCategory, 'semua'>, string[]> = {
+  kopi: ['kafe', 'warung kopi'],
+  makan: ['restoran', 'rumah makan'],
+  toko: ['toko', 'minimarket'],
+  rawat: ['salon', 'barbershop'],
+}
+
+export function cityScanKeywords(category: ProspectCategory): string[] {
+  if (category === 'semua') {
+    return ['kafe', 'restoran', 'toko', 'salon']
+  }
+  return [...CITY_SCAN_KEYWORDS[category]]
+}
+
+export function isPotentialProspect(input: PlaceRatingSnapshot) {
+  const band = closingBand(input)
+  return band === 'hot' || band === 'warm'
+}
+
+export function sortPlacesByClosing<T extends PlaceRatingSnapshot>(places: T[]) {
+  return [...places].sort((a, b) => {
+    const aCount = a.userRatingCount ?? Number.POSITIVE_INFINITY
+    const bCount = b.userRatingCount ?? Number.POSITIVE_INFINITY
+    if (aCount !== bCount) return aCount - bCount
+    const aRating = a.rating ?? 99
+    const bRating = b.rating ?? 99
+    return aRating - bRating
+  })
+}

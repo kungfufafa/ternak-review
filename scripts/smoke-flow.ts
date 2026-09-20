@@ -91,16 +91,19 @@ import {
   autocompletePlaces,
   getPlaceDetails,
   nearbyPlaces,
+  scanCityPlaces,
   textSearchPlaces,
 } from '../src/server/places.ts'
 import {
   closingBand,
   closingHint,
   formatPlaceRating,
+  isPotentialProspect,
 } from '../src/lib/place-rating.ts'
 import {
   listProspects,
   saveProspect,
+  saveProspectBatch,
 } from '../src/server/prospects.ts'
 import { eq, or } from 'drizzle-orm'
 import { db } from '../src/db/index.ts'
@@ -1320,6 +1323,32 @@ async function main() {
   if (auto.places.length === 0) throw new Error('Expected autocomplete hits')
   if (near.places.length === 0) throw new Error('Expected nearby hits')
   if (text.places.length === 0) throw new Error('Expected text search hits')
+  const cityScan = await scanCityPlaces({
+    city: 'Cirebon',
+    category: 'semua',
+    potentialOnly: true,
+  })
+  if (cityScan.city.name.toLowerCase().includes('cirebon') === false) {
+    throw new Error('City scan must resolve Cirebon')
+  }
+  if (cityScan.places.length < 3) {
+    throw new Error('City scan must map multiple potential shops')
+  }
+  if (cityScan.places.some((place) => !isPotentialProspect(place))) {
+    throw new Error('potentialOnly city scan must keep only easy-close shops')
+  }
+  const citySaved = await saveProspectBatch({
+    places: cityScan.places,
+    notes: 'Scan kota Cirebon',
+    partnerRef: 'cirebon-map',
+  })
+  if (citySaved.created < 3) {
+    throw new Error('City mapping must bulk-save potential shops')
+  }
+  const listedCity = await listProspects({ partner: 'cirebon-map' })
+  if (listedCity.prospects.length < citySaved.created) {
+    throw new Error('Mapped Cirebon shops must appear in the prospect list')
+  }
   if (
     near.places[0]?.rating == null ||
     near.places[0]?.userRatingCount == null ||
