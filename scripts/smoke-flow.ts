@@ -606,7 +606,7 @@ async function checkHolderAccounts() {
     won.installKind !== 'TRIAL' ||
     won.installState !== 'trial'
   ) {
-    throw new Error('Activating a card for a saved shop must start a 14-day trial')
+    throw new Error('Activating a card for a saved shop must start a 7-day trial')
   }
   const prospectCardDetail = await getUnitDetail(
     (await getActivationCard(prospectCard.publicId))!.id,
@@ -1407,12 +1407,12 @@ async function main() {
     trialProspect.status !== 'CONTACTED' ||
     trialProspect.trialEndsAt == null
   ) {
-    throw new Error('One-tap install must start a 14-day trial, not mark the shop sold')
+    throw new Error('One-tap install must start a 7-day trial, not mark the shop sold')
   }
   const trialWindow = trialProspect.trialEndsAt - Date.now()
   const expectedWindow = DEFAULT_TRIAL_DAYS * 86_400_000
   if (Math.abs(trialWindow - expectedWindow) > 60_000) {
-    throw new Error('Trial pickup date must be 14 days after install')
+    throw new Error('Trial pickup date must be 7 days after install')
   }
   if (!trialProspect.pickupLabel.includes('Ambil')) {
     throw new Error('Trial prospect must show when the card should be collected')

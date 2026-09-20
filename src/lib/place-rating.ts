@@ -107,7 +107,7 @@ export type ProspectInstallState =
   | 'collected'
   | 'sold'
 
-export const DEFAULT_TRIAL_DAYS = 14
+export const DEFAULT_TRIAL_DAYS = 7
 
 export const PROSPECT_STATUS_LABEL: Record<ProspectStatus, string> = {
   NEW: 'Baru',
