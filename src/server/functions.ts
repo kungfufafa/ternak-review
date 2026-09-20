@@ -1168,7 +1168,7 @@ export const saveProspectBatchFn = createServerFn({ method: 'POST' })
           }),
         )
         .min(1)
-        .max(40),
+        .max(80),
       notes: z.string().max(500).optional(),
       partnerRef: z.string().max(80).optional(),
     }),

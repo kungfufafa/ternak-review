@@ -262,10 +262,6 @@ function ProspectsPage() {
   }
 
   useEffect(() => {
-    requestLocation()
-  }, [])
-
-  useEffect(() => {
     const q = query.trim()
     if (q.length < 2) {
       if (loc && scanMode !== 'city') void loadNearby(loc)
@@ -659,7 +655,7 @@ function ProspectsPage() {
                     </ItemContent>
                     <ItemActions className="ml-2 shrink-0">
                       <div className="flex flex-col items-end gap-2">
-                        {state === 'sold' ? (
+                        {state === 'sold' && install?.unitId ? (
                           <span className="text-[11px] text-muted-foreground">Sudah closing</span>
                         ) : state === 'trial' || state === 'due' ? (
                           <>
@@ -952,7 +948,7 @@ function ProspectsPage() {
                             Closing
                           </Button>
                         </>
-                      ) : row.installState !== 'sold' ? (
+                      ) : row.installState !== 'sold' || !row.unitId ? (
                         <Button
                           disabled={attaching || readyCards.length === 0}
                           onClick={() => void onAttach(row.id)}
@@ -965,14 +961,16 @@ function ProspectsPage() {
                           Pasang trial
                         </Button>
                       ) : null}
-                      <Button
-                        onClick={() => setPendingDelete(row.id)}
-                        size="sm"
-                        type="button"
-                        variant="ghost"
-                      >
-                        Hapus
-                      </Button>
+                      {!row.unitId ? (
+                        <Button
+                          onClick={() => setPendingDelete(row.id)}
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          Hapus
+                        </Button>
+                      ) : null}
                     </div>
                   </DataTableCell>
                 </tr>
@@ -993,7 +991,7 @@ function ProspectsPage() {
 
       <ConfirmDelete
         confirmLabel="Hapus prospek"
-        description="Prospek ini dihapus dari daftar. Kartu yang sudah terpasang tidak berubah."
+        description="Prospek ini dihapus dari daftar. Toko yang masih trial atau closing harus diambil dulu."
         onConfirm={() => void onDelete()}
         onOpenChange={(open) => {
           if (!open) setPendingDelete(null)

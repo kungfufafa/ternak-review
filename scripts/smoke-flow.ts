@@ -107,6 +107,7 @@ import {
   trialPickupLabel,
 } from '../src/lib/place-rating.ts'
 import {
+  deleteProspect,
   listProspectInstalls,
   listProspects,
   saveProspect,
@@ -617,6 +618,26 @@ async function checkHolderAccounts() {
   ) {
     throw new Error('Won prospect must keep the pre-card Google rating snapshot')
   }
+  const occupiedBatch = await generateStockBatch({ count: 1, label: 'QA-OCCUPIED' })
+  const occupiedCard = occupiedBatch.units[0]
+  if (!occupiedCard) throw new Error('Expected occupancy card')
+  await expectReject(
+    () =>
+      attachPlaceToCard({
+        place: {
+          placeId: prospectPlace,
+          name: savedProspect.prospect.name,
+          address: savedProspect.prospect.formattedAddress,
+          description: savedProspect.prospect.name,
+          rating: savedProspect.prospect.rating,
+          userRatingCount: savedProspect.prospect.userRatingCount,
+          googleMapsUri: savedProspect.prospect.googleMapsUri,
+          primaryType: savedProspect.prospect.primaryType,
+        },
+        publicId: occupiedCard.publicId,
+      }),
+    'Second trial on an already-active shop',
+  )
   await expectReject(
     () =>
       rebindUnitOutlet({
@@ -1379,20 +1400,21 @@ async function main() {
   ) {
     throw new Error('One-tap install must bind the next warehouse card to the mapped shop')
   }
+  const trialProspect = oneTap.prospect
   if (
-    oneTap.prospect?.installState !== 'trial' ||
-    oneTap.prospect.installKind !== 'TRIAL' ||
-    oneTap.prospect.status !== 'CONTACTED' ||
-    oneTap.prospect.trialEndsAt == null
+    trialProspect?.installState !== 'trial' ||
+    trialProspect.installKind !== 'TRIAL' ||
+    trialProspect.status !== 'CONTACTED' ||
+    trialProspect.trialEndsAt == null
   ) {
     throw new Error('One-tap install must start a 14-day trial, not mark the shop sold')
   }
-  const trialWindow = oneTap.prospect.trialEndsAt - Date.now()
+  const trialWindow = trialProspect.trialEndsAt - Date.now()
   const expectedWindow = DEFAULT_TRIAL_DAYS * 86_400_000
   if (Math.abs(trialWindow - expectedWindow) > 60_000) {
     throw new Error('Trial pickup date must be 14 days after install')
   }
-  if (!oneTap.prospect.pickupLabel.includes('Ambil')) {
+  if (!trialProspect.pickupLabel.includes('Ambil')) {
     throw new Error('Trial prospect must show when the card should be collected')
   }
   const installed = (await listProspectInstalls()).find(
@@ -1409,6 +1431,10 @@ async function main() {
         partnerRef: 'cirebon-map',
       }),
     'Second trial on an active trial shop',
+  )
+  await expectReject(
+    () => deleteProspect(trialProspect.id),
+    'Delete while a trial card is still installed',
   )
 
   const dueBatch = await generateStockBatch({ count: 1, label: 'QA-TRIAL-DUE' })
@@ -1438,7 +1464,7 @@ async function main() {
     throw new Error('Collected trial card must go back to warehouse stock')
   }
 
-  const soldTrial = await convertProspectToSold(oneTap.prospect.id)
+  const soldTrial = await convertProspectToSold(trialProspect.id)
   if (soldTrial.installState !== 'sold' || soldTrial.status !== 'WON' || soldTrial.unitId == null) {
     throw new Error('Closing a trial must keep the card and mark the shop sold')
   }

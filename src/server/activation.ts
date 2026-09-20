@@ -6,7 +6,9 @@ import { upsertOutletFromPlace } from './outlets'
 import { getPlaceDetails } from './places'
 import { resetUnitToStock } from './clicks'
 import {
+  collectProspectForUnit,
   convertProspectToSold,
+  findInstalledUnitForPlace,
   getProspect,
   listReadyStockCards,
   markProspectInstalledForPlace,
@@ -216,6 +218,9 @@ export async function rebindUnitOutlet(input: {
     throw new Error('Kartu ini bukan punya akunmu.')
   }
   const details = await getPlaceDetails(input.placeId)
+  if (unit.outlet?.googlePlaceId !== details.placeId) {
+    await collectProspectForUnit(unit.id)
+  }
   const outletId = await upsertOutletFromPlace(details)
   await db.update(units).set({ outletId }).where(eq(units.id, unit.id))
   await markProspectWonForPlace({
@@ -254,6 +259,10 @@ export async function attachProspectToCard(input: {
         ? 'Kartu trial sudah harus diambil dulu.'
         : 'Toko ini masih trial. Ambil kartu atau closing dulu.',
     )
+  }
+  const occupied = await findInstalledUnitForPlace(prospect.googlePlaceId)
+  if (occupied) {
+    throw new Error('Toko ini sudah punya kartu terpasang.')
   }
   const result = await activateUnit({
     publicId: await nextReadyPublicId(input.publicId),

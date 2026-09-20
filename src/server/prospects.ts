@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, gt, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
-import { prospects, units } from '#/db/schema'
+import { outlets, prospects, units } from '#/db/schema'
 import {
   closingBand,
   closingHint,
@@ -146,21 +146,25 @@ export async function markProspectWonForPlace(input: {
 }
 
 export async function collectProspectForUnit(unitId: string, now = new Date()) {
-  const existing = await db.query.prospects.findFirst({
+  const rows = await db.query.prospects.findMany({
     where: eq(prospects.unitId, unitId),
   })
-  if (!existing) return null
-  const collectingTrial = existing.installKind === 'TRIAL'
-  const [updated] = await db
-    .update(prospects)
-    .set({
-      unitId: null,
-      trialCollectedAt: collectingTrial ? now : existing.trialCollectedAt,
-      updatedAt: now,
-    })
-    .where(eq(prospects.id, existing.id))
-    .returning()
-  return updated ? serializeProspect(updated, now.getTime()) : null
+  if (rows.length === 0) return null
+  let last = null
+  for (const existing of rows) {
+    const collectingTrial = existing.installKind === 'TRIAL'
+    const [updated] = await db
+      .update(prospects)
+      .set({
+        unitId: null,
+        trialCollectedAt: collectingTrial ? now : existing.trialCollectedAt,
+        updatedAt: now,
+      })
+      .where(eq(prospects.id, existing.id))
+      .returning()
+    if (updated) last = serializeProspect(updated, now.getTime())
+  }
+  return last
 }
 
 export async function convertProspectToSold(id: string, now = new Date()) {
@@ -284,8 +288,8 @@ export async function saveProspectBatch(input: {
   if (unique.size === 0) {
     throw new Error('Tidak ada toko potensial untuk disimpan.')
   }
-  if (unique.size > 40) {
-    throw new Error('Maksimal 40 toko per sekali simpan.')
+  if (unique.size > 80) {
+    throw new Error('Maksimal 80 toko per sekali simpan.')
   }
   let created = 0
   let existing = 0
@@ -439,49 +443,85 @@ export async function listProspects(input?: {
 }
 
 export async function listProspectInstalls(now = Date.now()) {
-  const rows = await db
-    .select({
-      id: prospects.id,
-      googlePlaceId: prospects.googlePlaceId,
-      name: prospects.name,
-      status: prospects.status,
-      installKind: prospects.installKind,
-      trialStartedAt: prospects.trialStartedAt,
-      trialEndsAt: prospects.trialEndsAt,
-      trialCollectedAt: prospects.trialCollectedAt,
-      unitId: prospects.unitId,
-    })
-    .from(prospects)
-  return rows.map((row) => {
-    const serialized = serializeProspect(
-      {
-        ...row,
-        formattedAddress: null,
-        rating: null,
-        userRatingCount: null,
-        googleMapsUri: null,
-        primaryType: null,
-        notes: null,
-        partnerRef: null,
-        createdAt: new Date(0),
-        updatedAt: new Date(0),
-      },
-      now,
-    )
-    return {
-      id: serialized.id,
-      googlePlaceId: serialized.googlePlaceId,
-      name: serialized.name,
-      status: serialized.status,
-      installKind: serialized.installKind,
-      installState: serialized.installState,
-      trialStartedAt: serialized.trialStartedAt,
-      trialEndsAt: serialized.trialEndsAt,
-      trialCollectedAt: serialized.trialCollectedAt,
-      pickupLabel: serialized.pickupLabel,
-      unitId: serialized.unitId,
+  const [rows, occupied] = await Promise.all([
+    db
+      .select({
+        id: prospects.id,
+        googlePlaceId: prospects.googlePlaceId,
+        name: prospects.name,
+        status: prospects.status,
+        installKind: prospects.installKind,
+        trialStartedAt: prospects.trialStartedAt,
+        trialEndsAt: prospects.trialEndsAt,
+        trialCollectedAt: prospects.trialCollectedAt,
+        unitId: prospects.unitId,
+      })
+      .from(prospects),
+    db
+      .select({
+        googlePlaceId: outlets.googlePlaceId,
+        name: outlets.name,
+        unitId: units.id,
+      })
+      .from(units)
+      .innerJoin(outlets, eq(units.outletId, outlets.id))
+      .where(or(eq(units.status, 'ACTIVE'), eq(units.status, 'INACTIVE'))),
+  ])
+  const byPlace = new Map(
+    rows.map((row) => {
+      const serialized = serializeProspect(
+        {
+          ...row,
+          formattedAddress: null,
+          rating: null,
+          userRatingCount: null,
+          googleMapsUri: null,
+          primaryType: null,
+          notes: null,
+          partnerRef: null,
+          createdAt: new Date(0),
+          updatedAt: new Date(0),
+        },
+        now,
+      )
+      return [
+        serialized.googlePlaceId,
+        {
+          id: serialized.id,
+          googlePlaceId: serialized.googlePlaceId,
+          name: serialized.name,
+          status: serialized.status,
+          installKind: serialized.installKind,
+          installState: serialized.installState,
+          trialStartedAt: serialized.trialStartedAt,
+          trialEndsAt: serialized.trialEndsAt,
+          trialCollectedAt: serialized.trialCollectedAt,
+          pickupLabel: serialized.pickupLabel,
+          unitId: serialized.unitId,
+        },
+      ] as const
+    }),
+  )
+  for (const row of occupied) {
+    const current = byPlace.get(row.googlePlaceId)
+    if (current && current.installState !== 'none' && current.installState !== 'collected') {
+      continue
     }
-  })
+    byPlace.set(row.googlePlaceId, {
+      id: current?.id ?? row.unitId,
+      googlePlaceId: row.googlePlaceId,
+      name: current?.name ?? row.name,
+      status: current?.status ?? 'WON',
+      installKind: 'SOLD',
+      installState: 'sold',
+      trialStartedAt: current?.trialStartedAt ?? null,
+      trialEndsAt: current?.trialEndsAt ?? null,
+      trialCollectedAt: current?.trialCollectedAt ?? null,
+      pickupLabel: current?.pickupLabel ?? 'Jadwal ambil belum ada',
+      unitId: row.unitId,
+    })
+  }
+  return [...byPlace.values()]
 }
 
 export async function updateProspect(input: {
@@ -520,6 +560,9 @@ export async function deleteProspect(id: string) {
     where: eq(prospects.id, id),
   })
   if (!existing) throw new Error('Prospek tidak ditemukan.')
+  if (existing.unitId) {
+    throw new Error('Ambil kartu dulu sebelum menghapus prospek ini.')
+  }
   await db.delete(prospects).where(eq(prospects.id, id))
   return { ok: true as const }
 }
@@ -551,4 +594,21 @@ export async function getProspect(id: string) {
     where: eq(prospects.id, id),
   })
   return row ? serializeProspect(row) : null
+}
+
+export async function findInstalledUnitForPlace(googlePlaceId: string) {
+  const outlet = await db.query.outlets.findFirst({
+    where: eq(outlets.googlePlaceId, googlePlaceId),
+    columns: { id: true, name: true },
+  })
+  if (!outlet) return null
+  const installed = await db.query.units.findFirst({
+    where: and(
+      eq(units.outletId, outlet.id),
+      or(eq(units.status, 'ACTIVE'), eq(units.status, 'INACTIVE')),
+    ),
+    columns: { id: true, publicId: true, status: true },
+  })
+  if (!installed) return null
+  return { ...installed, outletName: outlet.name }
 }
