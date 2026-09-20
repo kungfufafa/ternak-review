@@ -99,12 +99,80 @@ export const PROSPECT_CATEGORIES = {
 
 export type ProspectCategory = keyof typeof PROSPECT_CATEGORIES
 export type ProspectStatus = 'NEW' | 'CONTACTED' | 'WON' | 'LOST'
+export type ProspectInstallKind = 'NONE' | 'TRIAL' | 'SOLD'
+export type ProspectInstallState =
+  | 'none'
+  | 'trial'
+  | 'due'
+  | 'collected'
+  | 'sold'
+
+export const DEFAULT_TRIAL_DAYS = 14
 
 export const PROSPECT_STATUS_LABEL: Record<ProspectStatus, string> = {
   NEW: 'Baru',
   CONTACTED: 'Sudah dihubungi',
   WON: 'Closing',
   LOST: 'Tidak jadi',
+}
+
+export const PROSPECT_INSTALL_LABEL: Record<ProspectInstallState, string> = {
+  none: 'Belum dipasang',
+  trial: 'Trial berjalan',
+  due: 'Harus diambil',
+  collected: 'Trial selesai',
+  sold: 'Closing',
+}
+
+export function trialEndsAt(startedAt: Date | number, days = DEFAULT_TRIAL_DAYS) {
+  const start = typeof startedAt === 'number' ? startedAt : startedAt.getTime()
+  return new Date(start + days * 86_400_000)
+}
+
+export function prospectInstallState(
+  input: {
+    installKind?: string | null
+    trialEndsAt?: Date | number | null
+    trialCollectedAt?: Date | number | null
+    unitId?: string | null
+    status?: string | null
+  },
+  now = Date.now(),
+): ProspectInstallState {
+  const kind = input.installKind ?? 'NONE'
+  if (kind === 'SOLD' || (input.status === 'WON' && kind !== 'TRIAL')) {
+    return 'sold'
+  }
+  if (kind === 'TRIAL') {
+    if (input.trialCollectedAt) return 'collected'
+    const ends =
+      input.trialEndsAt instanceof Date
+        ? input.trialEndsAt.getTime()
+        : input.trialEndsAt
+    if (ends != null && ends <= now) return 'due'
+    return 'trial'
+  }
+  return 'none'
+}
+
+export function trialDaysLeft(endsAt: Date | number | null, now = Date.now()) {
+  if (endsAt == null) return null
+  const ends = endsAt instanceof Date ? endsAt.getTime() : endsAt
+  return Math.ceil((ends - now) / 86_400_000)
+}
+
+export function trialPickupLabel(endsAt: Date | number | null, now = Date.now()) {
+  if (endsAt == null) return 'Jadwal ambil belum ada'
+  const ends = endsAt instanceof Date ? endsAt.getTime() : endsAt
+  const date = new Date(ends).toLocaleDateString('id-ID', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+  const days = Math.ceil((ends - now) / 86_400_000)
+  if (days <= 0) return `Ambil hari ini · ${date}`
+  if (days === 1) return `Ambil besok · ${date}`
+  return `Ambil ${date} · sisa ${days} hari`
 }
 
 const CITY_SCAN_KEYWORDS: Record<Exclude<ProspectCategory, 'semua'>, string[]> = {

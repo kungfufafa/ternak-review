@@ -172,6 +172,15 @@ export const prospects = sqliteTable(
     unitId: text('unit_id').references(() => units.id, {
       onDelete: 'set null',
     }),
+    /** NONE = not installed, TRIAL = field trial, SOLD = closed deal. */
+    installKind: text('install_kind', {
+      enum: ['NONE', 'TRIAL', 'SOLD'],
+    })
+      .notNull()
+      .default('NONE'),
+    trialStartedAt: integer('trial_started_at', { mode: 'timestamp_ms' }),
+    trialEndsAt: integer('trial_ends_at', { mode: 'timestamp_ms' }),
+    trialCollectedAt: integer('trial_collected_at', { mode: 'timestamp_ms' }),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(now),
@@ -184,7 +193,13 @@ export const prospects = sqliteTable(
       'prospects_status_check',
       sql`${t.status} IN ('NEW', 'CONTACTED', 'WON', 'LOST')`,
     ),
+    check(
+      'prospects_install_kind_check',
+      sql`${t.installKind} IN ('NONE', 'TRIAL', 'SOLD')`,
+    ),
     index('prospects_status_idx').on(t.status),
+    index('prospects_install_idx').on(t.installKind),
+    index('prospects_trial_ends_idx').on(t.trialEndsAt),
     index('prospects_partner_idx').on(t.partnerRef),
     index('prospects_created_idx').on(t.createdAt),
   ],

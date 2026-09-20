@@ -54,16 +54,22 @@ import {
 import { Spinner } from '#/components/ui/spinner'
 import { useDebounced } from '#/hooks/use-debounced'
 import {
+  DEFAULT_TRIAL_DAYS,
   PROSPECT_CATEGORIES,
+  PROSPECT_INSTALL_LABEL,
   PROSPECT_STATUS_LABEL,
   type ProspectCategory,
+  type ProspectInstallState,
   type ProspectStatus,
 } from '#/lib/place-rating'
 import { formatDay } from '#/lib/utils'
 import {
   attachPlaceToCardFn,
   attachProspectToCardFn,
+  collectProspectTrialFn,
+  convertProspectToSoldFn,
   deleteProspectFn,
+  listProspectInstallsFn,
   listProspectsFn,
   listReadyStockCardsFn,
   prospectNearbyPlacesFn,
@@ -78,10 +84,21 @@ import type { PlaceSuggestion } from '#/server/places'
 const searchSchema = z.object({
   q: z.string().trim().min(1).optional().catch(undefined),
   stage: z.enum(['NEW', 'CONTACTED', 'WON', 'LOST']).optional().catch(undefined),
+  install: z
+    .enum(['none', 'trial', 'due', 'collected', 'sold'])
+    .optional()
+    .catch(undefined),
   partner: z.string().trim().min(1).optional().catch(undefined),
-  sort: z.enum(['reviews', 'rating', 'recent']).optional().catch(undefined),
+  sort: z.enum(['reviews', 'rating', 'recent', 'pickup']).optional().catch(undefined),
   page: z.number().int().min(1).optional().catch(undefined),
 })
+
+function installBadgeVariant(state: ProspectInstallState) {
+  if (state === 'sold') return 'success' as const
+  if (state === 'due') return 'default' as const
+  if (state === 'trial') return 'accent' as const
+  return 'muted' as const
+}
 
 type Loc = { lat: number; lng: number }
 
@@ -93,25 +110,28 @@ export const Route = createFileRoute('/admin/prospects')({
   loaderDeps: ({ search }) => ({
     q: search.q,
     stage: search.stage,
+    install: search.install,
     partner: search.partner,
     sort: search.sort,
     page: search.page,
   }),
   loader: async ({ deps }) => {
-    const [list, readyCards] = await Promise.all([
+    const [list, readyCards, installs] = await Promise.all([
       listProspectsFn({
         data: {
           q: deps.q,
           status: deps.stage,
+          install: deps.install,
           partner: deps.partner,
-          sort: deps.sort ?? 'reviews',
+          sort: deps.sort ?? (deps.install === 'due' ? 'pickup' : 'reviews'),
           page: deps.page ?? 1,
           pageSize: 20,
         },
       }),
       listReadyStockCardsFn(),
+      listProspectInstallsFn(),
     ])
-    return { list, readyCards }
+    return { list, readyCards, installs }
   },
   component: ProspectsPage,
   head: () => ({
@@ -120,7 +140,7 @@ export const Route = createFileRoute('/admin/prospects')({
 })
 
 function ProspectsPage() {
-  const { list, readyCards } = Route.useLoaderData()
+  const { list, readyCards, installs } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/admin/prospects' })
   const router = useRouter()
@@ -133,6 +153,9 @@ function ProspectsPage() {
   const deleteFn = useServerFn(deleteProspectFn)
   const attachFn = useServerFn(attachProspectToCardFn)
   const attachPlaceFn = useServerFn(attachPlaceToCardFn)
+  const collectFn = useServerFn(collectProspectTrialFn)
+  const closeFn = useServerFn(convertProspectToSoldFn)
+  const installByPlace = new Map(installs.map((row) => [row.googlePlaceId, row]))
   const searchFnRef = useRef(searchFn)
   searchFnRef.current = searchFn
   const listId = useId()
@@ -161,6 +184,7 @@ function ProspectsPage() {
   const [attachFor, setAttachFor] = useState<string | null>(null)
   const [attaching, setAttaching] = useState(false)
   const [attachingPlaceId, setAttachingPlaceId] = useState<string | null>(null)
+  const [actingId, setActingId] = useState<string | null>(null)
   const requestId = useRef(0)
   const locationRequestId = useRef(0)
   const debouncedQ = useDebounced(draft, 300)
@@ -321,7 +345,7 @@ function ProspectsPage() {
         await router.invalidate({ sync: true })
         const nextCard = readyCards[0]?.publicId
         setNotice(
-          `${saved.created} toko potensial di ${res.city.name} siap dipasang${saved.existing > 0 ? ` (${saved.existing} sudah ada)` : ''}.${nextCard ? ` Klik Pasang kartu — kartu berikutnya ${nextCard}.` : ' Produksi kartu dulu sebelum memasang.'}`,
+          `${saved.created} toko potensial di ${res.city.name} siap trial${saved.existing > 0 ? ` (${saved.existing} sudah ada)` : ''}.${nextCard ? ` Klik Pasang trial — kartu berikutnya ${nextCard}, ambil lagi ${DEFAULT_TRIAL_DAYS} hari.` : ' Produksi kartu dulu sebelum memasang.'}`,
         )
       }
     } catch (err) {
@@ -396,10 +420,12 @@ function ProspectsPage() {
           partnerRef: search.partner,
         },
       })
-      setNotice(`Kartu ${res.publicId} terpasang ke ${res.outlet.name}.`)
+      setNotice(
+        `Kartu ${res.publicId} trial di ${res.outlet.name}. ${res.prospect?.pickupLabel ?? `Ambil lagi ${DEFAULT_TRIAL_DAYS} hari.`}`,
+      )
       await router.invalidate({ sync: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal memasang kartu.')
+      setError(err instanceof Error ? err.message : 'Gagal memasang trial.')
     } finally {
       setAttachingPlaceId(null)
     }
@@ -415,12 +441,44 @@ function ProspectsPage() {
         data: { prospectId },
       })
       setAttachFor(null)
-      setNotice(`Kartu ${res.publicId} terpasang ke ${res.outlet.name}.`)
+      setNotice(
+        `Kartu ${res.publicId} trial di ${res.outlet.name}. ${res.prospect?.pickupLabel ?? `Ambil lagi ${DEFAULT_TRIAL_DAYS} hari.`}`,
+      )
       await router.invalidate({ sync: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal memasang kartu.')
+      setError(err instanceof Error ? err.message : 'Gagal memasang trial.')
     } finally {
       setAttaching(false)
+    }
+  }
+
+  async function onCollect(prospectId: string) {
+    setActingId(prospectId)
+    setError(null)
+    setNotice(null)
+    try {
+      const res = await collectFn({ data: { id: prospectId } })
+      setNotice(`Kartu diambil dari ${res.name}. Masuk gudang lagi.`)
+      await router.invalidate({ sync: true })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal mengambil kartu.')
+    } finally {
+      setActingId(null)
+    }
+  }
+
+  async function onCloseDeal(prospectId: string) {
+    setActingId(prospectId)
+    setError(null)
+    setNotice(null)
+    try {
+      const res = await closeFn({ data: { id: prospectId } })
+      setNotice(`${res.name} closing. Kartu tetap terpasang.`)
+      await router.invalidate({ sync: true })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal closing.')
+    } finally {
+      setActingId(null)
     }
   }
 
@@ -432,19 +490,36 @@ function ProspectsPage() {
   return (
     <div className="flex w-full max-w-screen-xl flex-col gap-8">
       <PageHeader
-        description="Petakan kota, lalu pasang kartu pada toko yang paling mudah closing. Rating dan jumlah ulasan yang tampil adalah kondisi Google sebelum kartu diisi."
+        description={`Petakan kota, pasang trial ${DEFAULT_TRIAL_DAYS} hari, lalu lihat toko mana yang sudah terpasang dan kapan kartunya harus diambil. Rating yang tampil adalah kondisi Google sebelum kartu diisi.`}
         title="Prospek toko"
       />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
       {notice ? <Alert variant="success">{notice}</Alert> : null}
+      {list.summary.due > 0 ? (
+        <Alert className="flex flex-wrap items-center justify-between gap-3" variant="danger">
+          <span>{list.summary.due} toko harus diambil.</span>
+          <Button
+            onClick={() =>
+              void navigate({
+                search: { ...search, install: 'due', sort: 'pickup', page: undefined },
+              })
+            }
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Lihat yang jatuh tempo
+          </Button>
+        </Alert>
+      ) : null}
 
       <Card>
         <CardHeader>
           <CardTitle>Petakan kota</CardTitle>
           <CardDescription>
             Satu langkah: petakan kota. Toko potensial langsung masuk daftar.
-            Tinggal pasang kartu pada yang closing.
+            Pasang trial {DEFAULT_TRIAL_DAYS} hari, lalu ambil lagi atau closing.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -544,6 +619,9 @@ function ProspectsPage() {
             >
               {places.map((place) => {
                 const saved = savedPlaceIds.has(place.placeId)
+                const install = installByPlace.get(place.placeId)
+                const state = install?.installState ?? 'none'
+                const installed = state === 'trial' || state === 'due' || state === 'sold'
                 return (
                   <Item
                     className="w-full rounded-none border-0 border-b border-border/70 px-3.5 py-3.5 last:border-b-0"
@@ -566,36 +644,77 @@ function ProspectsPage() {
                         showHint
                         userRatingCount={place.userRatingCount}
                       />
+                      {installed ? (
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <Badge variant={installBadgeVariant(state)}>
+                            {PROSPECT_INSTALL_LABEL[state]}
+                          </Badge>
+                          {state !== 'sold' ? (
+                            <span className="text-[11px] text-muted-foreground">
+                              {install?.pickupLabel}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </ItemContent>
                     <ItemActions className="ml-2 shrink-0">
                       <div className="flex flex-col items-end gap-2">
-                        <Button
-                          disabled={
-                            placesBusy ||
-                            attachingPlaceId === place.placeId ||
-                            readyCards.length === 0
-                          }
-                          onClick={() => void onAttachPlace(place)}
-                          size="sm"
-                          type="button"
-                        >
-                          {attachingPlaceId === place.placeId ? (
-                            <Spinner data-icon="inline-start" />
-                          ) : null}
-                          Pasang kartu
-                        </Button>
-                        {saved ? (
-                          <span className="text-[11px] text-muted-foreground">Tersimpan</span>
+                        {state === 'sold' ? (
+                          <span className="text-[11px] text-muted-foreground">Sudah closing</span>
+                        ) : state === 'trial' || state === 'due' ? (
+                          <>
+                            <Button
+                              disabled={actingId === install?.id}
+                              onClick={() => install && void onCollect(install.id)}
+                              size="sm"
+                              type="button"
+                            >
+                              {actingId === install?.id ? (
+                                <Spinner data-icon="inline-start" />
+                              ) : null}
+                              Ambil kartu
+                            </Button>
+                            <Button
+                              disabled={actingId === install?.id}
+                              onClick={() => install && void onCloseDeal(install.id)}
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              Closing
+                            </Button>
+                          </>
                         ) : (
-                          <Button
-                            disabled={placesBusy || savingId === place.placeId}
-                            onClick={() => void onSave(place)}
-                            size="sm"
-                            type="button"
-                            variant="ghost"
-                          >
-                            Simpan saja
-                          </Button>
+                          <>
+                            <Button
+                              disabled={
+                                placesBusy ||
+                                attachingPlaceId === place.placeId ||
+                                readyCards.length === 0
+                              }
+                              onClick={() => void onAttachPlace(place)}
+                              size="sm"
+                              type="button"
+                            >
+                              {attachingPlaceId === place.placeId ? (
+                                <Spinner data-icon="inline-start" />
+                              ) : null}
+                              Pasang trial
+                            </Button>
+                            {saved ? (
+                              <span className="text-[11px] text-muted-foreground">Tersimpan</span>
+                            ) : (
+                              <Button
+                                disabled={placesBusy || savingId === place.placeId}
+                                onClick={() => void onSave(place)}
+                                size="sm"
+                                type="button"
+                                variant="ghost"
+                              >
+                                Simpan saja
+                              </Button>
+                            )}
+                          </>
                         )}
                       </div>
                     </ItemActions>
@@ -619,9 +738,48 @@ function ProspectsPage() {
         <div className="flex flex-col gap-1">
           <h2 className="text-lg font-medium tracking-tight">Daftar prospek</h2>
           <p className="text-sm text-muted-foreground">
-            Snapshot rating tersimpan di sini. Urutan default: paling sedikit
-            ulasan dulu, supaya closing lebih cepat.
+            Lihat toko yang sudah trial, kapan harus diambil, dan mana yang sudah
+            closing. Urutan default: paling sedikit ulasan dulu.
           </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              [
+                undefined,
+                'Semua',
+                list.summary.none +
+                  list.summary.trial +
+                  list.summary.due +
+                  list.summary.collected +
+                  list.summary.sold,
+              ],
+              ['none', PROSPECT_INSTALL_LABEL.none, list.summary.none + list.summary.collected],
+              ['trial', PROSPECT_INSTALL_LABEL.trial, list.summary.trial],
+              ['due', PROSPECT_INSTALL_LABEL.due, list.summary.due],
+              ['sold', PROSPECT_INSTALL_LABEL.sold, list.summary.sold],
+            ] as const
+          ).map(([value, label, count]) => (
+            <Button
+              key={label}
+              onClick={() =>
+                void navigate({
+                  search: {
+                    ...search,
+                    install: value,
+                    sort: value === 'due' ? 'pickup' : search.sort,
+                    page: undefined,
+                  },
+                })
+              }
+              size="sm"
+              type="button"
+              variant={search.install === value ? 'default' : 'outline'}
+            >
+              {label}
+              <span className="text-xs opacity-70">{count}</span>
+            </Button>
+          ))}
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <InputGroup>
@@ -667,16 +825,18 @@ function ProspectsPage() {
                     | 'reviews'
                     | 'rating'
                     | 'recent'
+                    | 'pickup'
                     | undefined,
                   page: undefined,
                 },
               })
             }
-            value={search.sort ?? 'reviews'}
+            value={search.sort ?? (search.install === 'due' ? 'pickup' : 'reviews')}
           >
             <option value="reviews">Sedikit ulasan dulu</option>
             <option value="rating">Rating rendah dulu</option>
             <option value="recent">Terbaru</option>
+            <option value="pickup">Jadwal ambil dulu</option>
           </Select>
         </div>
 
@@ -695,7 +855,7 @@ function ProspectsPage() {
               columns={[
                 'Bisnis Google',
                 'Rating sebelum kartu',
-                'Status',
+                'Kartu',
                 'Reseller',
                 'Disimpan',
                 '',
@@ -731,20 +891,15 @@ function ProspectsPage() {
                   </DataTableCell>
                   <DataTableCell>
                     <div className="flex flex-col gap-2">
-                      <Badge
-                        variant={
-                          row.status === 'WON'
-                            ? 'success'
-                            : row.status === 'CONTACTED'
-                              ? 'accent'
-                              : row.status === 'LOST'
-                                ? 'muted'
-                                : 'outline'
-                        }
-                      >
-                        {PROSPECT_STATUS_LABEL[row.status]}
+                      <Badge variant={installBadgeVariant(row.installState)}>
+                        {PROSPECT_INSTALL_LABEL[row.installState]}
                       </Badge>
-                      {row.status !== 'WON' ? (
+                      {row.installState === 'trial' || row.installState === 'due' ? (
+                        <span className="text-xs text-muted-foreground">
+                          {row.pickupLabel}
+                        </span>
+                      ) : null}
+                      {row.installState === 'none' || row.installState === 'collected' ? (
                         <Select
                           onChange={(event) =>
                             void onStatus(row.id, event.target.value as ProspectStatus)
@@ -774,7 +929,30 @@ function ProspectsPage() {
                   </DataTableCell>
                   <DataTableCell>
                     <div className="flex flex-col items-end gap-2">
-                      {row.status !== 'WON' ? (
+                      {row.installState === 'trial' || row.installState === 'due' ? (
+                        <>
+                          <Button
+                            disabled={actingId === row.id}
+                            onClick={() => void onCollect(row.id)}
+                            size="sm"
+                            type="button"
+                          >
+                            {actingId === row.id ? (
+                              <Spinner data-icon="inline-start" />
+                            ) : null}
+                            Ambil kartu
+                          </Button>
+                          <Button
+                            disabled={actingId === row.id}
+                            onClick={() => void onCloseDeal(row.id)}
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                          >
+                            Closing
+                          </Button>
+                        </>
+                      ) : row.installState !== 'sold' ? (
                         <Button
                           disabled={attaching || readyCards.length === 0}
                           onClick={() => void onAttach(row.id)}
@@ -784,7 +962,7 @@ function ProspectsPage() {
                           {attaching && attachFor === row.id ? (
                             <Spinner data-icon="inline-start" />
                           ) : null}
-                          Pasang kartu
+                          Pasang trial
                         </Button>
                       ) : null}
                       <Button

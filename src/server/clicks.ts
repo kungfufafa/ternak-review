@@ -28,6 +28,7 @@ import {
   reportingMonthStart,
   shiftReportingDay,
 } from '#/lib/reporting-time'
+import { collectProspectForUnit } from './prospects'
 import { listUnitFeedback } from './review'
 import { getServicePackages } from './service-packages'
 import { isWhatsappGatewayOpen } from './whatsapp-status'
@@ -315,6 +316,8 @@ export async function resetUnitToStock(unitId: string) {
       ownerWhatsapp: null,
     })
     .where(eq(units.id, unitId))
+
+  await collectProspectForUnit(unitId)
 
   return { ok: true as const }
 }

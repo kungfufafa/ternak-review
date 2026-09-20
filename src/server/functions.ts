@@ -4,6 +4,8 @@ import {
   activateUnit,
   attachPlaceToCard,
   attachProspectToCard,
+  collectProspectTrial,
+  convertProspectToSold,
   getActivationCard,
   getActivationCardForViewer,
   rebindUnitOutlet,
@@ -37,6 +39,7 @@ import {
 } from '#/server/places'
 import {
   deleteProspect,
+  listProspectInstalls,
   listProspects,
   listReadyStockCards,
   saveProspect,
@@ -1228,16 +1231,24 @@ export const listProspectsFn = createServerFn({ method: 'GET' })
     z.object({
       q: z.string().max(120).optional(),
       status: z.enum(['NEW', 'CONTACTED', 'WON', 'LOST']).optional(),
+      install: z.enum(['none', 'trial', 'due', 'collected', 'sold']).optional(),
       partner: z.string().max(80).optional(),
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(100).optional(),
-      sort: z.enum(['reviews', 'rating', 'recent']).optional(),
+      sort: z.enum(['reviews', 'rating', 'recent', 'pickup']).optional(),
     }),
   )
   .handler(async ({ data }) => {
     await requireAdmin()
     return listProspects(data)
   })
+
+export const listProspectInstallsFn = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    await requireAdmin()
+    return listProspectInstalls()
+  },
+)
 
 export const updateProspectFn = createServerFn({ method: 'POST' })
   .validator(
@@ -1316,4 +1327,26 @@ export const attachPlaceToCardFn = createServerFn({ method: 'POST' })
       ...data,
       sessionOwnerId: admin.ownerId,
     })
+  })
+
+export const collectProspectTrialFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ id: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    await assertRateLimit(`prospect-collect:${getClientFingerprint()}`, {
+      max: 20,
+      windowMs: 60 * 60_000,
+    })
+    return collectProspectTrial(data.id)
+  })
+
+export const convertProspectToSoldFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ id: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    await assertRateLimit(`prospect-close:${getClientFingerprint()}`, {
+      max: 20,
+      windowMs: 60 * 60_000,
+    })
+    return convertProspectToSold(data.id)
   })

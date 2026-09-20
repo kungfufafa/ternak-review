@@ -4,9 +4,12 @@ import { owners, units } from '#/db/schema'
 import { hashPin, normalizePin, pinMatches } from '#/lib/pin'
 import { upsertOutletFromPlace } from './outlets'
 import { getPlaceDetails } from './places'
+import { resetUnitToStock } from './clicks'
 import {
+  convertProspectToSold,
   getProspect,
   listReadyStockCards,
+  markProspectInstalledForPlace,
   markProspectWonForPlace,
   upsertProspectRecord,
 } from './prospects'
@@ -110,6 +113,8 @@ export async function activateUnit(input: {
   pin?: string
   sessionOwnerId?: string | null
   sessionRole?: 'ADMIN' | 'USER' | null
+  installKind?: 'TRIAL' | 'SOLD'
+  trialDays?: number
 }) {
   const publicId = input.publicId.trim().toUpperCase()
   const unit = await db.query.units.findFirst({
@@ -177,10 +182,12 @@ export async function activateUnit(input: {
     throw new Error('Aktivasi gagal — kartu mungkin sudah diklaim')
   }
 
-  await markProspectWonForPlace({
+  await markProspectInstalledForPlace({
     googlePlaceId: details.placeId,
     unitId: updated.id,
     partnerRef,
+    installKind: input.installKind ?? 'SOLD',
+    trialDays: input.trialDays,
   })
 
   return {
@@ -234,11 +241,19 @@ export async function attachProspectToCard(input: {
   prospectId: string
   publicId?: string
   sessionOwnerId?: string | null
+  trialDays?: number
 }) {
   const prospect = await getProspect(input.prospectId)
   if (!prospect) throw new Error('Prospek tidak ditemukan.')
-  if (prospect.status === 'WON' && prospect.unitId) {
-    throw new Error('Prospek ini sudah terpasang ke kartu.')
+  if (prospect.installState === 'sold' && prospect.unitId) {
+    throw new Error('Toko ini sudah closing dan kartunya masih terpasang.')
+  }
+  if (prospect.unitId && (prospect.installState === 'trial' || prospect.installState === 'due')) {
+    throw new Error(
+      prospect.installState === 'due'
+        ? 'Kartu trial sudah harus diambil dulu.'
+        : 'Toko ini masih trial. Ambil kartu atau closing dulu.',
+    )
   }
   const result = await activateUnit({
     publicId: await nextReadyPublicId(input.publicId),
@@ -246,6 +261,8 @@ export async function attachProspectToCard(input: {
     partnerRef: prospect.partnerRef ?? undefined,
     sessionRole: 'ADMIN',
     sessionOwnerId: input.sessionOwnerId ?? null,
+    installKind: 'TRIAL',
+    trialDays: input.trialDays,
   })
   return {
     ...result,
@@ -259,6 +276,7 @@ export async function attachPlaceToCard(input: {
   notes?: string
   partnerRef?: string
   sessionOwnerId?: string | null
+  trialDays?: number
 }) {
   const saved = await upsertProspectRecord({
     googlePlaceId: input.place.placeId,
@@ -276,8 +294,29 @@ export async function attachPlaceToCard(input: {
     prospectId: saved.prospect.id,
     publicId: input.publicId,
     sessionOwnerId: input.sessionOwnerId,
+    trialDays: input.trialDays,
   })
 }
+
+export async function collectProspectTrial(id: string) {
+  const prospect = await getProspect(id)
+  if (!prospect) throw new Error('Prospek tidak ditemukan.')
+  if (prospect.installKind !== 'TRIAL' || prospect.trialCollectedAt) {
+    throw new Error('Prospek ini tidak sedang trial.')
+  }
+  if (!prospect.unitId) {
+    throw new Error('Kartu trial sudah tidak terpasang.')
+  }
+  const reset = await resetUnitToStock(prospect.unitId)
+  if (!reset.ok) {
+    throw new Error(reset.error)
+  }
+  const collected = await getProspect(id)
+  if (!collected) throw new Error('Prospek tidak ditemukan.')
+  return collected
+}
+
+export { convertProspectToSold }
 
 const PIN_LIMIT = { max: 5, windowMs: 15 * 60_000 } as const
 

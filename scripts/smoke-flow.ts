@@ -46,6 +46,8 @@ import { markNfcEncoded } from '../src/server/nfc.ts'
 import {
   activateUnit,
   attachPlaceToCard,
+  collectProspectTrial,
+  convertProspectToSold,
   getActivationCard,
   getActivationCardForViewer,
   rebindUnitOutlet,
@@ -98,10 +100,14 @@ import {
 import {
   closingBand,
   closingHint,
+  DEFAULT_TRIAL_DAYS,
   formatPlaceRating,
   isPotentialProspect,
+  prospectInstallState,
+  trialPickupLabel,
 } from '../src/lib/place-rating.ts'
 import {
+  listProspectInstalls,
   listProspects,
   saveProspect,
   saveProspectBatch,
@@ -592,8 +598,14 @@ async function checkHolderAccounts() {
   const won = listedProspects.prospects.find(
     (row) => row.googlePlaceId === savedProspect.prospect.googlePlaceId,
   )
-  if (!won || won.status !== 'WON' || won.unitId == null) {
-    throw new Error('Activating a card for a saved shop must mark the prospect won')
+  if (
+    !won ||
+    won.status !== 'WON' ||
+    won.unitId == null ||
+    won.installKind !== 'SOLD' ||
+    won.installState !== 'sold'
+  ) {
+    throw new Error('Activating a card for a saved shop must mark the prospect sold')
   }
   const prospectCardDetail = await getUnitDetail(
     (await getActivationCard(prospectCard.publicId))!.id,
@@ -1367,8 +1379,78 @@ async function main() {
   ) {
     throw new Error('One-tap install must bind the next warehouse card to the mapped shop')
   }
-  if (oneTap.prospect?.status !== 'WON') {
-    throw new Error('One-tap install must mark the mapped shop as won')
+  if (
+    oneTap.prospect?.installState !== 'trial' ||
+    oneTap.prospect.installKind !== 'TRIAL' ||
+    oneTap.prospect.status !== 'CONTACTED' ||
+    oneTap.prospect.trialEndsAt == null
+  ) {
+    throw new Error('One-tap install must start a 14-day trial, not mark the shop sold')
+  }
+  const trialWindow = oneTap.prospect.trialEndsAt - Date.now()
+  const expectedWindow = DEFAULT_TRIAL_DAYS * 86_400_000
+  if (Math.abs(trialWindow - expectedWindow) > 60_000) {
+    throw new Error('Trial pickup date must be 14 days after install')
+  }
+  if (!oneTap.prospect.pickupLabel.includes('Ambil')) {
+    throw new Error('Trial prospect must show when the card should be collected')
+  }
+  const installed = (await listProspectInstalls()).find(
+    (row) => row.googlePlaceId === oneTapPlace.placeId,
+  )
+  if (!installed || installed.installState !== 'trial') {
+    throw new Error('City map must mark shops that already have a trial card')
+  }
+  await expectReject(
+    () =>
+      attachPlaceToCard({
+        place: oneTapPlace,
+        notes: 'Scan kota Cirebon',
+        partnerRef: 'cirebon-map',
+      }),
+    'Second trial on an active trial shop',
+  )
+
+  const dueBatch = await generateStockBatch({ count: 1, label: 'QA-TRIAL-DUE' })
+  const dueCard = dueBatch.units[0]
+  const duePlace = cityScan.places[1]
+  if (!dueCard || !duePlace) throw new Error('Expected a second Cirebon shop for due trial')
+  const dueTap = await attachPlaceToCard({
+    place: duePlace,
+    publicId: dueCard.publicId,
+    notes: 'Scan kota Cirebon',
+    partnerRef: 'cirebon-map',
+    trialDays: 0,
+  })
+  if (dueTap.prospect?.installState !== 'due') {
+    throw new Error('Expired trial must be due for collection')
+  }
+  const dueList = await listProspects({ install: 'due', partner: 'cirebon-map' })
+  if (!dueList.prospects.some((row) => row.id === dueTap.prospect?.id) || dueList.summary.due < 1) {
+    throw new Error('Due trials must appear in the pickup list')
+  }
+  const collected = await collectProspectTrial(dueTap.prospect.id)
+  if (collected.installState !== 'collected' || collected.unitId != null) {
+    throw new Error('Collecting a trial must free the shop and return the card')
+  }
+  const returned = await getActivationCard(dueCard.publicId)
+  if (returned?.status !== 'IN_STOCK') {
+    throw new Error('Collected trial card must go back to warehouse stock')
+  }
+
+  const soldTrial = await convertProspectToSold(oneTap.prospect.id)
+  if (soldTrial.installState !== 'sold' || soldTrial.status !== 'WON' || soldTrial.unitId == null) {
+    throw new Error('Closing a trial must keep the card and mark the shop sold')
+  }
+  const stillActive = await getActivationCard(oneTapCard.publicId)
+  if (stillActive?.status !== 'ACTIVE') {
+    throw new Error('Closing a trial must leave the card installed')
+  }
+  if (prospectInstallState({ installKind: 'TRIAL', trialEndsAt: Date.now() - 1 }) !== 'due') {
+    throw new Error('Past trial end date must be due')
+  }
+  if (!trialPickupLabel(Date.now() - 1).includes('hari ini')) {
+    throw new Error('Overdue pickup label must say take it today')
   }
   if (
     near.places[0]?.rating == null ||
