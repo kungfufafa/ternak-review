@@ -350,6 +350,7 @@ export const activateUnitFn = createServerFn({ method: 'POST' })
         .optional(),
       ownerWhatsapp: z.string().trim().max(32).optional(),
       pin: z.string().max(8).optional(),
+      installKind: z.enum(['TRIAL', 'SOLD']).optional(),
     }),
   )
   .handler(async ({ data }) => {

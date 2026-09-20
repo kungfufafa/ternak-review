@@ -136,6 +136,7 @@ function ActivatePage() {
     publicId: string
     outletName: string
     pickupLabel: string | null
+    installKind: 'TRIAL' | 'SOLD'
   } | null>(null)
   const prefillStarted = useRef(false)
   const flowCardRef = useRef<{ id: string; ref: string } | null>(null)
@@ -227,8 +228,7 @@ function ActivatePage() {
     }
   }
 
-  async function onActivate(event: React.FormEvent) {
-    event.preventDefault()
+  async function onActivate(installKind: 'TRIAL' | 'SOLD') {
     if (!selectedPlaceId || !publicId) return
     setError(null)
     setBusy(true)
@@ -241,12 +241,14 @@ function ActivatePage() {
           serviceTier,
           ownerWhatsapp: ownerWhatsapp.trim() || undefined,
           pin: skipPin ? undefined : pin,
+          installKind,
         },
       })
       setResult({
         publicId: res.publicId,
         outletName: res.outlet.name,
         pickupLabel: res.prospect?.pickupLabel ?? null,
+        installKind,
       })
       setStep('done')
     } catch (err) {
@@ -368,7 +370,13 @@ function ActivatePage() {
       ) : null}
 
       {step === 'confirm' && placePreview ? (
-        <form className="flex flex-col gap-4" onSubmit={onActivate}>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void onActivate('TRIAL')
+          }}
+        >
           <Card>
             {placePreview.photoUrl ? (
               <img
@@ -422,13 +430,24 @@ function ActivatePage() {
             whatsappGatewayOpen={card.whatsappGatewayOpen}
           />
           <p className="text-sm text-muted-foreground">
-            Aktivasi ini mulai trial {DEFAULT_TRIAL_DAYS} hari. Tamu yang tap
-            atau scan langsung ke Google Review. Ambil kartunya lagi setelah
-            trial, atau closing dari Prospek toko kalau deal jadi.
+            Scan QR atau tap NFC masuk ke sini. Pilih trial dulu, atau langsung
+            closing kalau tokonya sudah deal.
           </p>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2">
+            <Button disabled={busy} size="lg" type="submit">
+              {busy ? <Spinner data-icon="inline-start" /> : null}
+              {busy ? 'Mengaktifkan…' : `Mulai trial ${DEFAULT_TRIAL_DAYS} hari`}
+            </Button>
             <Button
-              className="flex-1"
+              disabled={busy}
+              onClick={() => void onActivate('SOLD')}
+              size="lg"
+              type="button"
+              variant="outline"
+            >
+              Langsung closing
+            </Button>
+            <Button
               disabled={busy}
               onClick={() => {
                 setSessionToken(crypto.randomUUID())
@@ -438,13 +457,9 @@ function ActivatePage() {
               }}
               size="lg"
               type="button"
-              variant="outline"
+              variant="ghost"
             >
               Ganti toko
-            </Button>
-            <Button className="flex-1" disabled={busy} size="lg" type="submit">
-              {busy ? <Spinner data-icon="inline-start" /> : null}
-              {busy ? 'Mengaktifkan…' : 'Aktifkan kartu'}
             </Button>
           </div>
         </form>
@@ -454,10 +469,20 @@ function ActivatePage() {
         <Card>
           <CardContent className="p-6">
             <p className="text-muted-foreground">
-              Trial jalan di{' '}
-              <span className="text-foreground">{result.outletName}</span>.
-              Tamu tinggal tempel atau scan.
-              {result.pickupLabel ? ` ${result.pickupLabel}.` : ''}
+              {result.installKind === 'TRIAL' ? (
+                <>
+                  Trial jalan di{' '}
+                  <span className="text-foreground">{result.outletName}</span>.
+                  Tamu tinggal tempel atau scan.
+                  {result.pickupLabel ? ` ${result.pickupLabel}.` : ''}
+                </>
+              ) : (
+                <>
+                  Closing di{' '}
+                  <span className="text-foreground">{result.outletName}</span>.
+                  Kartu tetap di toko. Tamu tinggal tempel atau scan.
+                </>
+              )}
             </p>
           </CardContent>
           <CardFooter className="flex flex-col gap-2">
