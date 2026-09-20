@@ -601,12 +601,12 @@ async function checkHolderAccounts() {
   )
   if (
     !won ||
-    won.status !== 'WON' ||
+    won.status !== 'CONTACTED' ||
     won.unitId == null ||
-    won.installKind !== 'SOLD' ||
-    won.installState !== 'sold'
+    won.installKind !== 'TRIAL' ||
+    won.installState !== 'trial'
   ) {
-    throw new Error('Activating a card for a saved shop must mark the prospect sold')
+    throw new Error('Activating a card for a saved shop must start a 14-day trial')
   }
   const prospectCardDetail = await getUnitDetail(
     (await getActivationCard(prospectCard.publicId))!.id,

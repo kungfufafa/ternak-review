@@ -12,7 +12,6 @@ import {
   getProspect,
   listReadyStockCards,
   markProspectInstalledForPlace,
-  markProspectWonForPlace,
   upsertProspectRecord,
 } from './prospects'
 import type { PlaceSuggestion } from './places'
@@ -184,11 +183,22 @@ export async function activateUnit(input: {
     throw new Error('Aktivasi gagal — kartu mungkin sudah diklaim')
   }
 
-  await markProspectInstalledForPlace({
+  await upsertProspectRecord({
+    googlePlaceId: details.placeId,
+    name: details.name,
+    formattedAddress: details.formattedAddress,
+    rating: details.rating,
+    userRatingCount: details.userRatingCount,
+    googleMapsUri: details.googleMapsUri,
+    primaryType: details.primaryType,
+    partnerRef,
+    createdByOwnerId: input.sessionOwnerId,
+  })
+  const prospect = await markProspectInstalledForPlace({
     googlePlaceId: details.placeId,
     unitId: updated.id,
     partnerRef,
-    installKind: input.installKind ?? 'SOLD',
+    installKind: input.installKind ?? 'TRIAL',
     trialDays: input.trialDays,
   })
 
@@ -197,6 +207,7 @@ export async function activateUnit(input: {
     publicId: updated.publicId,
     outlet: details,
     partnerRef,
+    prospect,
   }
 }
 
@@ -218,15 +229,28 @@ export async function rebindUnitOutlet(input: {
     throw new Error('Kartu ini bukan punya akunmu.')
   }
   const details = await getPlaceDetails(input.placeId)
+  let nextKind: 'TRIAL' | 'SOLD' = 'SOLD'
   if (unit.outlet?.googlePlaceId !== details.placeId) {
-    await collectProspectForUnit(unit.id)
+    const previous = await collectProspectForUnit(unit.id)
+    if (previous?.installKind === 'TRIAL') nextKind = 'TRIAL'
   }
   const outletId = await upsertOutletFromPlace(details)
   await db.update(units).set({ outletId }).where(eq(units.id, unit.id))
-  await markProspectWonForPlace({
+  await upsertProspectRecord({
+    googlePlaceId: details.placeId,
+    name: details.name,
+    formattedAddress: details.formattedAddress,
+    rating: details.rating,
+    userRatingCount: details.userRatingCount,
+    googleMapsUri: details.googleMapsUri,
+    primaryType: details.primaryType,
+    partnerRef: unit.partnerRef,
+  })
+  await markProspectInstalledForPlace({
     googlePlaceId: details.placeId,
     unitId: unit.id,
     partnerRef: unit.partnerRef,
+    installKind: nextKind,
   })
   return { outlet: details }
 }

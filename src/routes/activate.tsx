@@ -19,6 +19,7 @@ import {
   InputGroupInput,
 } from '#/components/ui/input-group'
 import { Spinner } from '#/components/ui/spinner'
+import { DEFAULT_TRIAL_DAYS } from '#/lib/place-rating'
 import type { ServiceTier } from '#/lib/review-settings'
 import {
   activateUnitFn,
@@ -34,13 +35,16 @@ type Step = 'pin' | 'outlet' | 'confirm' | 'done'
 export const Route = createFileRoute('/activate')({
   validateSearch: (
     search: Record<string, unknown>,
-  ): { id?: string; ref?: string } => {
-    const next: { id?: string; ref?: string } = {}
+  ): { id?: string; ref?: string; place?: string } => {
+    const next: { id?: string; ref?: string; place?: string } = {}
     if (typeof search.id === 'string' && search.id.length > 0) {
       next.id = search.id
     }
     if (typeof search.ref === 'string' && search.ref.trim().length > 0) {
       next.ref = search.ref.trim().slice(0, 80)
+    }
+    if (typeof search.place === 'string' && search.place.length > 1) {
+      next.place = search.place
     }
     return next
   },
@@ -85,7 +89,7 @@ export const Route = createFileRoute('/activate')({
 })
 
 function ActivatePage() {
-  const { id: prefillId = '', ref: prefillRef = '' } = Route.useSearch()
+  const { id: prefillId = '', ref: prefillRef = '', place: prefillPlace } = Route.useSearch()
   const { card, session } = Route.useLoaderData()
   const detailsFn = useServerFn(placeDetailsFn)
   const activateFn = useServerFn(activateUnitFn)
@@ -131,7 +135,9 @@ function ActivatePage() {
   const [result, setResult] = useState<{
     publicId: string
     outletName: string
+    pickupLabel: string | null
   } | null>(null)
+  const prefillStarted = useRef(false)
   const flowCardRef = useRef<{ id: string; ref: string } | null>(null)
 
   useEffect(() => {
@@ -148,6 +154,7 @@ function ActivatePage() {
       setPlacePreview(null)
       setError(null)
       setResult(null)
+      prefillStarted.current = false
       return
     }
     if (currentFlow.ref !== prefillRef) {
@@ -160,6 +167,14 @@ function ActivatePage() {
       setStep((current) => (current === 'pin' ? 'outlet' : current))
     }
   }, [card, prefillRef, skipPin])
+
+  useEffect(() => {
+    if (!prefillPlace || !skipPin || !card || step !== 'outlet' || prefillStarted.current) {
+      return
+    }
+    prefillStarted.current = true
+    void onPickPlace(prefillPlace)
+  }, [card, prefillPlace, skipPin, step])
 
   async function onSwitchAccount() {
     setBusy(true)
@@ -231,6 +246,7 @@ function ActivatePage() {
       setResult({
         publicId: res.publicId,
         outletName: res.outlet.name,
+        pickupLabel: res.prospect?.pickupLabel ?? null,
       })
       setStep('done')
     } catch (err) {
@@ -406,8 +422,9 @@ function ActivatePage() {
             whatsappGatewayOpen={card.whatsappGatewayOpen}
           />
           <p className="text-sm text-muted-foreground">
-            Pastikan nama dan alamat toko benar. Setelah diaktifkan, tamu yang
-            tap atau scan akan mengikuti jalur review paket ini.
+            Aktivasi ini mulai trial {DEFAULT_TRIAL_DAYS} hari. Tamu yang tap
+            atau scan langsung ke Google Review. Ambil kartunya lagi setelah
+            trial, atau closing dari Prospek toko kalau deal jadi.
           </p>
           <div className="flex gap-2">
             <Button
@@ -437,9 +454,10 @@ function ActivatePage() {
         <Card>
           <CardContent className="p-6">
             <p className="text-muted-foreground">
-              Kartu aktif untuk{' '}
+              Trial jalan di{' '}
               <span className="text-foreground">{result.outletName}</span>.
               Tamu tinggal tempel atau scan.
+              {result.pickupLabel ? ` ${result.pickupLabel}.` : ''}
             </p>
           </CardContent>
           <CardFooter className="flex flex-col gap-2">
@@ -449,6 +467,9 @@ function ActivatePage() {
                   <Link params={{ unitId: card.id }} to="/dashboard/units/$unitId">
                     {card.hasOwner ? 'Buka detail kartu' : 'Tetapkan pemegang'}
                   </Link>
+                </Button>
+                <Button asChild className="w-full" size="lg" variant="outline">
+                  <Link to="/admin/prospects">Lihat jadwal ambil</Link>
                 </Button>
                 <Button asChild className="w-full" size="lg" variant="outline">
                   <a href={`/r/${result.publicId}`}>Coba sebagai tamu</a>

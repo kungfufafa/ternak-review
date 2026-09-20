@@ -64,8 +64,6 @@ import {
 } from '#/lib/place-rating'
 import { formatDay } from '#/lib/utils'
 import {
-  attachPlaceToCardFn,
-  attachProspectToCardFn,
   collectProspectTrialFn,
   convertProspectToSoldFn,
   deleteProspectFn,
@@ -151,8 +149,6 @@ function ProspectsPage() {
   const saveFn = useServerFn(saveProspectFn)
   const updateFn = useServerFn(updateProspectFn)
   const deleteFn = useServerFn(deleteProspectFn)
-  const attachFn = useServerFn(attachProspectToCardFn)
-  const attachPlaceFn = useServerFn(attachPlaceToCardFn)
   const collectFn = useServerFn(collectProspectTrialFn)
   const closeFn = useServerFn(convertProspectToSoldFn)
   const installByPlace = new Map(installs.map((row) => [row.googlePlaceId, row]))
@@ -181,10 +177,8 @@ function ProspectsPage() {
   const [error, setError] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [attachFor, setAttachFor] = useState<string | null>(null)
-  const [attaching, setAttaching] = useState(false)
-  const [attachingPlaceId, setAttachingPlaceId] = useState<string | null>(null)
   const [actingId, setActingId] = useState<string | null>(null)
+  const nextCard = readyCards[0]
   const requestId = useRef(0)
   const locationRequestId = useRef(0)
   const debouncedQ = useDebounced(draft, 300)
@@ -339,9 +333,9 @@ function ProspectsPage() {
           return next
         })
         await router.invalidate({ sync: true })
-        const nextCard = readyCards[0]?.publicId
+        const nextPublicId = readyCards[0]?.publicId
         setNotice(
-          `${saved.created} toko potensial di ${res.city.name} siap trial${saved.existing > 0 ? ` (${saved.existing} sudah ada)` : ''}.${nextCard ? ` Klik Pasang trial — kartu berikutnya ${nextCard}, ambil lagi ${DEFAULT_TRIAL_DAYS} hari.` : ' Produksi kartu dulu sebelum memasang.'}`,
+          `${saved.created} toko potensial di ${res.city.name} siap diaktifkan${saved.existing > 0 ? ` (${saved.existing} sudah ada)` : ''}.${nextPublicId ? ` Klik Aktifkan — kartu ${nextPublicId}, trial ${DEFAULT_TRIAL_DAYS} hari lewat proses aktivasi.` : ' Produksi kartu dulu sebelum aktivasi.'}`,
         )
       }
     } catch (err) {
@@ -404,47 +398,12 @@ function ProspectsPage() {
     }
   }
 
-  async function onAttachPlace(place: PlaceSuggestion) {
-    setAttachingPlaceId(place.placeId)
-    setError(null)
-    setNotice(null)
-    try {
-      const res = await attachPlaceFn({
-        data: {
-          place,
-          notes: scannedCity ? `Scan kota ${scannedCity.name}` : undefined,
-          partnerRef: search.partner,
-        },
-      })
-      setNotice(
-        `Kartu ${res.publicId} trial di ${res.outlet.name}. ${res.prospect?.pickupLabel ?? `Ambil lagi ${DEFAULT_TRIAL_DAYS} hari.`}`,
-      )
-      await router.invalidate({ sync: true })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal memasang trial.')
-    } finally {
-      setAttachingPlaceId(null)
-    }
-  }
-
-  async function onAttach(prospectId: string) {
-    setAttaching(true)
-    setAttachFor(prospectId)
-    setError(null)
-    setNotice(null)
-    try {
-      const res = await attachFn({
-        data: { prospectId },
-      })
-      setAttachFor(null)
-      setNotice(
-        `Kartu ${res.publicId} trial di ${res.outlet.name}. ${res.prospect?.pickupLabel ?? `Ambil lagi ${DEFAULT_TRIAL_DAYS} hari.`}`,
-      )
-      await router.invalidate({ sync: true })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal memasang trial.')
-    } finally {
-      setAttaching(false)
+  function activateSearch(placeId: string) {
+    if (!nextCard) return undefined
+    return {
+      id: nextCard.publicId,
+      place: placeId,
+      ref: search.partner,
     }
   }
 
@@ -486,7 +445,7 @@ function ProspectsPage() {
   return (
     <div className="flex w-full max-w-screen-xl flex-col gap-8">
       <PageHeader
-        description={`Petakan kota, pasang trial ${DEFAULT_TRIAL_DAYS} hari, lalu lihat toko mana yang sudah terpasang dan kapan kartunya harus diambil. Rating yang tampil adalah kondisi Google sebelum kartu diisi.`}
+        description={`Petakan kota, lalu aktifkan kartu seperti biasa. Aktivasi mulai trial ${DEFAULT_TRIAL_DAYS} hari — dari sini kelihatan toko mana yang sudah terpasang dan kapan harus diambil.`}
         title="Prospek toko"
       />
 
@@ -514,8 +473,8 @@ function ProspectsPage() {
         <CardHeader>
           <CardTitle>Petakan kota</CardTitle>
           <CardDescription>
-            Satu langkah: petakan kota. Toko potensial langsung masuk daftar.
-            Pasang trial {DEFAULT_TRIAL_DAYS} hari, lalu ambil lagi atau closing.
+            Petakan kota. Toko potensial masuk daftar. Aktifkan lewat proses
+            kartu yang sudah ada — itu trial {DEFAULT_TRIAL_DAYS} hari.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -682,20 +641,14 @@ function ProspectsPage() {
                           </>
                         ) : (
                           <>
-                            <Button
-                              disabled={
-                                placesBusy ||
-                                attachingPlaceId === place.placeId ||
-                                readyCards.length === 0
-                              }
-                              onClick={() => void onAttachPlace(place)}
-                              size="sm"
-                              type="button"
-                            >
-                              {attachingPlaceId === place.placeId ? (
-                                <Spinner data-icon="inline-start" />
-                              ) : null}
-                              Pasang trial
+                            <Button asChild disabled={!nextCard} size="sm">
+                              {nextCard ? (
+                                <Link search={activateSearch(place.placeId)} to="/activate">
+                                  Aktifkan
+                                </Link>
+                              ) : (
+                                <span>Produksi kartu dulu</span>
+                              )}
                             </Button>
                             {saved ? (
                               <span className="text-[11px] text-muted-foreground">Tersimpan</span>
@@ -734,8 +687,7 @@ function ProspectsPage() {
         <div className="flex flex-col gap-1">
           <h2 className="text-lg font-medium tracking-tight">Daftar prospek</h2>
           <p className="text-sm text-muted-foreground">
-            Lihat toko yang sudah trial, kapan harus diambil, dan mana yang sudah
-            closing. Urutan default: paling sedikit ulasan dulu.
+            Setelah aktivasi, toko masuk trial. Dari sini ambil kartu atau closing.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -949,16 +901,17 @@ function ProspectsPage() {
                           </Button>
                         </>
                       ) : row.installState !== 'sold' || !row.unitId ? (
-                        <Button
-                          disabled={attaching || readyCards.length === 0}
-                          onClick={() => void onAttach(row.id)}
-                          size="sm"
-                          type="button"
-                        >
-                          {attaching && attachFor === row.id ? (
-                            <Spinner data-icon="inline-start" />
-                          ) : null}
-                          Pasang trial
+                        <Button asChild disabled={!nextCard} size="sm">
+                          {nextCard ? (
+                            <Link
+                              search={activateSearch(row.googlePlaceId)}
+                              to="/activate"
+                            >
+                              Aktifkan
+                            </Link>
+                          ) : (
+                            <span>Produksi kartu dulu</span>
+                          )}
                         </Button>
                       ) : null}
                       {!row.unitId ? (
