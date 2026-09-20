@@ -45,6 +45,7 @@ import {
 import { markNfcEncoded } from '../src/server/nfc.ts'
 import {
   activateUnit,
+  attachPlaceToCard,
   getActivationCard,
   getActivationCardForViewer,
   rebindUnitOutlet,
@@ -1348,6 +1349,26 @@ async function main() {
   const listedCity = await listProspects({ partner: 'cirebon-map' })
   if (listedCity.prospects.length < citySaved.created) {
     throw new Error('Mapped Cirebon shops must appear in the prospect list')
+  }
+  const oneTapBatch = await generateStockBatch({ count: 1, label: 'QA-ONE-TAP' })
+  const oneTapCard = oneTapBatch.units[0]
+  if (!oneTapCard) throw new Error('Expected one-tap card')
+  const oneTapPlace = cityScan.places[0]
+  if (!oneTapPlace) throw new Error('Expected a Cirebon shop for one-tap install')
+  const oneTap = await attachPlaceToCard({
+    place: oneTapPlace,
+    publicId: oneTapCard.publicId,
+    notes: 'Scan kota Cirebon',
+    partnerRef: 'cirebon-map',
+  })
+  if (
+    oneTap.publicId !== oneTapCard.publicId ||
+    oneTap.outlet.placeId !== oneTapPlace.placeId
+  ) {
+    throw new Error('One-tap install must bind the next warehouse card to the mapped shop')
+  }
+  if (oneTap.prospect?.status !== 'WON') {
+    throw new Error('One-tap install must mark the mapped shop as won')
   }
   if (
     near.places[0]?.rating == null ||

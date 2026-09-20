@@ -4,7 +4,13 @@ import { owners, units } from '#/db/schema'
 import { hashPin, normalizePin, pinMatches } from '#/lib/pin'
 import { upsertOutletFromPlace } from './outlets'
 import { getPlaceDetails } from './places'
-import { getProspect, markProspectWonForPlace } from './prospects'
+import {
+  getProspect,
+  listReadyStockCards,
+  markProspectWonForPlace,
+  upsertProspectRecord,
+} from './prospects'
+import type { PlaceSuggestion } from './places'
 import { assertRateLimit, clearRateLimit, consumeRateLimit } from './rate-limit'
 import { hashRateLimitIdentifier } from './request'
 import {
@@ -213,9 +219,20 @@ export async function rebindUnitOutlet(input: {
   return { outlet: details }
 }
 
+async function nextReadyPublicId(publicId?: string) {
+  const requested = publicId?.trim().toUpperCase()
+  if (requested) return requested
+  const ready = await listReadyStockCards(1)
+  const card = ready[0]
+  if (!card) {
+    throw new Error('Tidak ada kartu gudang. Produksi kartu dulu, lalu pasang dari sini.')
+  }
+  return card.publicId
+}
+
 export async function attachProspectToCard(input: {
   prospectId: string
-  publicId: string
+  publicId?: string
   sessionOwnerId?: string | null
 }) {
   const prospect = await getProspect(input.prospectId)
@@ -224,7 +241,7 @@ export async function attachProspectToCard(input: {
     throw new Error('Prospek ini sudah terpasang ke kartu.')
   }
   const result = await activateUnit({
-    publicId: input.publicId,
+    publicId: await nextReadyPublicId(input.publicId),
     placeId: prospect.googlePlaceId,
     partnerRef: prospect.partnerRef ?? undefined,
     sessionRole: 'ADMIN',
@@ -234,6 +251,32 @@ export async function attachProspectToCard(input: {
     ...result,
     prospect: await getProspect(input.prospectId),
   }
+}
+
+export async function attachPlaceToCard(input: {
+  place: PlaceSuggestion
+  publicId?: string
+  notes?: string
+  partnerRef?: string
+  sessionOwnerId?: string | null
+}) {
+  const saved = await upsertProspectRecord({
+    googlePlaceId: input.place.placeId,
+    name: input.place.name,
+    formattedAddress: input.place.address,
+    rating: input.place.rating,
+    userRatingCount: input.place.userRatingCount,
+    googleMapsUri: input.place.googleMapsUri,
+    primaryType: input.place.primaryType,
+    notes: input.notes,
+    partnerRef: input.partnerRef,
+    createdByOwnerId: input.sessionOwnerId,
+  })
+  return attachProspectToCard({
+    prospectId: saved.prospect.id,
+    publicId: input.publicId,
+    sessionOwnerId: input.sessionOwnerId,
+  })
 }
 
 const PIN_LIMIT = { max: 5, windowMs: 15 * 60_000 } as const

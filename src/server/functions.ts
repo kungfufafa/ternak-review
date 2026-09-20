@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import {
   activateUnit,
+  attachPlaceToCard,
   attachProspectToCard,
   getActivationCard,
   getActivationCardForViewer,
@@ -1270,7 +1271,7 @@ export const attachProspectToCardFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       prospectId: z.string().uuid(),
-      publicId: z.string().min(4).max(32),
+      publicId: z.string().min(4).max(32).optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -1280,6 +1281,38 @@ export const attachProspectToCardFn = createServerFn({ method: 'POST' })
       windowMs: 60 * 60_000,
     })
     return attachProspectToCard({
+      ...data,
+      sessionOwnerId: admin.ownerId,
+    })
+  })
+
+const scannedPlaceSchema = z.object({
+  placeId: z.string().min(2).max(256),
+  name: z.string().trim().min(1).max(200),
+  address: z.string().max(300).nullable(),
+  description: z.string().max(500),
+  rating: z.number().min(0).max(5).nullable(),
+  userRatingCount: z.number().int().min(0).nullable(),
+  googleMapsUri: z.string().max(500).nullable(),
+  primaryType: z.string().max(80).nullable(),
+})
+
+export const attachPlaceToCardFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      place: scannedPlaceSchema,
+      publicId: z.string().min(4).max(32).optional(),
+      notes: z.string().max(500).optional(),
+      partnerRef: z.string().max(80).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const admin = await requireAdmin()
+    await assertRateLimit(`prospect-attach:${getClientFingerprint()}`, {
+      max: 20,
+      windowMs: 60 * 60_000,
+    })
+    return attachPlaceToCard({
       ...data,
       sessionOwnerId: admin.ownerId,
     })

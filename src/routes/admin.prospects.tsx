@@ -28,7 +28,6 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
@@ -38,7 +37,6 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from '#/components/ui/empty'
-import { Field, FieldLabel } from '#/components/ui/field'
 import { Input, Select } from '#/components/ui/input'
 import {
   InputGroup,
@@ -58,12 +56,12 @@ import { useDebounced } from '#/hooks/use-debounced'
 import {
   PROSPECT_CATEGORIES,
   PROSPECT_STATUS_LABEL,
-  isPotentialProspect,
   type ProspectCategory,
   type ProspectStatus,
 } from '#/lib/place-rating'
 import { formatDay } from '#/lib/utils'
 import {
+  attachPlaceToCardFn,
   attachProspectToCardFn,
   deleteProspectFn,
   listProspectsFn,
@@ -134,6 +132,7 @@ function ProspectsPage() {
   const updateFn = useServerFn(updateProspectFn)
   const deleteFn = useServerFn(deleteProspectFn)
   const attachFn = useServerFn(attachProspectToCardFn)
+  const attachPlaceFn = useServerFn(attachPlaceToCardFn)
   const searchFnRef = useRef(searchFn)
   searchFnRef.current = searchFn
   const listId = useId()
@@ -160,9 +159,8 @@ function ProspectsPage() {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [attachFor, setAttachFor] = useState<string | null>(null)
-  const [publicId, setPublicId] = useState('')
   const [attaching, setAttaching] = useState(false)
-  const [savingBatch, setSavingBatch] = useState(false)
+  const [attachingPlaceId, setAttachingPlaceId] = useState<string | null>(null)
   const requestId = useRef(0)
   const locationRequestId = useRef(0)
   const debouncedQ = useDebounced(draft, 300)
@@ -308,8 +306,22 @@ function ProspectsPage() {
           `Tidak ada toko potensial di ${res.city.name}. Coba kategori lain atau kota lain.`,
         )
       } else {
+        const saved = await saveBatchFn({
+          data: {
+            places: res.places,
+            notes: `Scan kota ${res.city.name}`,
+            partnerRef: search.partner,
+          },
+        })
+        setSavedIds((current) => {
+          const next = new Set(current)
+          for (const place of res.places) next.add(place.placeId)
+          return next
+        })
+        await router.invalidate({ sync: true })
+        const nextCard = readyCards[0]?.publicId
         setNotice(
-          `${res.places.length} toko potensial di ${res.city.name} siap dipasangi kartu. Rating dan jumlah ulasan di bawah adalah kondisi sebelum kartu diisi.`,
+          `${saved.created} toko potensial di ${res.city.name} siap dipasang${saved.existing > 0 ? ` (${saved.existing} sudah ada)` : ''}.${nextCard ? ` Klik Pasang kartu — kartu berikutnya ${nextCard}.` : ' Produksi kartu dulu sebelum memasang.'}`,
         )
       }
     } catch (err) {
@@ -319,48 +331,6 @@ function ProspectsPage() {
       )
     } finally {
       if (id === requestId.current) setPlacesBusy(false)
-    }
-  }
-
-  async function onSavePotential() {
-    const targets = places.filter(
-      (place) =>
-        isPotentialProspect(place) && !savedPlaceIds.has(place.placeId),
-    )
-    if (targets.length === 0) {
-      setError('Semua toko potensial di hasil ini sudah tersimpan.')
-      return
-    }
-    setSavingBatch(true)
-    setError(null)
-    setNotice(null)
-    try {
-      const res = await saveBatchFn({
-        data: {
-          places: targets,
-          notes: scannedCity
-            ? `Scan kota ${scannedCity.name}`
-            : city.trim()
-              ? `Scan kota ${city.trim()}`
-              : undefined,
-          partnerRef: search.partner,
-        },
-      })
-      setSavedIds((current) => {
-        const next = new Set(current)
-        for (const place of targets) next.add(place.placeId)
-        return next
-      })
-      setNotice(
-        `${res.created} toko potensial disimpan${res.existing > 0 ? `, ${res.existing} sudah ada` : ''}. Siap dipasangi kartu.`,
-      )
-      await router.invalidate({ sync: true })
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Gagal menyimpan toko potensial.',
-      )
-    } finally {
-      setSavingBatch(false)
     }
   }
 
@@ -414,17 +384,37 @@ function ProspectsPage() {
     }
   }
 
-  async function onAttach() {
-    if (!attachFor || !publicId.trim()) return
+  async function onAttachPlace(place: PlaceSuggestion) {
+    setAttachingPlaceId(place.placeId)
+    setError(null)
+    setNotice(null)
+    try {
+      const res = await attachPlaceFn({
+        data: {
+          place,
+          notes: scannedCity ? `Scan kota ${scannedCity.name}` : undefined,
+          partnerRef: search.partner,
+        },
+      })
+      setNotice(`Kartu ${res.publicId} terpasang ke ${res.outlet.name}.`)
+      await router.invalidate({ sync: true })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal memasang kartu.')
+    } finally {
+      setAttachingPlaceId(null)
+    }
+  }
+
+  async function onAttach(prospectId: string) {
     setAttaching(true)
+    setAttachFor(prospectId)
     setError(null)
     setNotice(null)
     try {
       const res = await attachFn({
-        data: { prospectId: attachFor, publicId: publicId.trim() },
+        data: { prospectId },
       })
       setAttachFor(null)
-      setPublicId('')
       setNotice(`Kartu ${res.publicId} terpasang ke ${res.outlet.name}.`)
       await router.invalidate({ sync: true })
     } catch (err) {
@@ -442,7 +432,7 @@ function ProspectsPage() {
   return (
     <div className="flex w-full max-w-screen-xl flex-col gap-8">
       <PageHeader
-        description="Petakan satu kota, misalnya Cirebon, lalu simpan toko potensial yang rating dan jumlah ulasannya masih rendah — sebelum kartu review dipasang."
+        description="Petakan kota, lalu pasang kartu pada toko yang paling mudah closing. Rating dan jumlah ulasan yang tampil adalah kondisi Google sebelum kartu diisi."
         title="Prospek toko"
       />
 
@@ -453,9 +443,8 @@ function ProspectsPage() {
         <CardHeader>
           <CardTitle>Petakan kota</CardTitle>
           <CardDescription>
-            Isi nama kota. Sistem mencari kafe, resto, toko, dan salon di kota
-            itu, lalu menampilkan yang potensial dipasangi kartu — sedikit
-            ulasan Google, rating masih bisa naik.
+            Satu langkah: petakan kota. Toko potensial langsung masuk daftar.
+            Tinggal pasang kartu pada yang closing.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -505,49 +494,44 @@ function ProspectsPage() {
               zoom={13}
             />
           ) : null}
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <InputGroup className="flex-1">
-              <InputGroupInput
-                aria-controls={listId}
-                autoComplete="off"
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Atau cari nama toko spesifik…"
-                value={query}
-              />
-              <InputGroupAddon align="inline-start">
-                <SearchIcon />
-              </InputGroupAddon>
-            </InputGroup>
-            <Button
-              disabled={geoState === 'asking'}
-              onClick={requestLocation}
-              type="button"
-              variant="outline"
-            >
-              {geoState === 'asking' ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <LocateFixedIcon data-icon="inline-start" />
-              )}
-              {geoState === 'ready' ? 'Sekitar sini' : 'Lokasi saya'}
-            </Button>
-          </div>
-          {places.length > 0 ? (
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-muted-foreground">
-                {scanMode === 'city' && scannedCity
-                  ? `${places.length} toko potensial di ${scannedCity.name}`
-                  : `${places.length} listing Google`}
-              </p>
+          <details className="rounded-xl border border-border bg-muted/30 px-3 py-2">
+            <summary className="cursor-pointer text-sm text-muted-foreground">
+              Cari toko spesifik atau sekitar lokasi saya
+            </summary>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <InputGroup className="flex-1">
+                <InputGroupInput
+                  aria-controls={listId}
+                  autoComplete="off"
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Nama toko spesifik…"
+                  value={query}
+                />
+                <InputGroupAddon align="inline-start">
+                  <SearchIcon />
+                </InputGroupAddon>
+              </InputGroup>
               <Button
-                disabled={savingBatch || placesBusy}
-                onClick={() => void onSavePotential()}
+                disabled={geoState === 'asking'}
+                onClick={requestLocation}
                 type="button"
+                variant="outline"
               >
-                {savingBatch ? <Spinner data-icon="inline-start" /> : null}
-                Simpan yang potensial
+                {geoState === 'asking' ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <LocateFixedIcon data-icon="inline-start" />
+                )}
+                {geoState === 'ready' ? 'Sekitar sini' : 'Lokasi saya'}
               </Button>
             </div>
+          </details>
+          {places.length > 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {scanMode === 'city' && scannedCity
+                ? `${places.length} toko potensial di ${scannedCity.name}. Urutan: paling sedikit ulasan dulu.`
+                : `${places.length} listing Google`}
+            </p>
           ) : null}
           {placesError ? <Alert variant="danger">{placesError}</Alert> : null}
           {placesBusy && places.length === 0 ? (
@@ -584,17 +568,36 @@ function ProspectsPage() {
                       />
                     </ItemContent>
                     <ItemActions className="ml-2 shrink-0">
-                      <Button
-                        disabled={placesBusy || savingId === place.placeId || saved}
-                        onClick={() => void onSave(place)}
-                        size="sm"
-                        type="button"
-                      >
-                        {savingId === place.placeId ? (
-                          <Spinner data-icon="inline-start" />
-                        ) : null}
-                        {saved ? 'Tersimpan' : 'Simpan prospek'}
-                      </Button>
+                      <div className="flex flex-col items-end gap-2">
+                        <Button
+                          disabled={
+                            placesBusy ||
+                            attachingPlaceId === place.placeId ||
+                            readyCards.length === 0
+                          }
+                          onClick={() => void onAttachPlace(place)}
+                          size="sm"
+                          type="button"
+                        >
+                          {attachingPlaceId === place.placeId ? (
+                            <Spinner data-icon="inline-start" />
+                          ) : null}
+                          Pasang kartu
+                        </Button>
+                        {saved ? (
+                          <span className="text-[11px] text-muted-foreground">Tersimpan</span>
+                        ) : (
+                          <Button
+                            disabled={placesBusy || savingId === place.placeId}
+                            onClick={() => void onSave(place)}
+                            size="sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            Simpan saja
+                          </Button>
+                        )}
+                      </div>
                     </ItemActions>
                   </Item>
                 )
@@ -682,8 +685,7 @@ function ProspectsPage() {
             <EmptyHeader>
               <EmptyTitle>Belum ada prospek</EmptyTitle>
               <EmptyDescription>
-                Cari toko di atas, lalu simpan yang rating dan jumlah ulasannya
-                masih rendah.
+                Petakan kota di atas. Toko potensial masuk daftar ini otomatis.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
@@ -774,14 +776,14 @@ function ProspectsPage() {
                     <div className="flex flex-col items-end gap-2">
                       {row.status !== 'WON' ? (
                         <Button
-                          onClick={() => {
-                            setAttachFor(row.id)
-                            setPublicId(readyCards[0]?.publicId ?? '')
-                          }}
+                          disabled={attaching || readyCards.length === 0}
+                          onClick={() => void onAttach(row.id)}
                           size="sm"
                           type="button"
-                          variant="outline"
                         >
+                          {attaching && attachFor === row.id ? (
+                            <Spinner data-icon="inline-start" />
+                          ) : null}
                           Pasang kartu
                         </Button>
                       ) : null}
@@ -810,65 +812,6 @@ function ProspectsPage() {
           total={list.total}
         />
       </section>
-
-      {attachFor ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Pasang ke kartu gudang</CardTitle>
-            <CardDescription>
-              Pilih kartu IN_STOCK. Listing Google, rating, dan jumlah ulasan
-              saat ini ikut tersimpan sebagai kondisi sebelum kartu diisi.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <Field>
-              <FieldLabel htmlFor="prospect-card">Kode kartu</FieldLabel>
-              {readyCards.length > 0 ? (
-                <Select
-                  id="prospect-card"
-                  onChange={(event) => setPublicId(event.target.value)}
-                  value={publicId}
-                >
-                  <option value="">Pilih kartu siap pasang</option>
-                  {readyCards.map((card) => (
-                    <option key={card.id} value={card.publicId}>
-                      {card.publicId}
-                      {card.batchLabel ? ` · ${card.batchLabel}` : ''}
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <Input
-                  id="prospect-card"
-                  onChange={(event) => setPublicId(event.target.value.toUpperCase())}
-                  placeholder="Kode kartu"
-                  value={publicId}
-                />
-              )}
-            </Field>
-          </CardContent>
-          <CardFooter className="flex flex-wrap gap-2">
-            <Button
-              disabled={attaching || !publicId.trim()}
-              onClick={() => void onAttach()}
-              type="button"
-            >
-              {attaching ? <Spinner data-icon="inline-start" /> : null}
-              Pasang kartu
-            </Button>
-            <Button
-              onClick={() => {
-                setAttachFor(null)
-                setPublicId('')
-              }}
-              type="button"
-              variant="ghost"
-            >
-              Batal
-            </Button>
-          </CardFooter>
-        </Card>
-      ) : null}
 
       <ConfirmDelete
         confirmLabel="Hapus prospek"
