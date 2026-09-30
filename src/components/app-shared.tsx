@@ -7,6 +7,7 @@ import {
   MessageCircleIcon,
   MailIcon,
   MapPinIcon,
+  PaletteIcon,
   ScrollTextIcon,
   Settings2Icon,
   StoreIcon,
@@ -53,7 +54,6 @@ export function getNavGroups(pathname: string): SidebarNavGroup[] {
 
   return [
     {
-      label: "Ringkasan",
       items: [
         {
           title: "Beranda",
@@ -73,10 +73,10 @@ export function getNavGroups(pathname: string): SidebarNavGroup[] {
           isActive: onProduction,
         },
         {
-          title: "Akun pemegang",
-          path: "/admin/users",
-          icon: <UsersIcon />,
-          isActive: pathname.startsWith("/admin/users"),
+          title: "Desain kartu",
+          path: "/admin/card",
+          icon: <PaletteIcon />,
+          isActive: pathname.startsWith("/admin/card"),
         },
         {
           title: "Kartu & aktivasi",
@@ -95,6 +95,12 @@ export function getNavGroups(pathname: string): SidebarNavGroup[] {
     {
       label: "Pengaturan",
       items: [
+        {
+          title: "Akun pemegang",
+          path: "/admin/users",
+          icon: <UsersIcon />,
+          isActive: pathname.startsWith("/admin/users"),
+        },
         {
           title: "Halaman publik",
           path: "/admin/site",

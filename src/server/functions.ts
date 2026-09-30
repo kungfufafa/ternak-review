@@ -21,6 +21,7 @@ import {
 } from '#/server/auth'
 import { assertAppUrlForProduction, getAppUrlInfo } from '#/lib/env'
 import { PROSPECT_CATEGORIES } from '#/lib/place-rating'
+import { cardDesignSchema } from '#/lib/card-design'
 import {
   deleteUnit,
   getAdminDashboardSummary,
@@ -68,7 +69,9 @@ import {
   saveAffiliateWebhookUrl,
   testAffiliateWebhookUrl,
 } from '#/server/affiliate-settings'
+import { getCardDesign, saveCardDesign } from '#/server/card-design'
 import { getPublicSiteFlags, saveSiteFlags } from '#/server/site'
+import { getViewPrefs, saveViewPrefs } from '#/server/view-prefs'
 import { lookupQr, markNfcEncoded } from '#/server/nfc'
 import {
   deleteStockBatch,
@@ -845,6 +848,50 @@ export const saveSiteSettingsFn = createServerFn({ method: 'POST' })
       windowMs: 15 * 60_000,
     })
     return saveSiteFlags(data)
+  })
+
+export const getCardDesignFn = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    await requireAdmin()
+    return getCardDesign()
+  },
+)
+
+export const saveCardDesignFn = createServerFn({ method: 'POST' })
+  .validator(cardDesignSchema)
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    await assertRateLimit(`card-design:${getClientFingerprint()}`, {
+      max: 40,
+      windowMs: 15 * 60_000,
+    })
+    return saveCardDesign(data)
+  })
+
+const viewPrefsPayloadSchema = z.object({
+  view: z.enum(['stock', 'units']),
+  columns: z.array(z.string().max(40)).max(32).optional(),
+  density: z.enum(['compact', 'normal']).optional(),
+  mode: z.enum(['list', 'table']).optional(),
+})
+
+export const getViewPrefsFn = createServerFn({ method: 'GET' })
+  .validator(z.object({ view: z.enum(['stock', 'units']) }))
+  .handler(async ({ data }) => {
+    const owner = await requireAdmin()
+    return getViewPrefs(owner.ownerId, data.view)
+  })
+
+export const saveViewPrefsFn = createServerFn({ method: 'POST' })
+  .validator(viewPrefsPayloadSchema)
+  .handler(async ({ data }) => {
+    const owner = await requireAdmin()
+    await assertRateLimit(`view-prefs:${getClientFingerprint()}`, {
+      max: 60,
+      windowMs: 15 * 60_000,
+    })
+    const { view, ...prefs } = data
+    return saveViewPrefs(owner.ownerId, view, prefs)
   })
 
 export const getAffiliateWebhookSettingsFn = createServerFn({

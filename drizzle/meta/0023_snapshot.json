@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "397db425-9a37-4af2-9641-3b1b0f1f2cff",
-  "prevId": "b2e660ca-11ac-48ea-92d1-1bc2f040994b",
+  "id": "1e15abce-6798-49b7-b6d1-648db91f4841",
+  "prevId": "397db425-9a37-4af2-9641-3b1b0f1f2cff",
   "tables": {
     "affiliate_leads": {
       "name": "affiliate_leads",
@@ -640,6 +640,66 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "owner_view_prefs": {
+      "name": "owner_view_prefs",
+      "columns": {
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "view": {
+          "name": "view",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "prefs": {
+          "name": "prefs",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "owner_view_prefs_owner_id_owners_id_fk": {
+          "name": "owner_view_prefs_owner_id_owners_id_fk",
+          "tableFrom": "owner_view_prefs",
+          "tableTo": "owners",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "owner_view_prefs_owner_id_view_pk": {
+          "columns": [
+            "owner_id",
+            "view"
+          ],
+          "name": "owner_view_prefs_owner_id_view_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

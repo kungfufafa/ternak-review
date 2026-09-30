@@ -23,6 +23,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as RStatusRouteImport } from './routes/r-status'
 import { Route as SyaratKetentuanRouteImport } from './routes/syarat-ketentuan'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as AdminCardRouteImport } from './routes/admin.card'
 import { Route as AdminGoogleRouteImport } from './routes/admin.google'
 import { Route as AdminLogsRouteImport } from './routes/admin.logs'
 import { Route as AdminPackagesRouteImport } from './routes/admin.packages'
@@ -124,6 +125,11 @@ const SyaratKetentuanRoute = SyaratKetentuanRouteImport.update({
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminCardRoute = AdminCardRouteImport.update({
+  id: '/card',
+  path: '/card',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminGoogleRoute = AdminGoogleRouteImport.update({
@@ -302,6 +308,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/admin/card': typeof AdminCardRoute
   '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/packages': typeof AdminPackagesRoute
@@ -347,6 +354,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/admin/card': typeof AdminCardRoute
   '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/packages': typeof AdminPackagesRoute
@@ -395,6 +403,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/admin/card': typeof AdminCardRoute
   '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/packages': typeof AdminPackagesRoute
@@ -445,6 +454,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/r-status'
     | '/syarat-ketentuan'
+    | '/admin/card'
     | '/admin/google'
     | '/admin/logs'
     | '/admin/packages'
@@ -490,6 +500,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/r-status'
     | '/syarat-ketentuan'
+    | '/admin/card'
     | '/admin/google'
     | '/admin/logs'
     | '/admin/packages'
@@ -537,6 +548,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/r-status'
     | '/syarat-ketentuan'
+    | '/admin/card'
     | '/admin/google'
     | '/admin/logs'
     | '/admin/packages'
@@ -698,6 +710,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/card': {
+      id: '/admin/card'
+      path: '/card'
+      fullPath: '/admin/card'
+      preLoaderRoute: typeof AdminCardRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/google': {
@@ -944,6 +963,7 @@ const AdminStockRouteWithChildren = AdminStockRoute._addFileChildren(
 )
 
 interface AdminRouteChildren {
+  AdminCardRoute: typeof AdminCardRoute
   AdminGoogleRoute: typeof AdminGoogleRoute
   AdminLogsRoute: typeof AdminLogsRoute
   AdminPackagesRoute: typeof AdminPackagesRoute
@@ -960,6 +980,7 @@ interface AdminRouteChildren {
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminCardRoute: AdminCardRoute,
   AdminGoogleRoute: AdminGoogleRoute,
   AdminLogsRoute: AdminLogsRoute,
   AdminPackagesRoute: AdminPackagesRoute,
@@ -1035,3 +1056,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

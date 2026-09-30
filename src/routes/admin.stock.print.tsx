@@ -32,6 +32,7 @@ import { chunk, cn } from '#/lib/utils'
 import {
   getAppUrlInfoFn,
   getBatchPrintFn,
+  getCardDesignFn,
   getCurrentOwnerFn,
 } from '#/server/functions'
 
@@ -52,11 +53,12 @@ export const Route = createFileRoute('/admin/stock/print')({
     const owner = await getCurrentOwnerFn()
     if (!owner) throw redirect({ to: '/login' })
     if (!deps.batch) throw redirect({ to: '/admin/stock' })
-    const [pack, appUrl] = await Promise.all([
+    const [pack, appUrl, cardDesign] = await Promise.all([
       getBatchPrintFn({ data: { batchId: deps.batch } }),
       getAppUrlInfoFn(),
+      getCardDesignFn(),
     ])
-    return { ...pack, appUrl }
+    return { ...pack, appUrl, cardDesign }
   },
   component: StockPrintPage,
   head: () => ({
@@ -65,7 +67,7 @@ export const Route = createFileRoute('/admin/stock/print')({
 })
 
 function StockPrintPage() {
-  const { batch, units, appUrl } = Route.useLoaderData()
+  const { batch, units, appUrl, cardDesign } = Route.useLoaderData()
   const { layout: layoutParam } = Route.useSearch()
   const layout: PrintLayout = layoutParam === 'a4' ? 'a4' : 'sheet'
   const navigate = useNavigate({ from: '/admin/stock/print' })
@@ -166,6 +168,7 @@ function StockPrintPage() {
     try {
       const bytes = await buildPrintPdf({
         cards: ranged,
+        design: cardDesign,
         layout,
         onProgress: (done) => setExportDone(done),
       })
@@ -273,7 +276,10 @@ function StockPrintPage() {
                   <div className="w-full" key={unit.publicId}>
                     <div className="relative">
                       <div className="review-card-scale">
-                        <ReviewCard qrSvg={marks[unit.publicId]} />
+                        <ReviewCard
+                          design={cardDesign}
+                          qrSvg={marks[unit.publicId]}
+                        />
                       </div>
                       {qrReady ? null : (
                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-[12%] bg-background/80 text-sm text-muted-foreground">
@@ -388,14 +394,20 @@ function StockPrintPage() {
               <section className="print-a4-sheet" key={pageIndex}>
                 {page.map((unit) => (
                   <div className="review-card-print-wrap" key={unit.publicId}>
-                    <ReviewCard qrSvg={marks[unit.publicId]} />
+                    <ReviewCard
+                      design={cardDesign}
+                      qrSvg={marks[unit.publicId]}
+                    />
                   </div>
                 ))}
               </section>
             ))
           : printUnits.map((unit) => (
               <div className="review-card-print-wrap" key={unit.publicId}>
-                <ReviewCard qrSvg={marks[unit.publicId]} />
+                <ReviewCard
+                  design={cardDesign}
+                  qrSvg={marks[unit.publicId]}
+                />
               </div>
             ))}
       </div>

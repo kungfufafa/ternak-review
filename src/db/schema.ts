@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  primaryKey,
   real,
   sqliteTable,
   text,
@@ -441,6 +442,14 @@ export const siteSettings = sqliteTable('site_settings', {
     .$defaultFn(now),
 })
 
+export const cardSettings = sqliteTable('card_settings', {
+  id: text('id').primaryKey().default('primary'),
+  design: text('design', { mode: 'json' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(now),
+})
+
 export const affiliateSettings = sqliteTable('affiliate_settings', {
   id: text('id').primaryKey().default('primary'),
   webhookCipher: text('webhook_cipher'),
@@ -478,6 +487,21 @@ export const smtpSettings = sqliteTable('smtp_settings', {
     .notNull()
     .$defaultFn(now),
 })
+
+export const ownerViewPrefs = sqliteTable(
+  'owner_view_prefs',
+  {
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => owners.id, { onDelete: 'cascade' }),
+    view: text('view', { enum: ['stock', 'units'] }).notNull(),
+    prefs: text('prefs').notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(now),
+  },
+  (t) => [primaryKey({ columns: [t.ownerId, t.view] })],
+)
 
 export const emailOutbox = sqliteTable(
   'email_outbox',
