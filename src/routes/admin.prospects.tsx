@@ -15,9 +15,9 @@ import {
   GoogleMapsEmbed,
 } from '#/components/google-maps-embed'
 import { useEffect, useId, useRef, useState } from 'react'
+import { createColumnHelper } from '@tanstack/react-table'
 import { z } from 'zod'
 import { ConfirmDelete } from '#/components/confirm-delete'
-import { DataTable, DataTableCell, DataTableHead } from '#/components/data-table'
 import { ListPager } from '#/components/list-pager'
 import { PageHeader } from '#/components/page'
 import { PlaceRatingLine } from '#/components/place-rating'
@@ -31,6 +31,7 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import { DataTable } from '#/components/ui/data-table'
 import {
   Empty,
   EmptyDescription,
@@ -63,13 +64,15 @@ import {
   type ProspectStatus,
 } from '#/lib/place-rating'
 import { formatDay } from '#/lib/utils'
+import type { DataTableFeatures } from '#/lib/data-table-features'
 import {
   collectProspectTrialFn,
   convertProspectToSoldFn,
   deleteProspectFn,
+  deleteProspectsFn,
   listProspectInstallsFn,
+  listProspectPlaceIdsFn,
   listProspectsFn,
-  listReadyStockCardsFn,
   prospectNearbyPlacesFn,
   prospectSearchPlacesFn,
   saveProspectBatchFn,
@@ -100,6 +103,12 @@ function installBadgeVariant(state: ProspectInstallState) {
 
 type Loc = { lat: number; lng: number }
 
+type ProspectRow = Awaited<
+  ReturnType<typeof listProspectsFn>
+>['prospects'][number]
+
+const prospectColumn = createColumnHelper<DataTableFeatures, ProspectRow>()
+
 export const Route = createFileRoute('/admin/prospects')({
   validateSearch: searchSchema,
   search: {
@@ -114,7 +123,7 @@ export const Route = createFileRoute('/admin/prospects')({
     page: search.page,
   }),
   loader: async ({ deps }) => {
-    const [list, readyCards, installs] = await Promise.all([
+    const [list, installs, prospectPlaceIds] = await Promise.all([
       listProspectsFn({
         data: {
           q: deps.q,
@@ -126,10 +135,10 @@ export const Route = createFileRoute('/admin/prospects')({
           pageSize: 20,
         },
       }),
-      listReadyStockCardsFn(),
       listProspectInstallsFn(),
+      listProspectPlaceIdsFn(),
     ])
-    return { list, readyCards, installs }
+    return { list, installs, prospectPlaceIds }
   },
   component: ProspectsPage,
   head: () => ({
@@ -138,7 +147,7 @@ export const Route = createFileRoute('/admin/prospects')({
 })
 
 function ProspectsPage() {
-  const { list, readyCards, installs } = Route.useLoaderData()
+  const { list, installs, prospectPlaceIds } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/admin/prospects' })
   const router = useRouter()
@@ -149,6 +158,7 @@ function ProspectsPage() {
   const saveFn = useServerFn(saveProspectFn)
   const updateFn = useServerFn(updateProspectFn)
   const deleteFn = useServerFn(deleteProspectFn)
+  const deleteManyFn = useServerFn(deleteProspectsFn)
   const collectFn = useServerFn(collectProspectTrialFn)
   const closeFn = useServerFn(convertProspectToSoldFn)
   const installByPlace = new Map(installs.map((row) => [row.googlePlaceId, row]))
@@ -176,13 +186,25 @@ function ProspectsPage() {
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
+  const [pendingBulk, setPendingBulk] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [deleting, setDeleting] = useState(false)
   const [actingId, setActingId] = useState<string | null>(null)
-  const nextCard = readyCards[0]
   const requestId = useRef(0)
   const locationRequestId = useRef(0)
   const debouncedQ = useDebounced(draft, 300)
   const debouncedPartner = useDebounced(partnerDraft, 300)
+  const deletableIds = list.prospects
+    .filter((row) => !row.unitId)
+    .map((row) => row.id)
+  const allDeletableSelected =
+    deletableIds.length > 0 && deletableIds.every((id) => selectedIds.has(id))
+
+  const pageIds = list.prospects.map((row) => row.id).join(',')
+
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [pageIds])
 
   useEffect(() => {
     setDraft(search.q ?? '')
@@ -333,9 +355,8 @@ function ProspectsPage() {
           return next
         })
         await router.invalidate({ sync: true })
-        const nextPublicId = readyCards[0]?.publicId
         setNotice(
-          `${saved.created} toko potensial di ${res.city.name} siap diaktifkan${saved.existing > 0 ? ` (${saved.existing} sudah ada)` : ''}.${nextPublicId ? ` Klik Aktifkan — kartu ${nextPublicId}, trial ${DEFAULT_TRIAL_DAYS} hari lewat proses aktivasi.` : ' Produksi kartu dulu sebelum aktivasi.'}`,
+          `${saved.created} toko potensial di ${res.city.name} siap diaktifkan${saved.existing > 0 ? ` (${saved.existing} sudah ada)` : ''}. Klik Aktifkan, lalu scan QR kartunya.`,
         )
       }
     } catch (err) {
@@ -398,10 +419,40 @@ function ProspectsPage() {
     }
   }
 
+  async function onBulkDelete() {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    setDeleting(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const res = await deleteManyFn({ data: { ids } })
+      setPendingBulk(false)
+      setSelectedIds(new Set())
+      setNotice(
+        res.skipped > 0
+          ? `${res.deleted} prospek dihapus. ${res.skipped} masih terpasang kartunya, jadi tidak dihapus.`
+          : `${res.deleted} prospek dihapus.`,
+      )
+      await router.invalidate({ sync: true })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menghapus prospek.')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  function toggleSelected(id: string, on: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
   function activateSearch(placeId: string) {
-    if (!nextCard) return undefined
     return {
-      id: nextCard.publicId,
       place: placeId,
       ref: search.partner,
     }
@@ -439,11 +490,13 @@ function ProspectsPage() {
 
   const savedPlaceIds = new Set([
     ...savedIds,
+    ...prospectPlaceIds,
     ...list.prospects.map((row) => row.googlePlaceId),
   ])
+  const visiblePlaces = places.filter((place) => !savedPlaceIds.has(place.placeId))
 
   return (
-    <div className="flex w-full max-w-screen-xl flex-col gap-8">
+    <div className="mx-auto flex w-full max-w-screen-xl flex-col gap-8">
       <PageHeader
         description={`Petakan kota, lalu aktifkan kartu seperti biasa. Aktivasi mulai trial ${DEFAULT_TRIAL_DAYS} hari — dari sini kelihatan toko mana yang sudah terpasang dan kapan harus diambil.`}
         title="Prospek toko"
@@ -556,23 +609,31 @@ function ProspectsPage() {
               </Button>
             </div>
           </details>
-          {places.length > 0 ? (
+          {visiblePlaces.length > 0 ? (
             <p className="text-sm text-muted-foreground">
               {scanMode === 'city' && scannedCity
-                ? `${places.length} toko potensial di ${scannedCity.name}. Urutan: paling sedikit ulasan dulu.`
-                : `${places.length} listing Google`}
+                ? `${visiblePlaces.length} toko baru di ${scannedCity.name}. Yang sudah ada di daftar tidak ditampilkan.`
+                : 'Toko yang belum masuk daftar.'}
             </p>
           ) : null}
           {placesError ? <Alert variant="danger">{placesError}</Alert> : null}
-          {placesBusy && places.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Mencari listing Google…</p>
+          {placesBusy && visiblePlaces.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Mencari toko…</p>
           ) : null}
-          {places.length > 0 ? (
+          {!placesBusy &&
+          scanMode !== 'city' &&
+          visiblePlaces.length === 0 &&
+          places.length > 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Toko yang ketemu sudah ada di daftar prospek.
+            </p>
+          ) : null}
+          {visiblePlaces.length > 0 ? (
             <ItemGroup
               className="overflow-hidden rounded-2xl bg-card shadow-sm ring-1 ring-border"
               id={listId}
             >
-              {places.map((place) => {
+              {visiblePlaces.map((place) => {
                 const saved = savedPlaceIds.has(place.placeId)
                 const install = installByPlace.get(place.placeId)
                 const state = install?.installState ?? 'none'
@@ -641,14 +702,10 @@ function ProspectsPage() {
                           </>
                         ) : (
                           <>
-                            <Button asChild disabled={!nextCard} size="sm">
-                              {nextCard ? (
-                                <Link search={activateSearch(place.placeId)} to="/activate">
-                                  Aktifkan
-                                </Link>
-                              ) : (
-                                <span>Produksi kartu dulu</span>
-                              )}
+                            <Button asChild size="sm">
+                              <Link search={activateSearch(place.placeId)} to="/activate">
+                                Aktifkan
+                              </Link>
                             </Button>
                             {saved ? (
                               <span className="text-[11px] text-muted-foreground">Tersimpan</span>
@@ -672,7 +729,10 @@ function ProspectsPage() {
               })}
             </ItemGroup>
           ) : null}
-          {!placesBusy && places.length === 0 && query.trim().length >= 2 ? (
+          {!placesBusy &&
+          visiblePlaces.length === 0 &&
+          places.length === 0 &&
+          query.trim().length >= 2 ? (
             <Empty className="min-h-32 border border-dashed border-border p-6">
               <EmptyHeader>
                 <EmptyTitle>Tidak ada yang cocok</EmptyTitle>
@@ -684,11 +744,23 @@ function ProspectsPage() {
       </Card>
 
       <section className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-medium tracking-tight">Daftar prospek</h2>
-          <p className="text-sm text-muted-foreground">
-            Setelah aktivasi, toko masuk trial. Dari sini ambil kartu atau closing.
-          </p>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-lg font-medium tracking-tight">Daftar prospek</h2>
+            <p className="text-sm text-muted-foreground">
+              Setelah aktivasi, toko masuk trial. Dari sini ambil kartu atau closing.
+            </p>
+          </div>
+          {selectedIds.size > 0 ? (
+            <Button
+              disabled={deleting}
+              onClick={() => setPendingBulk(true)}
+              type="button"
+              variant="outline"
+            >
+              Hapus {selectedIds.size} prospek
+            </Button>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {(
@@ -798,138 +870,185 @@ function ProspectsPage() {
             </EmptyHeader>
           </Empty>
         ) : (
-          <DataTable>
-            <DataTableHead
-              columns={[
-                'Bisnis Google',
-                'Rating sebelum kartu',
-                'Kartu',
-                'Reseller',
-                'Disimpan',
-                '',
-              ]}
-            />
-            <tbody>
-              {list.prospects.map((row) => (
-                <tr key={row.id}>
-                  <DataTableCell>
-                    <div className="flex flex-col gap-1">
-                      <span className="font-medium">{row.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {row.formattedAddress ?? 'Alamat belum tersedia'}
-                      </span>
-                      {row.googleMapsUri ? (
-                        <a
-                          className="text-xs text-pine underline underline-offset-4"
-                          href={row.googleMapsUri}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          Buka Google Review
-                        </a>
-                      ) : null}
-                    </div>
-                  </DataTableCell>
-                  <DataTableCell>
-                    <PlaceRatingLine
-                      rating={row.rating}
-                      showHint
-                      userRatingCount={row.userRatingCount}
+          <DataTable
+            columns={[
+              prospectColumn.display({
+                cell: ({ row }) =>
+                  row.original.unitId ? null : (
+                    <input
+                      aria-label={`Pilih ${row.original.name}`}
+                      checked={selectedIds.has(row.original.id)}
+                      className="size-4 accent-primary"
+                      onChange={(event) =>
+                        toggleSelected(row.original.id, event.target.checked)
+                      }
+                      type="checkbox"
                     />
-                  </DataTableCell>
-                  <DataTableCell>
-                    <div className="flex flex-col gap-2">
-                      <Badge variant={installBadgeVariant(row.installState)}>
-                        {PROSPECT_INSTALL_LABEL[row.installState]}
-                      </Badge>
-                      {row.installState === 'trial' || row.installState === 'due' ? (
-                        <span className="text-xs text-muted-foreground">
-                          {row.pickupLabel}
-                        </span>
-                      ) : null}
-                      {row.installState === 'none' || row.installState === 'collected' ? (
-                        <Select
-                          onChange={(event) =>
-                            void onStatus(row.id, event.target.value as ProspectStatus)
-                          }
-                          value={row.status}
-                        >
-                          {Object.entries(PROSPECT_STATUS_LABEL).map(([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : row.unitId ? (
-                        <Link
-                          className="text-xs text-pine underline underline-offset-4"
-                          params={{ unitId: row.unitId }}
-                          to="/dashboard/units/$unitId"
-                        >
-                          Lihat kartu
-                        </Link>
-                      ) : null}
-                    </div>
-                  </DataTableCell>
-                  <DataTableCell muted>{row.partnerRef ?? '—'}</DataTableCell>
-                  <DataTableCell muted>
-                    {row.createdAt ? formatDay(row.createdAt) : '—'}
-                  </DataTableCell>
-                  <DataTableCell>
-                    <div className="flex flex-col items-end gap-2">
-                      {row.installState === 'trial' || row.installState === 'due' ? (
-                        <>
-                          <Button
-                            disabled={actingId === row.id}
-                            onClick={() => void onCollect(row.id)}
-                            size="sm"
-                            type="button"
-                          >
-                            {actingId === row.id ? (
-                              <Spinner data-icon="inline-start" />
-                            ) : null}
-                            Ambil kartu
-                          </Button>
-                          <Button
-                            disabled={actingId === row.id}
-                            onClick={() => void onCloseDeal(row.id)}
-                            size="sm"
-                            type="button"
-                            variant="outline"
-                          >
-                            Closing
-                          </Button>
-                        </>
-                      ) : row.installState !== 'sold' || !row.unitId ? (
-                        <Button asChild disabled={!nextCard} size="sm">
-                          {nextCard ? (
-                            <Link
-                              search={activateSearch(row.googlePlaceId)}
-                              to="/activate"
-                            >
-                              Aktifkan
-                            </Link>
-                          ) : (
-                            <span>Produksi kartu dulu</span>
-                          )}
-                        </Button>
-                      ) : null}
-                      {!row.unitId ? (
+                  ),
+                header: () =>
+                  deletableIds.length === 0 ? null : (
+                    <input
+                      aria-label="Pilih semua yang bisa dihapus"
+                      checked={allDeletableSelected}
+                      className="size-4 accent-primary"
+                      onChange={(event) => {
+                        setSelectedIds(
+                          event.target.checked ? new Set(deletableIds) : new Set(),
+                        )
+                      }}
+                      type="checkbox"
+                    />
+                  ),
+                id: 'pilih',
+              }),
+              prospectColumn.display({
+                cell: ({ row }) => (
+                  <div className="flex flex-col gap-1">
+                    <span className="font-medium">{row.original.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {row.original.formattedAddress ?? 'Alamat belum tersedia'}
+                    </span>
+                    {row.original.googleMapsUri ? (
+                      <a
+                        className="text-xs text-pine underline underline-offset-4"
+                        href={row.original.googleMapsUri}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        Buka Google Review
+                      </a>
+                    ) : null}
+                  </div>
+                ),
+                header: 'Bisnis Google',
+                id: 'bisnis',
+              }),
+              prospectColumn.display({
+                cell: ({ row }) => (
+                  <PlaceRatingLine
+                    rating={row.original.rating}
+                    showHint
+                    userRatingCount={row.original.userRatingCount}
+                  />
+                ),
+                header: 'Rating sebelum kartu',
+                id: 'rating',
+              }),
+              prospectColumn.display({
+                cell: ({ row }) => (
+                  <div className="flex flex-col gap-2">
+                    <Badge variant={installBadgeVariant(row.original.installState)}>
+                      {PROSPECT_INSTALL_LABEL[row.original.installState]}
+                    </Badge>
+                    {row.original.installState === 'trial' ||
+                    row.original.installState === 'due' ? (
+                      <span className="text-xs text-muted-foreground">
+                        {row.original.pickupLabel}
+                      </span>
+                    ) : null}
+                    {row.original.installState === 'none' ||
+                    row.original.installState === 'collected' ? (
+                      <Select
+                        onChange={(event) =>
+                          void onStatus(
+                            row.original.id,
+                            event.target.value as ProspectStatus,
+                          )
+                        }
+                        value={row.original.status}
+                      >
+                        {Object.entries(PROSPECT_STATUS_LABEL).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </Select>
+                    ) : row.original.unitId ? (
+                      <Link
+                        className="text-xs text-pine underline underline-offset-4"
+                        params={{ unitId: row.original.unitId }}
+                        to="/dashboard/units/$unitId"
+                      >
+                        Lihat kartu
+                      </Link>
+                    ) : null}
+                  </div>
+                ),
+                header: 'Kartu',
+                id: 'kartu',
+              }),
+              prospectColumn.accessor('partnerRef', {
+                cell: ({ getValue }) => (
+                  <span className="text-muted-foreground">{getValue() ?? '—'}</span>
+                ),
+                header: 'Reseller',
+              }),
+              prospectColumn.accessor('createdAt', {
+                cell: ({ getValue }) => (
+                  <span className="text-muted-foreground">
+                    {getValue() ? formatDay(getValue()!) : '—'}
+                  </span>
+                ),
+                header: 'Disimpan',
+              }),
+              prospectColumn.display({
+                cell: ({ row }) => (
+                  <div className="flex flex-col items-end gap-2">
+                    {row.original.installState === 'trial' ||
+                    row.original.installState === 'due' ? (
+                      <>
                         <Button
-                          onClick={() => setPendingDelete(row.id)}
+                          disabled={actingId === row.original.id}
+                          onClick={() => void onCollect(row.original.id)}
                           size="sm"
                           type="button"
-                          variant="ghost"
                         >
-                          Hapus
+                          {actingId === row.original.id ? (
+                            <Spinner data-icon="inline-start" />
+                          ) : null}
+                          Ambil kartu
                         </Button>
-                      ) : null}
-                    </div>
-                  </DataTableCell>
-                </tr>
-              ))}
-            </tbody>
-          </DataTable>
+                        <Button
+                          disabled={actingId === row.original.id}
+                          onClick={() => void onCloseDeal(row.original.id)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Closing
+                        </Button>
+                      </>
+                    ) : row.original.installState !== 'sold' ||
+                      !row.original.unitId ? (
+                      <Button asChild size="sm">
+                        <Link
+                          search={activateSearch(row.original.googlePlaceId)}
+                          to="/activate"
+                        >
+                          Aktifkan
+                        </Link>
+                      </Button>
+                    ) : null}
+                    {!row.original.unitId ? (
+                      <Button
+                        onClick={() => setPendingDelete(row.original.id)}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        Hapus
+                      </Button>
+                    ) : null}
+                  </div>
+                ),
+                header: () => <span className="sr-only">Aksi</span>,
+                id: 'aksi',
+              }),
+            ]}
+            data={list.prospects}
+            manualPagination={{ pageCount: list.pageCount }}
+            pageSize={list.pageSize}
+          />
         )}
         <ListPager
           onPage={(page) =>
@@ -952,6 +1071,15 @@ function ProspectsPage() {
         open={Boolean(pendingDelete)}
         pending={deleting}
         title="Hapus prospek?"
+      />
+      <ConfirmDelete
+        confirmLabel={`Hapus ${selectedIds.size}`}
+        description="Prospek yang dipilih dihapus dari daftar. Yang masih terpasang kartunya tidak ikut terhapus."
+        onConfirm={() => void onBulkDelete()}
+        onOpenChange={setPendingBulk}
+        open={pendingBulk}
+        pending={deleting}
+        title="Hapus prospek terpilih?"
       />
     </div>
   )

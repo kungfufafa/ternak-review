@@ -31,15 +31,18 @@ import {
   updateUnitPartner,
 } from '#/server/clicks'
 import {
-  autocompletePlaces,
   getPlaceDetails,
   nearbyPlaces,
+  nearbyPlacesByTypes,
   scanCityPlaces,
-  textSearchPlaces,
+  searchActivationPlaces,
+  textSearchPlacesPaged,
 } from '#/server/places'
 import {
   deleteProspect,
+  deleteProspects,
   listProspectInstalls,
+  listProspectPlaceIds,
   listProspects,
   listReadyStockCards,
   saveProspect,
@@ -264,7 +267,7 @@ export const searchPlacesFn = createServerFn({ method: 'POST' })
   )
   .handler(async ({ data }) => {
     await limitPlaces(data.publicId, data.pin)
-    return autocompletePlaces(data)
+    return searchActivationPlaces(data)
   })
 
 export const nearbyPlacesFn = createServerFn({ method: 'POST' })
@@ -1129,10 +1132,11 @@ export const prospectNearbyPlacesFn = createServerFn({ method: 'POST' })
     await limitAdminPlaces()
     const category = data.category ?? 'semua'
     const includedTypes = [...PROSPECT_CATEGORIES[category].types]
-    return nearbyPlaces({
-      loc: data.loc,
-      includedTypes: includedTypes.length > 0 ? includedTypes : undefined,
-    })
+    const types =
+      includedTypes.length > 0
+        ? includedTypes
+        : ['cafe', 'restaurant', 'store', 'hair_salon']
+    return nearbyPlacesByTypes(data.loc, types)
   })
 
 export const scanCityProspectsFn = createServerFn({ method: 'POST' })
@@ -1200,7 +1204,7 @@ export const prospectSearchPlacesFn = createServerFn({ method: 'POST' })
     await limitAdminPlaces()
     const category = data.category ?? 'semua'
     const types = PROSPECT_CATEGORIES[category].types
-    return textSearchPlaces({
+    return textSearchPlacesPaged({
       query: data.query,
       loc: data.loc,
       includedType: types[0],
@@ -1244,6 +1248,13 @@ export const listProspectsFn = createServerFn({ method: 'GET' })
     return listProspects(data)
   })
 
+export const listProspectPlaceIdsFn = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    await requireAdmin()
+    return listProspectPlaceIds()
+  },
+)
+
 export const listProspectInstallsFn = createServerFn({ method: 'GET' }).handler(
   async () => {
     await requireAdmin()
@@ -1263,6 +1274,17 @@ export const updateProspectFn = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     await requireAdmin()
     return updateProspect(data)
+  })
+
+export const deleteProspectsFn = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      ids: z.array(z.string().uuid()).min(1).max(100),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin()
+    return deleteProspects(data.ids)
   })
 
 export const deleteProspectFn = createServerFn({ method: 'POST' })
