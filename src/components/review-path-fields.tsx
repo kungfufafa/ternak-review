@@ -16,6 +16,7 @@ export function ReviewPathFields({
   whatsappGatewayOpen,
   viewerRole = 'USER',
   allowTierChange = true,
+  compact = false,
   onTierChange,
   onWhatsappChange,
 }: {
@@ -25,6 +26,7 @@ export function ReviewPathFields({
   whatsappGatewayOpen: boolean
   viewerRole?: 'ADMIN' | 'USER'
   allowTierChange?: boolean
+  compact?: boolean
   onTierChange: (tier: ServiceTier) => void
   onWhatsappChange: (value: string) => void
 }) {
@@ -78,30 +80,34 @@ export function ReviewPathFields({
         ) : (
           <p className="font-medium">{servicePackage?.name ?? serviceTier}</p>
         )}
-        <FieldDescription>
-          {allowTierChange
-            ? viewerRole === 'ADMIN'
-              ? 'Paket menentukan jalur review tamu setelah tempel atau scan.'
-              : 'Paket menentukan jalur review tamu. Nomor WhatsApp tindak lanjut diisi pengelola toko.'
-            : 'Paket ditetapkan admin. Hubungi admin jika ingin mengubah paket kartu.'}
-        </FieldDescription>
+        {compact ? null : (
+          <FieldDescription>
+            {allowTierChange
+              ? viewerRole === 'ADMIN'
+                ? 'Paket menentukan jalur review tamu setelah tempel atau scan.'
+                : 'Paket menentukan jalur review tamu. Nomor WhatsApp tindak lanjut diisi pengelola toko.'
+              : 'Paket ditetapkan admin. Hubungi admin jika ingin mengubah paket kartu.'}
+          </FieldDescription>
+        )}
       </Field>
       {proOffline ? (
         <p className="text-sm text-muted-foreground">
-          WhatsApp belum tersambung. Paket Pro tetap bisa dipakai: masukan
-          anonim masuk antrean dan bisa dikirim ulang setelah tersambung.{' '}
-          {allowTierChange
-            ? reconnectHint
-            : 'Hubungi admin jika antrean perlu segera dikirim.'}
-        </p>
-      ) : allowTierChange && !whatsappGatewayOpen ? (
-        <p className="text-sm text-muted-foreground">
-          WhatsApp belum tersambung. Paket Pro tetap bisa dipilih; masukan
-          anonim masuk antrean dan bisa dikirim ulang setelah tersambung.{' '}
-          {reconnectHint}
+          {compact ? (
+            <>
+              WhatsApp belum tersambung. Masukan tamu antre dulu. {reconnectHint}
+            </>
+          ) : (
+            <>
+              WhatsApp belum tersambung. Paket Pro tetap bisa dipakai: masukan
+              anonim masuk antrean dan bisa dikirim ulang setelah tersambung.{' '}
+              {allowTierChange
+                ? reconnectHint
+                : 'Hubungi admin jika antrean perlu segera dikirim.'}
+            </>
+          )}
         </p>
       ) : null}
-      {servicePackage ? (
+      {!compact && servicePackage ? (
         <p className="rounded-xl bg-muted/50 p-3 text-sm text-muted-foreground">
           {packageSetupCopy(serviceTier, servicePackage.interceptMaxRating)}
         </p>

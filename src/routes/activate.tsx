@@ -3,6 +3,7 @@ import { useServerFn } from '@tanstack/react-start'
 import { KeyRoundIcon, UserIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { AuthShell, AuthTitle } from '#/components/auth-shell'
+import { QrCamera, canScanQr } from '#/components/qr-camera'
 import { PlacePicker } from '#/components/place-picker'
 import { PlaceRatingLine } from '#/components/place-rating'
 import { ReviewPathFields } from '#/components/review-path-fields'
@@ -19,6 +20,7 @@ import {
   InputGroupInput,
 } from '#/components/ui/input-group'
 import { Spinner } from '#/components/ui/spinner'
+import { parseCode } from '#/lib/card-code'
 import { DEFAULT_TRIAL_DAYS } from '#/lib/place-rating'
 import type { ServiceTier } from '#/lib/review-settings'
 import {
@@ -31,6 +33,18 @@ import {
 } from '#/server/functions'
 
 type Step = 'pin' | 'outlet' | 'confirm' | 'done'
+
+function trialPickupSentence(endsAt: number) {
+  const date = new Date(endsAt).toLocaleDateString('id-ID', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+  const days = Math.ceil((endsAt - Date.now()) / 86_400_000)
+  if (days <= 0) return `Ambil kartu ini hari ini, ${date}, kalau belum terjual.`
+  if (days === 1) return `Ambil kartu ini besok, ${date}, kalau belum terjual.`
+  return `Kalau belum terjual, ambil kartu ini pada ${date}.`
+}
 
 export const Route = createFileRoute('/activate')({
   validateSearch: (
@@ -50,15 +64,13 @@ export const Route = createFileRoute('/activate')({
   },
   loaderDeps: ({ search }) => ({ id: search.id }),
   loader: async ({ deps }) => {
+    const session = await getCurrentOwnerFn()
     if (!deps.id) {
-      return { card: null as null, session: null }
+      return { card: null as null, session }
     }
-    const [card, session] = await Promise.all([
-      getActivationCardFn({
-        data: { publicId: deps.id },
-      }),
-      getCurrentOwnerFn(),
-    ])
+    const card = await getActivationCardFn({
+      data: { publicId: deps.id },
+    })
     if (!card) {
       return { card: null as null, session }
     }
@@ -135,11 +147,40 @@ function ActivatePage() {
   const [result, setResult] = useState<{
     publicId: string
     outletName: string
-    pickupLabel: string | null
+    pickupAt: number | null
     installKind: 'TRIAL' | 'SOLD'
   } | null>(null)
   const prefillStarted = useRef(false)
   const flowCardRef = useRef<{ id: string; ref: string } | null>(null)
+  const [scanPaused, setScanPaused] = useState(false)
+  const [cameraOk, setCameraOk] = useState(false)
+  const lastScan = useRef('')
+
+  useEffect(() => {
+    setCameraOk(canScanQr())
+  }, [])
+
+  function onScanCard(raw: string) {
+    setError(null)
+    let id: string
+    try {
+      id = parseCode(raw).id
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'QR kartu tidak terbaca.')
+      return
+    }
+    if (lastScan.current === id) return
+    lastScan.current = id
+    setScanPaused(true)
+    void navigate({
+      to: '/activate',
+      search: {
+        id,
+        ...(prefillPlace ? { place: prefillPlace } : {}),
+        ...(prefillRef ? { ref: prefillRef } : {}),
+      },
+    })
+  }
 
   useEffect(() => {
     if (!card) return
@@ -247,7 +288,7 @@ function ActivatePage() {
       setResult({
         publicId: res.publicId,
         outletName: res.outlet.name,
-        pickupLabel: res.prospect?.pickupLabel ?? null,
+        pickupAt: res.prospect?.trialEndsAt ?? null,
         installKind,
       })
       setStep('done')
@@ -259,17 +300,35 @@ function ActivatePage() {
   }
 
   if (!card) {
+    const shopAlreadyChosen = Boolean(prefillPlace)
     return (
       <AuthShell center>
         <AuthTitle
-          description={prefillId ? 'Kode kartu tidak ditemukan. Periksa kode atau scan ulang QR pada kartu.' : 'Buka tautan QR/NFC pada kartu, atau pilih kartu dari dashboard.'}
+          description={
+            prefillId
+              ? 'QR itu tidak membuka kartu. Scan QR pada kartu yang akan dipasang.'
+              : shopAlreadyChosen
+                ? 'Toko sudah dipilih. Scan QR pada kartu yang akan dipasang.'
+                : 'Scan QR pada kartu. Setelah itu pilih tokonya.'
+          }
           title={
             <>
-              Scan <em className="text-pine italic">kartunya</em>
+              Scan <em className="text-pine italic">QR</em>
             </>
           }
         />
-        <Button asChild><Link to={session?.role === 'ADMIN' ? '/dashboard/units' : session ? '/app' : '/login'}>Buka daftar kartu</Link></Button>
+        {error ? <Alert variant="danger">{error}</Alert> : null}
+        {cameraOk ? (
+          <QrCamera
+            blockedMessage="Izinkan kamera untuk scan QR kartu."
+            onCode={onScanCard}
+            paused={scanPaused}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Buka kamera HP dan scan QR pada kartu.
+          </p>
+        )}
       </AuthShell>
     )
   }
@@ -277,7 +336,11 @@ function ActivatePage() {
   return (
     <AuthShell wide>
       <AuthTitle
-        description={`Kartu ${publicId} · ${step === 'done' ? 'Aktivasi selesai' : step === 'confirm' ? 'Konfirmasi toko dan paket' : step === 'outlet' ? 'Pilih listing Google Maps yang sesuai' : 'Verifikasi pemegang kartu'}`}
+        description={
+          step === 'done'
+            ? `Kartu ${publicId}`
+            : `Kartu ${publicId} · ${step === 'confirm' ? 'Cek toko, lalu pasang' : step === 'outlet' ? 'Pilih toko yang akan dipasang' : 'Verifikasi pemegang kartu'}`
+        }
         title={
           step === 'pin' ? (
             <>
@@ -293,7 +356,7 @@ function ActivatePage() {
             </>
           ) : (
             <>
-              <em className="text-pine italic">Berhasil</em>
+              Kartu <em className="text-pine italic">terpasang</em>
             </>
           )
         }
@@ -305,14 +368,14 @@ function ActivatePage() {
           pakai akun yang memegangnya.
         </Alert>
       ) : null}
-      {isAdmin && (step === 'outlet' || step === 'confirm') ? (
+      {isAdmin && step === 'outlet' ? (
         <p className="text-sm text-muted-foreground">
           {card.hasOwner
             ? 'Kamu mengaktifkan sebagai admin. Pemegang yang sudah terhubung tetap mengelola kartu ini.'
             : 'Belum ada pemegang. Setelah toko terpasang, tetapkan akun di halaman kartu agar toko bisa kelola dari aplikasi.'}
         </p>
       ) : null}
-      {publicUnassigned && (step === 'outlet' || step === 'confirm') ? (
+      {publicUnassigned && step === 'outlet' ? (
         <p className="text-sm text-muted-foreground">
           Kartu publik ini belum memiliki pemegang. Pilih toko sekarang; admin
           dapat menetapkan pemegang setelah aktivasi.
@@ -397,13 +460,9 @@ function ActivatePage() {
               <PlaceRatingLine
                 className="mt-3"
                 rating={placePreview.rating}
-                showHint={isAdmin}
+                showBand={false}
                 userRatingCount={placePreview.userRatingCount}
               />
-              <p className="mt-2 text-xs text-muted-foreground">
-                Rating dan jumlah ulasan ini adalah kondisi Google Review
-                sebelum kartu dipasang.
-              </p>
             </CardContent>
           </Card>
           {prefillRef || partnerRef ? (
@@ -421,6 +480,7 @@ function ActivatePage() {
           ) : null}
           <ReviewPathFields
             allowTierChange
+            compact
             onTierChange={setServiceTier}
             onWhatsappChange={setOwnerWhatsapp}
             ownerWhatsapp={ownerWhatsapp}
@@ -429,10 +489,6 @@ function ActivatePage() {
             viewerRole={isAdmin ? 'ADMIN' : 'USER'}
             whatsappGatewayOpen={card.whatsappGatewayOpen}
           />
-          <p className="text-sm text-muted-foreground">
-            Scan QR atau tap NFC masuk ke sini. Pilih trial dulu, atau langsung
-            closing kalau tokonya sudah deal.
-          </p>
           <div className="flex flex-col gap-2">
             <Button disabled={busy} size="lg" type="submit">
               {busy ? <Spinner data-icon="inline-start" /> : null}
@@ -445,7 +501,7 @@ function ActivatePage() {
               type="button"
               variant="outline"
             >
-              Langsung closing
+              Sudah terjual
             </Button>
             <Button
               disabled={busy}
@@ -467,37 +523,32 @@ function ActivatePage() {
 
       {step === 'done' && result ? (
         <Card>
-          <CardContent className="p-6">
-            <p className="text-muted-foreground">
-              {result.installKind === 'TRIAL' ? (
-                <>
-                  Trial jalan di{' '}
-                  <span className="text-foreground">{result.outletName}</span>.
-                  Tamu tinggal tempel atau scan.
-                  {result.pickupLabel ? ` ${result.pickupLabel}.` : ''}
-                </>
-              ) : (
-                <>
-                  Closing di{' '}
-                  <span className="text-foreground">{result.outletName}</span>.
-                  Kartu tetap di toko. Tamu tinggal tempel atau scan.
-                </>
-              )}
+          <CardContent className="flex flex-col gap-2 p-6">
+            <p className="text-lg font-medium tracking-tight text-foreground">
+              {result.outletName}
             </p>
+            <p className="text-muted-foreground">
+              Tamu sudah bisa tempel atau scan.
+            </p>
+            {result.installKind === 'TRIAL' && result.pickupAt != null ? (
+              <p className="text-muted-foreground">
+                {trialPickupSentence(result.pickupAt)}
+              </p>
+            ) : null}
+            {result.installKind === 'SOLD' ? (
+              <p className="text-muted-foreground">Kartu ini tetap di toko.</p>
+            ) : null}
           </CardContent>
           <CardFooter className="flex flex-col gap-2">
             {isAdmin ? (
               <>
                 <Button asChild className="w-full" size="lg">
                   <Link params={{ unitId: card.id }} to="/dashboard/units/$unitId">
-                    {card.hasOwner ? 'Buka detail kartu' : 'Tetapkan pemegang'}
+                    {card.hasOwner ? 'Buka kartu' : 'Tetapkan pemegang'}
                   </Link>
                 </Button>
                 <Button asChild className="w-full" size="lg" variant="outline">
-                  <Link to="/admin/prospects">Lihat jadwal ambil</Link>
-                </Button>
-                <Button asChild className="w-full" size="lg" variant="outline">
-                  <a href={`/r/${result.publicId}`}>Coba sebagai tamu</a>
+                  <a href={`/r/${result.publicId}`}>Lihat tampilan tamu</a>
                 </Button>
               </>
             ) : isHolder ? (
@@ -510,13 +561,13 @@ function ActivatePage() {
                     params={{ unitId: card.id }}
                     to="/app/units/$unitId"
                   >
-                    Lihat toko ini
+                    Buka kartu ini
                   </Link>
                 </Button>
               </>
             ) : (
               <Button asChild className="w-full" size="lg">
-                <a href={`/r/${result.publicId}`}>Coba sebagai tamu</a>
+                <a href={`/r/${result.publicId}`}>Lihat tampilan tamu</a>
               </Button>
             )}
           </CardFooter>

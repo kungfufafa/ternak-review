@@ -41,9 +41,11 @@ export function canScanQr() {
 export function QrCamera({
   onCode,
   paused,
+  blockedMessage,
 }: {
   onCode: (raw: string) => void
   paused?: boolean
+  blockedMessage?: string
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const onCodeRef = useRef(onCode)
@@ -117,7 +119,7 @@ export function QrCamera({
   if (blocked) {
     return (
       <p className="rounded-2xl bg-card px-4 py-3 text-sm text-muted-foreground">
-        {blocked}
+        {blockedMessage ?? 'Izinkan kamera, atau scan pakai kotak di bawah.'}
       </p>
     )
   }

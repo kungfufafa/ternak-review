@@ -1,3 +1,11 @@
+import {
+  ACTIVATION_NAME_SEARCH_PAGE_SIZE,
+  ACTIVATION_SEARCH_BIAS_RADIUS_M,
+  activationLookup,
+  nearbyActivationLookup,
+  type AutocompletePredictionRequest,
+  type LatLng,
+} from '#/lib/activation-places'
 import { isProduction } from '#/lib/env'
 import {
   cityScanKeywords,
@@ -13,8 +21,6 @@ import {
 } from '#/server/google'
 
 const PLACES_NEW = 'https://places.googleapis.com/v1'
-const NEARBY_RADIUS_M = 1500
-const SEARCH_BIAS_RADIUS_M = 4000
 const CITY_RADIUS_M = 12_000
 
 export type PlaceSuggestion = {
@@ -44,10 +50,7 @@ export type PlaceSearchResult = {
   places: PlaceSuggestion[]
 }
 
-export type LatLng = {
-  lat: number
-  lng: number
-}
+export type { LatLng }
 
 const STUB_CITY_CENTERS: Record<string, LatLng> = {
   cirebon: { lat: -6.732, lng: 108.552 },
@@ -176,6 +179,15 @@ function locationCircle(loc: LatLng, radius: number) {
   }
 }
 
+function suggestionFromDetails(details: PlaceDetails): PlaceSuggestion {
+  return suggestion(details.placeId, details.name, details.formattedAddress, {
+    rating: details.rating,
+    userRatingCount: details.userRatingCount,
+    googleMapsUri: details.googleMapsUri,
+    primaryType: details.primaryType,
+  })
+}
+
 export async function autocompletePlaces(input: {
   query: string
   loc?: LatLng | null
@@ -186,14 +198,56 @@ export async function autocompletePlaces(input: {
   const configured = await isGooglePlacesConfigured()
   if (q.length < 2) return { source: configured ? 'google' : 'stub', places: [] }
   if (!configured) return stubPlaces(q)
-  return autocompletePlacesNew(q, input.loc, input.sessionToken)
+  const requests: AutocompletePredictionRequest[] = input.loc
+    ? [
+        {
+          locationBiasRadiusM: ACTIVATION_SEARCH_BIAS_RADIUS_M,
+          includedRegionCodes: null,
+        },
+      ]
+    : [{ locationBiasRadiusM: null, includedRegionCodes: ['id'] }]
+  return autocompletePlacesNew(q, input.loc, requests, input.sessionToken)
 }
 
-async function autocompletePlacesNew(
+export function activationNameSearchBody(query: string) {
+  const lookup = activationLookup(query)
+  const pageSize =
+    lookup?.kind === 'text' ? lookup.pageSize : ACTIVATION_NAME_SEARCH_PAGE_SIZE
+  return {
+    textQuery: query.trim(),
+    languageCode: 'id',
+    regionCode: 'ID',
+    pageSize,
+  }
+}
+
+export async function searchActivationPlaces(input: {
+  query: string
+  loc?: LatLng | null
+  sessionToken?: string
+}): Promise<PlaceSearchResult> {
+  await assertPlacesConfiguredForProduction()
+  const q = input.query.trim()
+  const lookup = activationLookup(q, input.loc)
+  const configured = await isGooglePlacesConfigured()
+  if (!lookup) return { source: configured ? 'google' : 'stub', places: [] }
+  if (lookup.kind === 'place') {
+    const details = await getPlaceDetails(lookup.placeId, input.sessionToken)
+    return {
+      source: configured ? 'google' : 'stub',
+      places: [suggestionFromDetails(details)],
+    }
+  }
+  if (!configured) return stubPlaces(q)
+  return runTextSearch(activationNameSearchBody(q))
+}
+
+function autocompleteBody(
   query: string,
-  loc?: LatLng | null,
+  loc: LatLng | null | undefined,
+  request: AutocompletePredictionRequest,
   sessionToken?: string,
-): Promise<PlaceSearchResult> {
+) {
   const body: Record<string, unknown> = {
     input: query,
     languageCode: 'id',
@@ -201,12 +255,28 @@ async function autocompletePlacesNew(
     includeQueryPredictions: false,
   }
   if (sessionToken) body.sessionToken = sessionToken
-  if (loc) {
-    body.locationBias = locationCircle(loc, SEARCH_BIAS_RADIUS_M)
-  } else {
-    body.includedRegionCodes = ['id']
+  if (request.locationBiasRadiusM != null) {
+    if (!loc) throw new Error('Bias lokasi butuh koordinat HP.')
+    body.locationBias = locationCircle(loc, request.locationBiasRadiusM)
   }
+  if (request.includedRegionCodes) {
+    body.includedRegionCodes = [...request.includedRegionCodes]
+  }
+  return body
+}
 
+export function activationAutocompleteBodies(
+  query: string,
+  loc: LatLng | null | undefined,
+  requests: AutocompletePredictionRequest[],
+  sessionToken?: string,
+) {
+  return requests.map((request) =>
+    autocompleteBody(query, loc, request, sessionToken),
+  )
+}
+
+async function fetchAutocompletePredictions(body: Record<string, unknown>) {
   const data = await placesNew<{
     suggestions?: Array<{
       placePrediction?: {
@@ -224,7 +294,7 @@ async function autocompletePlacesNew(
     body,
   })
 
-  const places = (data.suggestions ?? [])
+  return (data.suggestions ?? [])
     .map((row) => {
       const pred = row.placePrediction
       if (!pred?.placeId) return null
@@ -235,8 +305,68 @@ async function autocompletePlacesNew(
       return suggestion(pred.placeId, name, address)
     })
     .filter((row): row is PlaceSuggestion => row !== null)
+}
 
-  return { source: 'google', places }
+function mergePredictions(groups: PlaceSuggestion[][]) {
+  const seen = new Set<string>()
+  const places: PlaceSuggestion[] = []
+  for (const group of groups) {
+    for (const place of group) {
+      if (seen.has(place.placeId)) continue
+      seen.add(place.placeId)
+      places.push(place)
+    }
+  }
+  return places
+}
+
+async function autocompletePlacesNew(
+  query: string,
+  loc: LatLng | null | undefined,
+  requests: AutocompletePredictionRequest[],
+  sessionToken?: string,
+): Promise<PlaceSearchResult> {
+  const settled = await Promise.allSettled(
+    activationAutocompleteBodies(query, loc, requests, sessionToken).map(
+      (body) => fetchAutocompletePredictions(body),
+    ),
+  )
+  const groups = settled.flatMap((result) =>
+    result.status === 'fulfilled' ? [result.value] : [],
+  )
+  if (groups.length === 0) {
+    const rejected = settled.find((result) => result.status === 'rejected')
+    throw rejected?.status === 'rejected'
+      ? rejected.reason
+      : new Error('Prediksi toko tidak bisa dimuat.')
+  }
+  return { source: 'google', places: mergePredictions(groups) }
+}
+
+export async function nearbyPlacesByTypes(
+  loc: LatLng,
+  types: string[],
+): Promise<PlaceSearchResult> {
+  const uniqueTypes = [...new Set(types.map((type) => type.trim()).filter(Boolean))]
+  if (uniqueTypes.length <= 1) {
+    return nearbyPlaces({
+      loc,
+      includedTypes: uniqueTypes.length === 1 ? uniqueTypes : undefined,
+    })
+  }
+  const batches = await Promise.all(
+    uniqueTypes.map((type) => nearbyPlaces({ loc, includedTypes: [type] })),
+  )
+  const seen = new Set<string>()
+  const places: PlaceSuggestion[] = []
+  for (const batch of batches) {
+    for (const place of batch.places) {
+      if (seen.has(place.placeId)) continue
+      seen.add(place.placeId)
+      places.push(place)
+    }
+  }
+  return { source: batches[0]?.source ?? 'google', places }
 }
 
 export async function nearbyPlaces(input: {
@@ -261,19 +391,25 @@ export async function nearbyPlaces(input: {
   return nearbyPlacesNew(input.loc, input.includedTypes)
 }
 
-async function nearbyPlacesNew(
-  loc: LatLng,
-  includedTypes?: string[],
-): Promise<PlaceSearchResult> {
+export function nearbySearchBody(loc: LatLng, includedTypes?: string[]) {
+  const nearby = nearbyActivationLookup()
   const body: Record<string, unknown> = {
     languageCode: 'id',
     regionCode: 'ID',
     maxResultCount: 20,
     rankPreference: 'DISTANCE',
-    locationRestriction: locationCircle(loc, NEARBY_RADIUS_M),
+    locationRestriction: locationCircle(loc, nearby.locationRestrictionRadiusM),
   }
   const types = includedTypes?.filter((type) => type.trim().length > 0) ?? []
   if (types.length > 0) body.includedTypes = types
+  return body
+}
+
+async function nearbyPlacesNew(
+  loc: LatLng,
+  includedTypes?: string[],
+): Promise<PlaceSearchResult> {
+  const body = nearbySearchBody(loc, includedTypes)
 
   const data = await placesNew<{
     places?: Array<{
@@ -434,23 +570,14 @@ export async function textSearchPlaces(input: {
   return textSearchPlacesNew(q, input.loc, input.includedType, input.radius)
 }
 
-async function textSearchPlacesNew(
-  query: string,
-  loc?: LatLng | null,
-  includedType?: string,
-  radius?: number,
-): Promise<PlaceSearchResult> {
-  const body: Record<string, unknown> = {
-    textQuery: query,
-    languageCode: 'id',
-    regionCode: 'ID',
-    pageSize: 20,
-  }
-  if (loc) body.locationBias = locationCircle(loc, radius ?? SEARCH_BIAS_RADIUS_M)
-  else body.regionCode = 'ID'
-  if (includedType?.trim()) body.includedType = includedType.trim()
+async function runTextSearch(body: Record<string, unknown>): Promise<PlaceSearchResult> {
+  const page = await runTextSearchPage(body)
+  return { source: 'google', places: page.places }
+}
 
+async function runTextSearchPage(body: Record<string, unknown>) {
   const data = await placesNew<{
+    nextPageToken?: string
     places?: Array<{
       id?: string
       displayName?: { text?: string }
@@ -462,7 +589,7 @@ async function textSearchPlacesNew(
     }>
   }>('/places:searchText', {
     fieldMask:
-      'places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.googleMapsUri,places.primaryType',
+      'nextPageToken,places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.googleMapsUri,places.primaryType',
     body,
   })
 
@@ -478,7 +605,77 @@ async function textSearchPlacesNew(
     })
     .filter((row): row is PlaceSuggestion => row !== null)
 
+  return { places, nextPageToken: data.nextPageToken }
+}
+
+function textSearchBody(
+  query: string,
+  loc?: LatLng | null,
+  includedType?: string,
+  radius?: number,
+) {
+  const body: Record<string, unknown> = loc
+    ? {
+        textQuery: query,
+        languageCode: 'id',
+        regionCode: 'ID',
+        pageSize: ACTIVATION_NAME_SEARCH_PAGE_SIZE,
+        locationBias: locationCircle(loc, radius ?? ACTIVATION_SEARCH_BIAS_RADIUS_M),
+      }
+    : { ...activationNameSearchBody(query) }
+  if (includedType?.trim()) body.includedType = includedType.trim()
+  return body
+}
+
+/** Google Text Search mengembalikan 20 sekali jalan, paling banyak 3 halaman. */
+export async function textSearchPlacesPaged(input: {
+  query: string
+  loc?: LatLng | null
+  includedType?: string
+  radius?: number
+  maxPages?: number
+}): Promise<PlaceSearchResult> {
+  await assertPlacesConfiguredForProduction()
+  const q = input.query.trim()
+  const configured = await isGooglePlacesConfigured()
+  if (q.length < 2) return { source: configured ? 'google' : 'stub', places: [] }
+  if (!configured) return stubPlaces(q)
+
+  const body = textSearchBody(q, input.loc, input.includedType, input.radius)
+  const maxPages = Math.min(Math.max(input.maxPages ?? 3, 1), 3)
+  const seen = new Set<string>()
+  const places: PlaceSuggestion[] = []
+  let pageToken: string | undefined
+
+  for (let page = 0; page < maxPages; page++) {
+    try {
+      const result = await runTextSearchPage(
+        pageToken ? { ...body, pageToken } : body,
+      )
+      for (const place of result.places) {
+        if (seen.has(place.placeId)) continue
+        seen.add(place.placeId)
+        places.push(place)
+      }
+      if (!result.nextPageToken) break
+      pageToken = result.nextPageToken
+    } catch (err) {
+      if (page === 0) throw err
+      break
+    }
+  }
+
   return { source: 'google', places }
+}
+
+async function textSearchPlacesNew(
+  query: string,
+  loc?: LatLng | null,
+  includedType?: string,
+  radius?: number,
+): Promise<PlaceSearchResult> {
+  const body = textSearchBody(query, loc, includedType, radius)
+  return runTextSearch(body)
 }
 
 export async function getPlaceDetails(

@@ -13,9 +13,11 @@ export function PlaceRatingLine({
   userRatingCount,
   className,
   showHint,
+  showBand = true,
 }: PlaceRatingSnapshot & {
   className?: string
   showHint?: boolean
+  showBand?: boolean
 }) {
   const snapshot = { rating, userRatingCount }
   const band = closingBand(snapshot)
@@ -31,8 +33,12 @@ export function PlaceRatingLine({
           }
         />
         <span className="tabular-nums">{formatPlaceRating(snapshot)}</span>
-        {band === 'hot' ? <Badge variant="accent">Mudah closing</Badge> : null}
-        {band === 'warm' ? <Badge variant="secondary">Bisa naik cepat</Badge> : null}
+        {showBand && band === 'hot' ? (
+          <Badge variant="accent">Mudah closing</Badge>
+        ) : null}
+        {showBand && band === 'warm' ? (
+          <Badge variant="secondary">Bisa naik cepat</Badge>
+        ) : null}
       </p>
       {showHint ? (
         <p className="text-xs text-muted-foreground">{closingHint(snapshot)}</p>

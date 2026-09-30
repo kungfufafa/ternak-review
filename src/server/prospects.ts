@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import { outlets, prospects, units } from '#/db/schema'
 import {
@@ -556,15 +556,40 @@ export async function updateProspect(input: {
 }
 
 export async function deleteProspect(id: string) {
-  const existing = await db.query.prospects.findFirst({
-    where: eq(prospects.id, id),
-  })
-  if (!existing) throw new Error('Prospek tidak ditemukan.')
-  if (existing.unitId) {
+  const result = await deleteProspects([id])
+  if (result.missing > 0) throw new Error('Prospek tidak ditemukan.')
+  if (result.skipped > 0) {
     throw new Error('Ambil kartu dulu sebelum menghapus prospek ini.')
   }
-  await db.delete(prospects).where(eq(prospects.id, id))
   return { ok: true as const }
+}
+
+export async function deleteProspects(ids: string[]) {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))]
+  if (unique.length === 0) return { deleted: 0, skipped: 0, missing: 0 }
+  if (unique.length > 100) {
+    throw new Error('Sekali hapus paling banyak 100 prospek.')
+  }
+  const rows = await db.query.prospects.findMany({
+    where: inArray(prospects.id, unique),
+    columns: { id: true, unitId: true },
+  })
+  const removable = rows.filter((row) => !row.unitId).map((row) => row.id)
+  if (removable.length > 0) {
+    await db.delete(prospects).where(inArray(prospects.id, removable))
+  }
+  return {
+    deleted: removable.length,
+    skipped: rows.length - removable.length,
+    missing: unique.length - rows.length,
+  }
+}
+
+export async function listProspectPlaceIds() {
+  const rows = await db
+    .select({ googlePlaceId: prospects.googlePlaceId })
+    .from(prospects)
+  return rows.map((row) => row.googlePlaceId)
 }
 
 export async function listReadyStockCards(limit = 12) {

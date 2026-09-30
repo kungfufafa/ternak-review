@@ -10,7 +10,6 @@ import {
   convertProspectToSold,
   findInstalledUnitForPlace,
   getProspect,
-  listReadyStockCards,
   markProspectInstalledForPlace,
   upsertProspectRecord,
 } from './prospects'
@@ -257,13 +256,10 @@ export async function rebindUnitOutlet(input: {
 
 async function nextReadyPublicId(publicId?: string) {
   const requested = publicId?.trim().toUpperCase()
-  if (requested) return requested
-  const ready = await listReadyStockCards(1)
-  const card = ready[0]
-  if (!card) {
-    throw new Error('Tidak ada kartu gudang. Produksi kartu dulu, lalu pasang dari sini.')
+  if (!requested) {
+    throw new Error('Scan QR kartu yang akan dipasang.')
   }
-  return card.publicId
+  return requested
 }
 
 export async function attachProspectToCard(input: {

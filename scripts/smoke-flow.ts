@@ -91,12 +91,27 @@ import {
 import { isSmtpReady, saveSmtpSettings, sendAppEmail } from '../src/server/smtp.ts'
 import { listOutboundLogs } from '../src/server/outbox.ts'
 import {
+  activationNameSearchBody,
   autocompletePlaces,
   getPlaceDetails,
   nearbyPlaces,
+  nearbySearchBody,
   scanCityPlaces,
+  searchActivationPlaces,
   textSearchPlaces,
 } from '../src/server/places.ts'
+import {
+  ACTIVATION_NAME_SEARCH_PAGE_SIZE,
+  ACTIVATION_NEARBY_RADIUS_M,
+  ACTIVATION_SEARCH_BIAS_RADIUS_M,
+  activationLookup,
+  CIREBON_CENTER,
+  distanceMeters,
+  ES_TEH_JOMBLO_KEDUNGJAYA,
+  isEsTehJombloKedungjaya,
+  parseGooglePlaceId,
+  PHONE_OUTSIDE_CIREBON,
+} from '../src/lib/activation-places.ts'
 import {
   closingBand,
   closingHint,
@@ -1351,6 +1366,93 @@ async function main() {
     'Mobile login schema',
   )
 
+  const esTehGap = distanceMeters(PHONE_OUTSIDE_CIREBON, CIREBON_CENTER)
+  if (esTehGap <= ACTIVATION_SEARCH_BIAS_RADIUS_M) {
+    throw new Error(
+      'Phone fixture must stay outside the 4km bias around Cirebon',
+    )
+  }
+  const pastedPlaceId = parseGooglePlaceId(
+    `https://www.google.com/maps/search/?api=1&query_place_id=${ES_TEH_JOMBLO_KEDUNGJAYA.placeId}`,
+  )
+  if (pastedPlaceId !== ES_TEH_JOMBLO_KEDUNGJAYA.placeId) {
+    throw new Error(
+      'Activation must keep the Kedungjaya Place ID when it is pasted from Maps',
+    )
+  }
+  const byPlaceId = activationLookup(
+    ES_TEH_JOMBLO_KEDUNGJAYA.placeId,
+    PHONE_OUTSIDE_CIREBON,
+  )
+  if (
+    byPlaceId?.kind !== 'place' ||
+    byPlaceId.placeId !== ES_TEH_JOMBLO_KEDUNGJAYA.placeId
+  ) {
+    throw new Error(
+      'Es Teh Jomblo Kedungjaya must install by Place ID when the phone is outside Cirebon',
+    )
+  }
+  const byName = activationLookup(
+    ES_TEH_JOMBLO_KEDUNGJAYA.name,
+    PHONE_OUTSIDE_CIREBON,
+  )
+  if (
+    byName?.kind !== 'text' ||
+    byName.pageSize !== ACTIVATION_NAME_SEARCH_PAGE_SIZE ||
+    byName.locationBiasRadiusM !== null
+  ) {
+    throw new Error(
+      'Name search must return up to 20 text matches and ignore the phone location',
+    )
+  }
+  const nameBody = activationNameSearchBody(ES_TEH_JOMBLO_KEDUNGJAYA.name)
+  if (
+    nameBody.textQuery !== ES_TEH_JOMBLO_KEDUNGJAYA.name ||
+    nameBody.pageSize !== ACTIVATION_NAME_SEARCH_PAGE_SIZE ||
+    'locationBias' in nameBody ||
+    'input' in nameBody
+  ) {
+    throw new Error(
+      'Activation name search must be Text Search, not 5 Autocomplete predictions biased to the phone',
+    )
+  }
+  const nearbyBody = nearbySearchBody(PHONE_OUTSIDE_CIREBON)
+  const nearbyCircle = (
+    nearbyBody.locationRestriction as { circle?: { radius?: number } }
+  ).circle
+  if (
+    nearbyCircle?.radius !== ACTIVATION_NEARBY_RADIUS_M ||
+    'textQuery' in nearbyBody ||
+    nearbyBody.rankPreference !== 'DISTANCE'
+  ) {
+    throw new Error('Nearby activation list must stay 1.5km and keywordless')
+  }
+  const installedByPlaceId = await searchActivationPlaces({
+    query: `places/${ES_TEH_JOMBLO_KEDUNGJAYA.placeId}`,
+    loc: PHONE_OUTSIDE_CIREBON,
+  })
+  const installedPlace = installedByPlaceId.places[0]
+  if (
+    installedByPlaceId.places.length !== 1 ||
+    installedPlace?.placeId !== ES_TEH_JOMBLO_KEDUNGJAYA.placeId
+  ) {
+    throw new Error(
+      'Place ID lookup must return ChIJh-r8egDjbi4R3XOx3BwUu8I even when the phone is outside Cirebon',
+    )
+  }
+  if (
+    installedByPlaceId.source === 'google' &&
+    !isEsTehJombloKedungjaya({
+      placeId: installedPlace.placeId,
+      name: installedPlace.name,
+      address: installedPlace.address,
+    })
+  ) {
+    throw new Error(
+      `Place ID ${ES_TEH_JOMBLO_KEDUNGJAYA.placeId} resolved to ${installedPlace.name} / ${installedPlace.address ?? ''}, not Es Teh Jomblo in Kedungjaya, Cirebon`,
+    )
+  }
+
   const auto = await autocompletePlaces({ query: 'kopi susu' })
   const near = await nearbyPlaces({ loc: { lat: -6.2, lng: 106.816 } })
   const text = await textSearchPlaces({ query: 'kopi susu' })
@@ -1388,6 +1490,15 @@ async function main() {
   if (!oneTapCard) throw new Error('Expected one-tap card')
   const oneTapPlace = cityScan.places[0]
   if (!oneTapPlace) throw new Error('Expected a Cirebon shop for one-tap install')
+  await expectReject(
+    () =>
+      attachPlaceToCard({
+        place: oneTapPlace,
+        notes: 'Scan kota Cirebon',
+        partnerRef: 'cirebon-map',
+      }),
+    'Activation without the card in hand',
+  )
   const oneTap = await attachPlaceToCard({
     place: oneTapPlace,
     publicId: oneTapCard.publicId,
@@ -1427,6 +1538,7 @@ async function main() {
     () =>
       attachPlaceToCard({
         place: oneTapPlace,
+        publicId: oneTapCard.publicId,
         notes: 'Scan kota Cirebon',
         partnerRef: 'cirebon-map',
       }),

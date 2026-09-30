@@ -31,6 +31,7 @@ import {
 } from '#/components/ui/item'
 import { Spinner } from '#/components/ui/spinner'
 import { PlaceRatingLine } from '#/components/place-rating'
+import { parseGooglePlaceId } from '#/lib/activation-places'
 import { nearbyPlacesFn, searchPlacesFn } from '#/server/functions'
 import type { PlaceSuggestion } from '#/server/places'
 
@@ -62,7 +63,7 @@ export function PlacePicker({
   const [query, setQuery] = useState('')
   const [loc, setLoc] = useState<Loc | null>(null)
   const [places, setPlaces] = useState<PlaceSuggestion[]>([])
-  const [mode, setMode] = useState<'nearby' | 'search'>('nearby')
+  const [mode, setMode] = useState<'nearby' | 'search' | 'place-id'>('nearby')
   const [geoState, setGeoState] = useState<
     'idle' | 'asking' | 'ready' | 'denied'
   >('idle')
@@ -70,8 +71,13 @@ export function PlacePicker({
   const [error, setError] = useState<string | null>(null)
   const requestId = useRef(0)
   const locationRequestId = useRef(0)
+  const modeRef = useRef(mode)
+  modeRef.current = mode
+  const queryRef = useRef(query)
+  queryRef.current = query
 
   async function loadNearby(nextLoc: Loc) {
+    if (parseGooglePlaceId(queryRef.current)) return
     const id = ++requestId.current
     setBusy(true)
     setError(null)
@@ -91,6 +97,10 @@ export function PlacePicker({
   }
 
   function requestLocation() {
+    if (parseGooglePlaceId(queryRef.current)) {
+      queryRef.current = ''
+      setQuery('')
+    }
     const locationId = ++locationRequestId.current
     if (!navigator.geolocation) {
       setGeoState('denied')
@@ -131,37 +141,48 @@ export function PlacePicker({
     requestLocation()
   }, [])
 
+  async function lookupPlaces(q: string) {
+    const placeId = parseGooglePlaceId(q)
+    const id = ++requestId.current
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await searchFnRef.current({
+        data: {
+          query: placeId ?? q,
+          publicId,
+          loc: undefined,
+          pin: pin || undefined,
+          sessionToken,
+        },
+      })
+      if (id !== requestId.current) return
+      setPlaces(res.places)
+      setMode(placeId ? 'place-id' : 'search')
+    } catch {
+      if (id !== requestId.current) return
+      setPlaces([])
+      setError(
+        placeId
+          ? 'Place ID itu tidak ketemu di Google Maps. Periksa ID-nya.'
+          : friendlyPlacesError(),
+      )
+    } finally {
+      if (id === requestId.current) setBusy(false)
+    }
+  }
+
   useEffect(() => {
     const q = query.trim()
-    if (q.length < 2) {
-      if (loc && mode === 'search') void loadNearby(loc)
+    const placeId = parseGooglePlaceId(q)
+    if (!placeId && q.length < 2) {
+      if (loc && modeRef.current !== 'nearby') void loadNearby(loc)
       return
     }
 
-    const timeout = window.setTimeout(async () => {
-      const id = ++requestId.current
-      setBusy(true)
-      setError(null)
-      try {
-        const res = await searchFnRef.current({
-          data: {
-            query: q,
-            publicId,
-            loc: loc ?? undefined,
-            pin: pin || undefined,
-            sessionToken,
-          },
-        })
-        if (id !== requestId.current) return
-        setPlaces(res.places)
-        setMode('search')
-      } catch (err) {
-        if (id !== requestId.current) return
-        setError(friendlyPlacesError())
-      } finally {
-        if (id === requestId.current) setBusy(false)
-      }
-    }, 350)
+    const timeout = window.setTimeout(() => {
+      void lookupPlaces(placeId ?? q)
+    }, placeId ? 0 : 350)
 
     return () => window.clearTimeout(timeout)
   }, [query, loc, pin, publicId, sessionToken])
@@ -175,23 +196,23 @@ export function PlacePicker({
   const showingNearby = mode === 'nearby' && geoState === 'ready'
   const resultTitle = showingNearby ? 'Toko terdekat' : 'Hasil pencarian'
   const resultDescription = showingNearby
-    ? 'Urutan dimulai dari toko yang paling dekat dengan kamu.'
-    : `${places.length} listing Google Maps ditemukan.`
+    ? 'Dari yang paling dekat dengan kamu.'
+    : 'Pilih toko yang sesuai.'
 
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-muted-foreground">
         {geoState === 'ready'
-          ? 'Toko terdekat ditampilkan dari lokasi kamu. Cari nama toko untuk mengganti hasil.'
+          ? 'Toko di sekitar kamu ditampilkan dulu. Cari nama kalau tokonya tidak ada di daftar.'
           : geoState === 'asking'
-            ? 'Mencari toko terdekat dari lokasi kamu. Pencarian tetap bisa dipakai.'
+            ? 'Mencari toko di sekitar kamu. Pencarian nama tetap bisa dipakai.'
             : geoState === 'denied'
               ? 'Lokasi tidak tersedia. Cari nama toko untuk melanjutkan.'
-              : 'Cari nama toko, atau gunakan lokasi untuk melihat toko di sekitar.'}
+              : 'Cari nama toko, atau pakai lokasi untuk melihat toko di sekitar.'}
       </p>
       <InputGroup>
         <InputGroupInput
-          aria-autocomplete="list"
+          aria-autocomplete="none"
           aria-controls={listId}
           autoComplete="off"
           disabled={disabled}
@@ -295,6 +316,7 @@ export function PlacePicker({
                       <PlaceRatingLine
                         className="mt-1"
                         rating={place.rating}
+                        showBand={false}
                         userRatingCount={place.userRatingCount}
                       />
                     ) : null}
@@ -311,11 +333,16 @@ export function PlacePicker({
         </section>
       ) : null}
 
-      {!busy && places.length === 0 && query.trim().length >= 2 ? (
+      {!busy &&
+      places.length === 0 &&
+      query.trim().length >= 2 &&
+      !parseGooglePlaceId(query) ? (
         <Empty className="min-h-32 gap-3 border border-dashed border-border p-6">
           <EmptyHeader>
             <EmptyTitle>Tidak ada yang cocok</EmptyTitle>
-            <EmptyDescription>Coba nama lain.</EmptyDescription>
+            <EmptyDescription>
+              Coba nama yang lebih lengkap.
+            </EmptyDescription>
           </EmptyHeader>
         </Empty>
       ) : null}
