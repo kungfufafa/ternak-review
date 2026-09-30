@@ -116,7 +116,7 @@ function UserDetailPage() {
   }
 
   return (
-    <div className="flex w-full max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <PageHeader
         description={user.email}
         title={user.name ?? user.email}

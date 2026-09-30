@@ -110,7 +110,7 @@ function GooglePlacesPage() {
   const canTest = canSave || settings.configured
 
   return (
-    <div className="flex w-full max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <PageHeader
         description="Key Places API (New) untuk pilih listing Google Maps saat aktivasi. Ganti dari sini kalau kuota habis — tanpa redeploy."
         title="Google Maps"

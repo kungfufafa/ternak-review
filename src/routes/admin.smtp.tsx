@@ -133,7 +133,7 @@ function SmtpPage() {
   }
 
   return (
-    <div className="flex w-full max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <PageHeader
         description="Resend pakai API key (jalan di Cloudflare). SMTP klasik untuk VPS/Node. Kalau aktif, kode OTP login (admin dan pemegang) plus PIN akun baru dikirim lewat saluran ini."
         title="Email keluar"

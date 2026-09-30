@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-r
 import { useServerFn } from '@tanstack/react-start'
 import { SearchIcon } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
-import { DataTable, DataTableCell, DataTableHead } from '#/components/data-table'
+import { createColumnHelper } from '@tanstack/react-table'
 import { ListPager } from '#/components/list-pager'
 import { PageHeader } from '#/components/page'
 import { Alert } from '#/components/ui/alert'
@@ -16,6 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import { DataTable } from '#/components/ui/data-table'
 import {
   Empty,
   EmptyDescription,
@@ -30,11 +31,16 @@ import {
   InputGroupInput,
 } from '#/components/ui/input-group'
 import { Spinner } from '#/components/ui/spinner'
+import type { DataTableFeatures } from '#/lib/data-table-features'
 import {
   createHolderFn,
   getHolderNotifyStatusFn,
   listHoldersFn,
 } from '#/server/functions'
+
+type HolderItem = Awaited<ReturnType<typeof listHoldersFn>>['users'][number]
+
+const holderColumn = createColumnHelper<DataTableFeatures, HolderItem>()
 
 export const Route = createFileRoute('/admin/users/')({
   validateSearch: (search: Record<string, unknown>): { q?: string; page?: number } => {
@@ -143,7 +149,7 @@ function UsersPage() {
   }
 
   return (
-    <div className="flex w-full max-w-6xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-screen-xl flex-col gap-6">
       <PageHeader
         description="Buat akun pemegang kartu, assign PIN, lalu serahkan kartu. Satu user boleh memegang banyak kartu."
         title="Akun pemegang"
@@ -259,31 +265,47 @@ function UsersPage() {
         </Empty>
       ) : (
         <div className="flex flex-col gap-4">
-          <DataTable>
-            <DataTableHead columns={['Nama', 'WhatsApp', 'Kartu', 'Status']} />
-            <tbody>
-              {list.users.map((user) => (
-                <tr key={user.id}>
-                  <DataTableCell>
-                    <Link
-                      className="font-medium hover:underline"
-                      params={{ userId: user.id }}
-                      to="/admin/users/$userId"
-                    >
-                      {user.name ?? '—'}
-                    </Link>
-                  </DataTableCell>
-                  <DataTableCell muted>{user.whatsapp ?? user.email}</DataTableCell>
-                  <DataTableCell muted>{user.cardCount}</DataTableCell>
-                  <DataTableCell>
-                    <Badge variant={user.status === 'ACTIVE' ? 'secondary' : 'outline'}>
-                      {user.status === 'ACTIVE' ? 'Aktif' : 'Nonaktif'}
-                    </Badge>
-                  </DataTableCell>
-                </tr>
-              ))}
-            </tbody>
-          </DataTable>
+          <DataTable
+            columns={[
+              holderColumn.accessor('name', {
+                cell: ({ row }) => (
+                  <Link
+                    className="font-medium hover:underline"
+                    params={{ userId: row.original.id }}
+                    to="/admin/users/$userId"
+                  >
+                    {row.original.name ?? '—'}
+                  </Link>
+                ),
+                header: 'Nama',
+              }),
+              holderColumn.accessor('whatsapp', {
+                cell: ({ row }) => (
+                  <span className="text-muted-foreground">
+                    {row.original.whatsapp ?? row.original.email}
+                  </span>
+                ),
+                header: 'WhatsApp',
+              }),
+              holderColumn.accessor('cardCount', {
+                cell: ({ getValue }) => (
+                  <span className="text-muted-foreground">{getValue()}</span>
+                ),
+                header: 'Kartu',
+              }),
+              holderColumn.accessor('status', {
+                cell: ({ getValue }) => (
+                  <Badge variant={getValue() === 'ACTIVE' ? 'secondary' : 'outline'}>
+                    {getValue() === 'ACTIVE' ? 'Aktif' : 'Nonaktif'}
+                  </Badge>
+                ),
+                header: 'Status',
+              }),
+            ]}
+            data={list.users}
+            manualPagination={{ pageCount: list.pageCount }}
+            pageSize={list.pageSize}
+          />
           <ListPager
             onPage={(next) => {
               void navigate({

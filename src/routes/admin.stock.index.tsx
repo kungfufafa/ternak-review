@@ -1,11 +1,14 @@
 import { createFileRoute, Link, redirect, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
-import { HashIcon, PrinterIcon } from 'lucide-react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { HashIcon, PrinterIcon, SearchIcon } from 'lucide-react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { AppUrlBanner } from '#/components/app-url-banner'
 import { ConfirmDelete } from '#/components/confirm-delete'
+import { DataTable, DataTableCell, DataTableHead } from '#/components/data-table'
 import { KitPreview } from '#/components/kit-preview'
+import { PageHeader } from '#/components/page'
 import { ProductionSteps } from '#/components/production-steps'
+import { ViewCustomize, type ViewColumnDef } from '#/components/view-customize'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,6 +20,7 @@ import {
   AlertDialogTitle,
 } from '#/components/ui/alert-dialog'
 import { Alert } from '#/components/ui/alert'
+import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import {
   Card,
@@ -52,6 +56,7 @@ import {
   ItemGroup,
   ItemTitle,
 } from '#/components/ui/item'
+import { Progress } from '#/components/ui/progress'
 import { Spinner } from '#/components/ui/spinner'
 import {
   ToggleGroup,
@@ -62,7 +67,9 @@ import {
   deleteStockBatchFn,
   generateStockFn,
   getAppUrlInfoFn,
+  getCardDesignFn,
   getCurrentOwnerFn,
+  getViewPrefsFn,
   listStockBatchesFn,
 } from '#/server/functions'
 
@@ -72,11 +79,13 @@ export const Route = createFileRoute('/admin/stock/')({
   loader: async () => {
     const owner = await getCurrentOwnerFn()
     if (!owner) throw redirect({ to: '/login' })
-    const [batches, appUrl] = await Promise.all([
+    const [batches, appUrl, prefs, cardDesign] = await Promise.all([
       listStockBatchesFn(),
       getAppUrlInfoFn(),
+      getViewPrefsFn({ data: { view: 'stock' } }),
+      getCardDesignFn(),
     ])
-    return { batches, appUrl }
+    return { batches, appUrl, prefs, cardDesign }
   },
   component: AdminStockPage,
   head: () => ({
@@ -84,13 +93,27 @@ export const Route = createFileRoute('/admin/stock/')({
   }),
 })
 
+const STOCK_COLUMNS: ViewColumnDef[] = [
+  { key: 'label', label: 'Cetakan' },
+  { key: 'date', label: 'Tanggal' },
+  { key: 'remaining', label: 'Sisa kartu' },
+  { key: 'available', label: 'Belum dialokasi' },
+  { key: 'nfcWritten', label: 'NFC tertulis' },
+  { key: 'pendingActivation', label: 'Menunggu aktivasi' },
+  { key: 'active', label: 'Aktif' },
+  { key: 'inactive', label: 'Nonaktif' },
+]
+
 function AdminStockPage() {
-  const { batches, appUrl } = Route.useLoaderData()
+  const { batches, appUrl, prefs: savedPrefs, cardDesign } =
+    Route.useLoaderData()
   const generate = useServerFn(generateStockFn)
   const removeBatch = useServerFn(deleteStockBatchFn)
   const router = useRouter()
   const readyRef = useRef<HTMLDivElement>(null)
 
+  const [prefs, setPrefs] = useState(savedPrefs)
+  const [query, setQuery] = useState('')
   const [count, setCount] = useState(100)
   const [label, setLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -104,11 +127,17 @@ function AdminStockPage() {
   } | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  const cardBatches = batches
+  const needle = query.trim().toLowerCase()
+  const cardBatches = needle
+    ? batches.filter((batch) => batch.label.toLowerCase().includes(needle))
+    : batches
   const presetValue = PRESETS.includes(count as (typeof PRESETS)[number])
     ? String(count)
     : ''
   const made = lastCount ?? count
+  const visibleColumns = STOCK_COLUMNS.filter((column) =>
+    prefs.columns.includes(column.key),
+  )
 
   useEffect(() => {
     if (!lastBatchId) return
@@ -145,16 +174,156 @@ function AdminStockPage() {
     }
   }
 
-  return (
-    <div className="flex flex-col gap-10">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-normal tracking-tight sm:text-4xl">
-          <em className="text-pine italic">Produksi</em>
-        </h1>
-        <p className="max-w-lg text-muted-foreground">
-          Buat QR → cetak → tulis NFC → tentukan pemegang → aktivasi toko.
-        </p>
+  function nfcBadge(batch: (typeof batches)[number]) {
+    const next = batch.next
+    const left = Math.max(0, batch.remaining - batch.encoded)
+    if (batch.remaining === 0)
+      return <Badge variant="muted">Cetakan kosong</Badge>
+    if (next === 'ready') return <Badge variant="success">NFC selesai</Badge>
+    if (next === 'nfc')
+      return (
+        <Badge variant="secondary">{left} NFC belum ditulis</Badge>
+      )
+    return <Badge variant="outline">NFC belum dimulai</Badge>
+  }
+
+  function nfcProgress(batch: (typeof batches)[number]) {
+    if (batch.remaining === 0 || batch.next === 'print') return null
+    const percent = Math.min(
+      100,
+      Math.round((batch.encoded / batch.remaining) * 100),
+    )
+    return (
+      <div className="mt-2 flex items-center gap-2">
+        <Progress className="h-1.5" value={percent} />
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+          {percent}%
+        </span>
       </div>
+    )
+  }
+
+  function allocationStats(batch: (typeof batches)[number]) {
+    const stats = [
+      { label: 'belum dialokasikan', value: batch.available },
+      { label: 'menunggu aktivasi', value: batch.assigned },
+      { label: 'aktif', value: batch.active },
+      { label: 'nonaktif', value: batch.inactive },
+    ]
+    return (
+      <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
+        {stats.map((stat) => (
+          <span key={stat.label}>
+            <span className="font-medium tabular-nums text-foreground">
+              {stat.value}
+            </span>{' '}
+            {stat.label}
+          </span>
+        ))}
+      </div>
+    )
+  }
+
+  function batchActions(batch: (typeof batches)[number]) {
+    const next = batch.next
+    return (
+      <>
+        {batch.remaining === 0 ? null : next === 'ready' ? (
+          <Button asChild size="sm" variant="outline">
+            <Link
+              search={{
+                batch: batch.id,
+                status: batch.inStock > 0 ? 'IN_STOCK' : undefined,
+                ownership: batch.available > 0 ? 'unassigned' : undefined,
+              }}
+              to="/dashboard/units"
+            >
+              {batch.available > 0 ? 'Atur pemegang' : 'Kelola kartu'}
+            </Link>
+          </Button>
+        ) : next === 'nfc' ? (
+          <Button asChild size="sm">
+            <Link search={{ batch: batch.id }} to="/admin/stock/nfc">
+              Tempel NFC
+            </Link>
+          </Button>
+        ) : (
+          <>
+            <Button asChild size="sm" variant="outline">
+              <Link search={{ batch: batch.id }} to="/admin/stock/print">
+                Cetak
+              </Link>
+            </Button>
+            <Button asChild size="sm">
+              <Link search={{ batch: batch.id }} to="/admin/stock/nfc">
+                Lanjut NFC
+              </Link>
+            </Button>
+          </>
+        )}
+        {batch.active === 0 && batch.inactive === 0 && batch.assigned === 0 ? (
+          <Button
+            onClick={() =>
+              setPendingDelete({ id: batch.id, label: batch.label })
+            }
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Hapus
+          </Button>
+        ) : null}
+      </>
+    )
+  }
+
+  function stockCell(batch: (typeof batches)[number], key: string): {
+    content: ReactNode
+    muted?: boolean
+  } {
+    switch (key) {
+      case 'label':
+        return { content: batch.label }
+      case 'date':
+        return { content: formatDay(batch.createdAt), muted: true }
+      case 'remaining':
+        return {
+          content:
+            batch.remaining !== batch.count
+              ? `${batch.remaining} / ${batch.count}`
+              : batch.remaining,
+          muted: true,
+        }
+      case 'available':
+        return { content: batch.available }
+      case 'nfcWritten':
+        return { content: batch.encoded, muted: true }
+      case 'pendingActivation':
+        return { content: batch.assigned }
+      case 'active':
+        return { content: batch.active }
+      case 'inactive':
+        return { content: batch.inactive, muted: true }
+      default:
+        return { content: null }
+    }
+  }
+
+  return (
+    <div className="mx-auto flex w-full max-w-screen-xl flex-col gap-8">
+      <PageHeader
+        action={
+          <ViewCustomize
+            columns={STOCK_COLUMNS}
+            onChange={setPrefs}
+            prefs={prefs}
+            view="stock"
+            withMode
+          />
+        }
+        description="Buat QR → cetak → tulis NFC → tentukan pemegang → aktivasi toko."
+        title="Produksi"
+      />
 
       <ProductionSteps
         batchId={lastBatchId ?? cardBatches[0]?.id}
@@ -192,7 +361,7 @@ function AdminStockPage() {
 
       <section className="grid items-start gap-8 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
         <div className="mx-auto w-full max-w-xs lg:mx-0">
-          <KitPreview />
+          <KitPreview design={cardDesign} />
           <p className="mt-3 text-center text-xs text-muted-foreground">
             Begini kartunya nanti, 9,8×9,8 cm
           </p>
@@ -270,7 +439,19 @@ function AdminStockPage() {
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="font-medium tracking-tight">Cetakan &amp; status kartu</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-medium tracking-tight">Cetakan &amp; status kartu</h2>
+          <InputGroup className="w-full max-w-xs">
+            <InputGroupInput
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Cari nama cetakan"
+              value={query}
+            />
+            <InputGroupAddon align="inline-start">
+              <SearchIcon />
+            </InputGroupAddon>
+          </InputGroup>
+        </div>
         <p className="text-sm text-muted-foreground">
           Progres NFC tercatat per kartu. Jika kartu sudah dicetak, langsung
           lanjut ke NFC. Kartu yang sudah dialokasikan dipisahkan dari stok tersedia.
@@ -278,108 +459,79 @@ function AdminStockPage() {
         {cardBatches.length === 0 ? (
           <Empty>
             <EmptyHeader>
-              <EmptyTitle>Belum ada QR</EmptyTitle>
+              <EmptyTitle>
+                {needle ? 'Tidak ada yang cocok' : 'Belum ada QR'}
+              </EmptyTitle>
               <EmptyDescription>
-                Pilih jumlah di atas. Setelah QR jadi, cetak dulu.
+                {needle
+                  ? 'Coba kata kunci lain.'
+                  : 'Pilih jumlah di atas. Setelah QR jadi, cetak dulu.'}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
-        ) : (
-          <ItemGroup className="rounded-2xl bg-card ring-1 ring-border">
-            {cardBatches.map((batch) => {
-              const next = batch.next
-              const left = Math.max(0, batch.remaining - batch.encoded)
-              return (
-                <Item
-                  className={batch.id === lastBatchId ? 'bg-accent' : undefined}
+        ) : prefs.mode === 'table' ? (
+          <DataTable>
+            <DataTableHead
+              columns={[...visibleColumns.map((column) => column.label), '']}
+              density={prefs.density}
+            />
+            <tbody>
+              {cardBatches.map((batch) => (
+                <tr
+                  className={batch.id === lastBatchId ? 'bg-accent/40' : undefined}
                   key={batch.id}
                 >
-                  <ItemContent>
-                    <ItemTitle>{batch.label}</ItemTitle>
-                    <ItemDescription>
-                      {formatDay(batch.createdAt)} · {batch.remaining} kartu
-                      tercatat
-                      {batch.remaining !== batch.count
-                        ? ` dari ${batch.count}`
-                        : ''}
-                      {batch.remaining === 0
-                        ? ' · cetakan kosong'
-                        : next === 'ready'
-                          ? ' · NFC selesai'
-                          : next === 'nfc'
-                            ? ` · ${left} NFC belum ditulis`
-                            : ' · NFC belum dimulai'}
-                    </ItemDescription>
-                    {batch.remaining > 0 ? (
-                      <ItemDescription>
-                        {batch.available} belum dialokasikan ({batch.readyStock} NFC
-                        tertulis) · {batch.assigned} menunggu aktivasi ·{' '}
-                        {batch.active} aktif · {batch.inactive} nonaktif
-                      </ItemDescription>
-                    ) : null}
-                  </ItemContent>
-                  <ItemActions className="flex flex-wrap">
-                    {batch.remaining === 0 ? null : next === 'ready' ? (
-                      <Button asChild size="sm" variant="outline">
-                        <Link
-                          search={{
-                            batch: batch.id,
-                            status: batch.inStock > 0 ? 'IN_STOCK' : undefined,
-                            ownership:
-                              batch.available > 0 ? 'unassigned' : undefined,
-                          }}
-                          to="/dashboard/units"
-                        >
-                          {batch.available > 0 ? 'Atur pemegang' : 'Kelola kartu'}
-                        </Link>
-                      </Button>
-                    ) : next === 'nfc' ? (
-                      <Button asChild size="sm">
-                        <Link
-                          search={{ batch: batch.id }}
-                          to="/admin/stock/nfc"
-                        >
-                          Tempel NFC
-                        </Link>
-                      </Button>
-                    ) : (
-                      <>
-                        <Button asChild size="sm" variant="outline">
-                          <Link
-                            search={{ batch: batch.id }}
-                            to="/admin/stock/print"
-                          >
-                            Cetak
-                          </Link>
-                        </Button>
-                        <Button asChild size="sm">
-                          <Link
-                            search={{ batch: batch.id }}
-                            to="/admin/stock/nfc"
-                          >
-                            Lanjut NFC
-                          </Link>
-                        </Button>
-                      </>
-                    )}
-                    {batch.active === 0 &&
-                    batch.inactive === 0 &&
-                    batch.assigned === 0 ? (
-                      <Button
-                        onClick={() =>
-                          setPendingDelete({ id: batch.id, label: batch.label })
-                        }
-                        size="sm"
-                        type="button"
-                        variant="ghost"
+                  {visibleColumns.map((column) => {
+                    const cell = stockCell(batch, column.key)
+                    return (
+                      <DataTableCell
+                        density={prefs.density}
+                        key={column.key}
+                        muted={cell.muted}
                       >
-                        Hapus
-                      </Button>
-                    ) : null}
-                  </ItemActions>
-                </Item>
-              )
-            })}
+                        {cell.content}
+                      </DataTableCell>
+                    )
+                  })}
+                  <DataTableCell density={prefs.density}>
+                    <div className="flex flex-wrap justify-end gap-1">
+                      {batchActions(batch)}
+                    </div>
+                  </DataTableCell>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
+        ) : (
+          <ItemGroup className="rounded-2xl bg-card ring-1 ring-border">
+            {cardBatches.map((batch) => (
+              <Item
+                className={batch.id === lastBatchId ? 'bg-accent' : undefined}
+                key={batch.id}
+              >
+                <ItemContent>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ItemTitle>{batch.label}</ItemTitle>
+                    {nfcBadge(batch)}
+                  </div>
+                  <ItemDescription>
+                    {formatDay(batch.createdAt)} ·{' '}
+                    {batch.remaining !== batch.count
+                      ? `${batch.remaining} dari ${batch.count} kartu`
+                      : `${batch.remaining} kartu`}
+                  </ItemDescription>
+                  {batch.remaining > 0 ? (
+                    <>
+                      {nfcProgress(batch)}
+                      {allocationStats(batch)}
+                    </>
+                  ) : null}
+                </ItemContent>
+                <ItemActions className="flex flex-wrap">
+                  {batchActions(batch)}
+                </ItemActions>
+              </Item>
+            ))}
           </ItemGroup>
         )}
       </section>

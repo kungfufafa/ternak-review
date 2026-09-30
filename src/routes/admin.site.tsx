@@ -57,7 +57,7 @@ function SiteSettingsPage() {
   }
 
   return (
-    <div className="flex w-full max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <PageHeader
         description="Matikan beranda marketing atau form affiliate kalau lagi fokus jualan kartu. Login, aktivasi, dan dashboard tetap jalan."
         title="Halaman publik"

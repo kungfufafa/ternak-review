@@ -100,7 +100,7 @@ function WhatsappAdminPage() {
   }
 
   return (
-    <div className="flex w-full max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <PageHeader
         description="Satu nomor WhatsApp platform. Bukan di dalam Cloudflare: proses Baileys terpisah yang nyambung ke situs ini."
         title="WhatsApp Gateway"

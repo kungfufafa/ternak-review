@@ -5,8 +5,8 @@ import {
 } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
 import { useEffect, useState } from 'react'
+import { createColumnHelper } from '@tanstack/react-table'
 import { z } from 'zod'
-import { DataTable, DataTableCell, DataTableHead } from '#/components/data-table'
 import { ListPager } from '#/components/list-pager'
 import { PageHeader } from '#/components/page'
 import { Badge } from '#/components/ui/badge'
@@ -19,6 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import { DataTable } from '#/components/ui/data-table'
 import {
   Empty,
   EmptyDescription,
@@ -26,7 +27,12 @@ import {
   EmptyTitle,
 } from '#/components/ui/empty'
 import { Select } from '#/components/ui/input'
+import type { DataTableFeatures } from '#/lib/data-table-features'
 import { listOutboundLogsFn, retryFeedbackFn } from '#/server/functions'
+
+type LogItem = Awaited<ReturnType<typeof listOutboundLogsFn>>['items'][number]
+
+const logColumn = createColumnHelper<DataTableFeatures, LogItem>()
 
 const logsSearchSchema = z.object({
   channel: z.enum(['email', 'whatsapp']).optional().catch(undefined),
@@ -112,6 +118,65 @@ function OutboundLogsPage() {
   const { items, total, pageCount, pageSize, summary } = data
   const currentPage = data.page
 
+  const logColumns = [
+    logColumn.accessor('createdAt', {
+      cell: ({ row }) => (
+        <span className="text-muted-foreground">
+          {formatWhen(row.original.createdAt)}
+        </span>
+      ),
+      header: 'Waktu',
+    }),
+    logColumn.accessor('channel', {
+      cell: ({ getValue }) => (getValue() === 'email' ? 'Email' : 'WhatsApp'),
+      header: 'Kanal',
+    }),
+    logColumn.accessor('kind', {
+      cell: ({ getValue }) => kindLabel(getValue()),
+      header: 'Jenis',
+    }),
+    logColumn.accessor('to', {
+      cell: ({ getValue }) => (
+        <span className="font-mono text-xs">{getValue()}</span>
+      ),
+      header: 'Tujuan',
+    }),
+    logColumn.display({
+      cell: ({ row }) => {
+        const item = row.original
+        return (
+          <div className="max-w-md">
+            <p className="font-medium">{item.title}</p>
+            <p className="text-muted-foreground">{item.preview}</p>
+            {item.error ? (
+              <p className="mt-1 text-destructive">{item.error}</p>
+            ) : null}
+            {item.channel === 'whatsapp' &&
+            item.kind === 'FEEDBACK' &&
+            (item.status === 'FAILED' || item.status === 'UNCERTAIN') ? (
+              <Button
+                className="mt-2"
+                disabled={retryingId === item.id}
+                onClick={() => void retry(item.id)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {retryingId === item.id ? 'Menyiapkan…' : 'Kirim ulang'}
+              </Button>
+            ) : null}
+          </div>
+        )
+      },
+      header: 'Isi',
+      id: 'isi',
+    }),
+    logColumn.accessor('status', {
+      cell: ({ getValue }) => statusBadge(getValue()),
+      header: 'Status',
+    }),
+  ]
+
   function setChannel(next?: 'email' | 'whatsapp') {
     void navigate({
       search: { channel: next, page: undefined },
@@ -137,7 +202,7 @@ function OutboundLogsPage() {
   }
 
   return (
-    <div className="flex w-full max-w-6xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-screen-xl flex-col gap-6">
       <PageHeader
         description="Jejak keluar: email (OTP, PIN, tes) dan WhatsApp (OTP, feedback kartu). Bukan inbox. Kode OTP/PIN disamarkan di daftar ini."
         title="Log kiriman"
@@ -198,47 +263,12 @@ function OutboundLogsPage() {
         </Empty>
       ) : (
         <>
-          <DataTable>
-            <DataTableHead
-              columns={['Waktu', 'Kanal', 'Jenis', 'Tujuan', 'Isi', 'Status']}
-            />
-            <tbody>
-              {items.map((item) => (
-                <tr key={`${item.channel}-${item.id}`}>
-                  <DataTableCell muted>{formatWhen(item.createdAt)}</DataTableCell>
-                  <DataTableCell>
-                    {item.channel === 'email' ? 'Email' : 'WhatsApp'}
-                  </DataTableCell>
-                  <DataTableCell>{kindLabel(item.kind)}</DataTableCell>
-                  <DataTableCell mono>{item.to}</DataTableCell>
-                  <DataTableCell>
-                    <div className="max-w-md">
-                      <p className="font-medium">{item.title}</p>
-                      <p className="text-muted-foreground">{item.preview}</p>
-                      {item.error ? (
-                        <p className="mt-1 text-destructive">{item.error}</p>
-                      ) : null}
-                      {item.channel === 'whatsapp' &&
-                      item.kind === 'FEEDBACK' &&
-                      (item.status === 'FAILED' || item.status === 'UNCERTAIN') ? (
-                        <Button
-                          className="mt-2"
-                          disabled={retryingId === item.id}
-                          onClick={() => void retry(item.id)}
-                          size="sm"
-                          type="button"
-                          variant="outline"
-                        >
-                          {retryingId === item.id ? 'Menyiapkan…' : 'Kirim ulang'}
-                        </Button>
-                      ) : null}
-                    </div>
-                  </DataTableCell>
-                  <DataTableCell>{statusBadge(item.status)}</DataTableCell>
-                </tr>
-              ))}
-            </tbody>
-          </DataTable>
+          <DataTable
+            columns={logColumns}
+            data={items}
+            manualPagination={{ pageCount }}
+            pageSize={pageSize}
+          />
           <ListPager
             onPage={(next) => {
               void navigate({

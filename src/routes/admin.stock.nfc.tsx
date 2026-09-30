@@ -246,7 +246,7 @@ function NfcPage() {
     : null
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="mx-auto flex w-full max-w-screen-xl flex-col gap-10">
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-normal tracking-tight sm:text-4xl">
           Tempel <em className="text-pine italic">NFC</em>

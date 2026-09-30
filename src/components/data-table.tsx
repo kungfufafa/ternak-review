@@ -1,6 +1,18 @@
 import type { ReactNode } from 'react'
 import { cn } from '#/lib/utils'
 
+export type TableDensity = 'compact' | 'normal'
+
+const headPadding: Record<TableDensity, string> = {
+  normal: 'px-4 py-3 text-xs',
+  compact: 'px-2 py-1.5 text-[11px]',
+}
+
+const cellPadding: Record<TableDensity, string> = {
+  normal: 'px-4 py-3',
+  compact: 'px-2 py-1.5 text-xs',
+}
+
 export function DataTable({ children }: { children: ReactNode }) {
   return (
     <div className="overflow-x-auto rounded-2xl bg-card ring-1 ring-border">
@@ -17,17 +29,24 @@ export function DataTable({ children }: { children: ReactNode }) {
   )
 }
 
-export function DataTableHead({ columns }: { columns: string[] }) {
+export function DataTableHead({
+  columns,
+  density = 'normal',
+}: {
+  columns: ReactNode[]
+  density?: TableDensity
+}) {
   return (
     <thead className="bg-accent text-accent-foreground">
       <tr>
         {columns.map((column, index) => (
           <th
             className={cn(
-              'px-4 py-3 text-xs font-medium tracking-wide',
+              'font-medium tracking-wide',
+              headPadding[density],
               !column && 'text-end',
             )}
-            key={`${column || 'actions'}-${index}`}
+            key={index}
           >
             {column}
           </th>
@@ -41,15 +60,17 @@ export function DataTableCell({
   children,
   muted,
   mono,
+  density = 'normal',
 }: {
   children: ReactNode
   muted?: boolean
   mono?: boolean
+  density?: TableDensity
 }) {
   return (
     <td
       className={cn(
-        'px-4 py-3',
+        cellPadding[density],
         muted && 'text-muted-foreground',
         mono && 'font-mono text-xs',
       )}

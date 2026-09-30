@@ -224,7 +224,7 @@ function UnitDetailEditor({
   }
 
   return (
-    <>
+    <div className="mx-auto w-full max-w-screen-xl">
       <PageHeader
         action={
           <div className="flex flex-wrap gap-2">
@@ -756,7 +756,7 @@ function UnitDetailEditor({
         pending={deleting}
         title="Hapus kartu gudang?"
       />
-    </>
+    </div>
   )
 }
 

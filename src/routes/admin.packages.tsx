@@ -34,7 +34,7 @@ function PackagesPage() {
   const packages = Route.useLoaderData()
 
   return (
-    <div className="flex w-full max-w-6xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-screen-xl flex-col gap-6">
       <PageHeader
         title="Pengaturan paket"
         description="Atur nama paket dan batas bintang intersep. Perubahan berlaku untuk semua kartu dalam paket, termasuk kartu yang sudah aktif."

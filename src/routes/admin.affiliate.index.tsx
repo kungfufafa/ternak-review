@@ -8,9 +8,9 @@ import {
 import { useServerFn } from '@tanstack/react-start'
 import { EllipsisVerticalIcon, SearchIcon } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
+import { createColumnHelper } from '@tanstack/react-table'
 import { z } from 'zod'
 import { ConfirmDelete } from '#/components/confirm-delete'
-import { DataTable, DataTableCell, DataTableHead } from '#/components/data-table'
 import { ListPager } from '#/components/list-pager'
 import { affiliatePlatforms } from '#/components/marketing/affiliate/content'
 import { PageHeader } from '#/components/page'
@@ -25,6 +25,7 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import { DataTable } from '#/components/ui/data-table'
 import { Field, FieldDescription, FieldLabel } from '#/components/ui/field'
 import { Input } from '#/components/ui/input'
 import { Spinner } from '#/components/ui/spinner'
@@ -48,6 +49,7 @@ import {
   InputGroupInput,
 } from '#/components/ui/input-group'
 import { formatDay } from '#/lib/utils'
+import type { DataTableFeatures } from '#/lib/data-table-features'
 import {
   clearAffiliateWebhookUrlFn,
   deleteAffiliateLeadFn,
@@ -59,6 +61,8 @@ import {
 import type { AffiliateWebhookPublicSettings } from '#/server/affiliate-settings'
 import { useDebounced } from '#/hooks/use-debounced'
 import type { SerializedAffiliateLead } from '#/server/affiliate'
+
+const leadColumn = createColumnHelper<DataTableFeatures, SerializedAffiliateLead>()
 
 const affiliateSearchSchema = z.object({
   q: z.string().trim().min(1).optional().catch(undefined),
@@ -125,7 +129,7 @@ function AffiliateLeadsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="mx-auto flex w-full max-w-screen-xl flex-col gap-8">
       <PageHeader
         description="Cari, lihat, ubah, atau hapus orang yang daftar dari halaman affiliate."
         title="Pendaftar affiliate"
@@ -159,39 +163,58 @@ function AffiliateLeadsPage() {
         </Empty>
       ) : (
         <div className="flex flex-col gap-4">
-          <DataTable>
-            <DataTableHead
-              columns={['Nama', 'Kontak', 'Platform', 'Daftar', '']}
-            />
-            <tbody>
-              {leads.map((lead) => (
-                <tr key={lead.id}>
-                  <DataTableCell>
-                    <Link
-                      className="font-medium hover:underline"
-                      params={{ leadId: lead.id }}
-                      to="/admin/affiliate/$leadId"
-                    >
-                      {lead.nama}
-                    </Link>
-                  </DataTableCell>
-                  <DataTableCell muted>
-                    <div className="flex flex-col gap-0.5">
-                      <span>{lead.whatsapp}</span>
-                      <span>{lead.email}</span>
-                    </div>
-                  </DataTableCell>
-                  <DataTableCell>
-                    <div className="flex flex-wrap gap-1.5">
-                      {lead.platforms.map((platform) => (
-                        <Badge key={platform} variant="accent">
-                          {platformLabel(platform)}
-                        </Badge>
-                      ))}
-                    </div>
-                  </DataTableCell>
-                  <DataTableCell muted>{formatDay(lead.createdAt)}</DataTableCell>
-                  <DataTableCell>
+          <DataTable
+            columns={[
+              leadColumn.accessor('nama', {
+                cell: ({ row }) => (
+                  <Link
+                    className="font-medium hover:underline"
+                    params={{ leadId: row.original.id }}
+                    to="/admin/affiliate/$leadId"
+                  >
+                    {row.original.nama}
+                  </Link>
+                ),
+                header: 'Nama',
+              }),
+              leadColumn.display({
+                cell: ({ row }) => (
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-muted-foreground">
+                      {row.original.whatsapp}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {row.original.email}
+                    </span>
+                  </div>
+                ),
+                header: 'Kontak',
+                id: 'kontak',
+              }),
+              leadColumn.accessor('platforms', {
+                cell: ({ row }) => (
+                  <div className="flex flex-wrap gap-1.5">
+                    {row.original.platforms.map((platform) => (
+                      <Badge key={platform} variant="accent">
+                        {platformLabel(platform)}
+                      </Badge>
+                    ))}
+                  </div>
+                ),
+                header: 'Platform',
+              }),
+              leadColumn.accessor('createdAt', {
+                cell: ({ getValue }) => (
+                  <span className="text-muted-foreground">
+                    {formatDay(getValue())}
+                  </span>
+                ),
+                header: 'Daftar',
+              }),
+              leadColumn.display({
+                cell: ({ row }) => {
+                  const lead = row.original
+                  return (
                     <div className="flex justify-end gap-2">
                       <Button asChild size="sm">
                         <a
@@ -238,11 +261,16 @@ function AffiliateLeadsPage() {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
-                  </DataTableCell>
-                </tr>
-              ))}
-            </tbody>
-          </DataTable>
+                  )
+                },
+                header: () => <span className="sr-only">Aksi</span>,
+                id: 'aksi',
+              }),
+            ]}
+            data={leads}
+            manualPagination={{ pageCount }}
+            pageSize={pageSize}
+          />
           <ListPager
             onPage={goToPage}
             page={page}

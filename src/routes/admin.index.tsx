@@ -30,6 +30,7 @@ import { AppUrlBanner } from '#/components/app-url-banner'
 import { formatDay } from '#/lib/utils'
 import {
   getAppUrlInfoFn,
+  getCardDesignFn,
   getDashboardFn,
   listAffiliateLeadsFn,
   listStockBatchesFn,
@@ -37,17 +38,20 @@ import {
 
 export const Route = createFileRoute('/admin/')({
   loader: async () => {
-    const [summary, batches, affiliates, appUrl] = await Promise.all([
-      getDashboardFn(),
-      listStockBatchesFn(),
-      listAffiliateLeadsFn({ data: { page: 1, pageSize: 6 } }),
-      getAppUrlInfoFn(),
-    ])
+    const [summary, batches, affiliates, appUrl, cardDesign] =
+      await Promise.all([
+        getDashboardFn(),
+        listStockBatchesFn(),
+        listAffiliateLeadsFn({ data: { page: 1, pageSize: 6 } }),
+        getAppUrlInfoFn(),
+        getCardDesignFn(),
+      ])
     return {
       summary,
       batches,
       affiliates,
       appUrl,
+      cardDesign,
     }
   },
   component: AdminHomePage,
@@ -57,7 +61,8 @@ export const Route = createFileRoute('/admin/')({
 })
 
 function AdminHomePage() {
-  const { summary, batches, affiliates, appUrl } = Route.useLoaderData()
+  const { summary, batches, affiliates, appUrl, cardDesign } =
+    Route.useLoaderData()
   const recentAffiliates = affiliates.leads
   const pendingBatches = batches.filter(
     (batch) => batch.remaining > 0 && batch.next !== 'ready',
@@ -79,7 +84,7 @@ function AdminHomePage() {
     (summary.inactiveCount > 0 ? 1 : 0)
 
   return (
-    <div className="flex w-full max-w-screen-xl flex-col gap-8">
+    <div className="mx-auto flex w-full max-w-screen-xl flex-col gap-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-2">
           <p className="text-sm font-medium capitalize text-muted-foreground">
@@ -111,7 +116,7 @@ function AdminHomePage() {
           </EmptyHeader>
           <EmptyContent>
             <div className="w-full max-w-xs">
-              <KitPreview />
+              <KitPreview design={cardDesign} />
             </div>
             <Button asChild size="lg">
               <Link to="/admin/stock">Mulai produksi</Link>

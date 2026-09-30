@@ -1,11 +1,12 @@
 import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
 import { SearchIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ConfirmDelete } from '#/components/confirm-delete'
 import { DataTable, DataTableCell, DataTableHead } from '#/components/data-table'
 import { ListPager } from '#/components/list-pager'
 import { PageHeader } from '#/components/page'
+import { ViewCustomize, type ViewColumnDef } from '#/components/view-customize'
 import { StatusBadge } from '#/components/ui/badge'
 import { Alert } from '#/components/ui/alert'
 import { Select } from '#/components/ui/input'
@@ -26,7 +27,8 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from '#/components/ui/toggle-group'
-import { listStockBatchesFn, listUnitsFn, resetUnitFn } from '#/server/functions'
+import type { ViewPrefs } from '#/lib/view-prefs'
+import { getViewPrefsFn, listStockBatchesFn, listUnitsFn, resetUnitFn } from '#/server/functions'
 
 type UnitStatus = 'IN_STOCK' | 'ACTIVE' | 'INACTIVE'
 
@@ -86,7 +88,7 @@ export const Route = createFileRoute('/dashboard/units/')({
     page: search.page,
   }),
   loader: async ({ deps }) => {
-    const [list, batches] = await Promise.all([
+    const [list, batches, prefs] = await Promise.all([
       listUnitsFn({
         data: {
           q: deps.q,
@@ -99,8 +101,9 @@ export const Route = createFileRoute('/dashboard/units/')({
         },
       }),
       listStockBatchesFn(),
+      getViewPrefsFn({ data: { view: 'units' } }),
     ])
-    return { list, batches }
+    return { list, batches, prefs }
   },
   component: UnitsListPage,
   head: () => ({
@@ -108,12 +111,24 @@ export const Route = createFileRoute('/dashboard/units/')({
   }),
 })
 
+const UNITS_COLUMNS: ViewColumnDef[] = [
+  { key: 'code', label: 'Kode' },
+  { key: 'outlet', label: 'Tempat' },
+  { key: 'batch', label: 'Cetakan' },
+  { key: 'partner', label: 'Rekanan' },
+  { key: 'holder', label: 'Pemegang' },
+  { key: 'nfc', label: 'NFC' },
+  { key: 'status', label: 'Status' },
+  { key: 'activatedAt', label: 'Aktivasi' },
+]
+
 function UnitsListPage() {
-  const { list, batches } = Route.useLoaderData()
+  const { list, batches, prefs: savedPrefs } = Route.useLoaderData()
   const { partner, status, ownership, q, batch } = Route.useSearch()
   const navigate = useNavigate({ from: '/dashboard/units/' })
   const router = useRouter()
   const resetUnit = useServerFn(resetUnitFn)
+  const [prefs, setPrefs] = useState<Required<ViewPrefs>>(savedPrefs)
   const [draft, setDraft] = useState(q ?? '')
   const [resetTarget, setResetTarget] = useState<{
     id: string
@@ -143,9 +158,99 @@ function UnitsListPage() {
     return () => window.clearTimeout(timer)
   }, [draft, navigate, q])
 
+  const visibleColumns = UNITS_COLUMNS.filter((column) =>
+    prefs.columns.includes(column.key),
+  )
+  // Kode & status selalu tampil di header kartu mobile sebagai identitas,
+  // jadi keduanya tidak diulang di grid detail.
+  const mobileColumns = visibleColumns.filter(
+    (column) => column.key !== 'code' && column.key !== 'status',
+  )
+
+  function unitCell(unit: (typeof list.units)[number], key: string): {
+    content: ReactNode
+    muted?: boolean
+  } {
+    switch (key) {
+      case 'code':
+        return {
+          content: (
+            <Link
+              className="font-medium hover:underline"
+              params={{ unitId: unit.id }}
+              to="/dashboard/units/$unitId"
+            >
+              {unit.publicId}
+            </Link>
+          ),
+        }
+      case 'outlet':
+        return { content: unit.outletName ?? '—' }
+      case 'batch':
+        return { content: unit.batchLabel ?? '—', muted: true }
+      case 'partner':
+        return { content: unit.partnerRef ?? '—', muted: true }
+      case 'holder':
+        return {
+          content: unit.holderId ? (
+            <Link
+              className="hover:underline"
+              params={{ userId: unit.holderId }}
+              to="/admin/users/$userId"
+            >
+              {unit.holderName ?? unit.holderEmail ?? 'Akun pemegang'}
+            </Link>
+          ) : (
+            'Belum dialokasikan'
+          ),
+        }
+      case 'nfc':
+        return {
+          content: unit.nfcEncodedAt ? 'Sudah ditulis' : 'Belum ditulis',
+          muted: true,
+        }
+      case 'status':
+        return { content: <StatusBadge status={unit.status} /> }
+      case 'activatedAt':
+        return {
+          content: unit.activatedAt
+            ? new Date(unit.activatedAt).toLocaleDateString('id-ID')
+            : '—',
+          muted: true,
+        }
+      default:
+        return { content: null }
+    }
+  }
+
+  function resetButton(unit: (typeof list.units)[number], compact = false) {
+    if (!unit.canReset) return null
+    return (
+      <Button
+        onClick={() => {
+          setResetError(null)
+          setResetTarget({ id: unit.id, publicId: unit.publicId })
+        }}
+        size="sm"
+        type="button"
+        variant={compact ? 'outline' : 'outline'}
+      >
+        {compact ? 'Reset ke gudang' : 'Reset'}
+      </Button>
+    )
+  }
+
   return (
-    <>
+    <div className="mx-auto w-full max-w-screen-xl">
       <PageHeader
+        action={
+          <ViewCustomize
+            columns={UNITS_COLUMNS}
+            onChange={setPrefs}
+            prefs={prefs}
+            view="units"
+          />
+        }
         description="Pantau NFC, tentukan pemegang, dan ikuti aktivasi setiap kartu. Reset mengembalikan kartu ke gudang supaya bisa dipasang ke toko baru dengan kode QR yang sama."
         title="Semua kartu"
       />
@@ -300,84 +405,56 @@ function UnitsListPage() {
       ) : (
         <div className="flex flex-col gap-4">
           <ul className="grid gap-2 md:hidden">
-            {list.units.map((u) => (
+            {list.units.map((unit) => (
               <li
                 className="overflow-hidden rounded-2xl bg-card ring-1 ring-border"
-                key={u.id}
+                key={unit.id}
               >
                 <Link
                   className="block p-4 transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-                  params={{ unitId: u.id }}
+                  params={{ unitId: unit.id }}
                   to="/dashboard/units/$unitId"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="font-mono text-xs text-muted-foreground">
-                        {u.publicId}
+                        {unit.publicId}
                       </p>
                       <p className="mt-1 truncate font-medium">
-                        {u.outletName ?? 'Belum diaktivasi'}
+                        {unit.outletName ?? 'Belum diaktivasi'}
                       </p>
                     </div>
-                    <StatusBadge status={u.status} />
+                    <StatusBadge status={unit.status} />
                   </div>
 
-                  <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-xs">
-                    <div className="min-w-0">
-                      <dt className="text-muted-foreground">Pemegang</dt>
-                      <dd className="mt-0.5 truncate">
-                        {u.holderId
-                          ? (u.holderName ?? u.holderEmail ?? 'Akun pemegang')
-                          : 'Belum dialokasikan'}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">NFC</dt>
-                      <dd className="mt-0.5">
-                        {u.nfcEncodedAt ? 'Sudah ditulis' : 'Belum ditulis'}
-                      </dd>
-                    </div>
-                    <div className="min-w-0">
-                      <dt className="text-muted-foreground">Cetakan</dt>
-                      <dd
-                        className="mt-0.5 truncate"
-                        title={u.batchLabel ?? undefined}
-                      >
-                        {u.batchLabel ?? '—'}
-                      </dd>
-                    </div>
-                    <div className="min-w-0">
-                      <dt className="text-muted-foreground">Rekanan</dt>
-                      <dd
-                        className="mt-0.5 truncate"
-                        title={u.partnerRef ?? undefined}
-                      >
-                        {u.partnerRef ?? '—'}
-                      </dd>
-                    </div>
-                    <div className="col-span-2 flex items-baseline justify-between gap-3">
-                      <dt className="text-muted-foreground">Aktivasi</dt>
-                      <dd className="tabular-nums">
-                        {u.activatedAt
-                          ? new Date(u.activatedAt).toLocaleDateString('id-ID')
-                          : 'Belum'}
-                      </dd>
-                    </div>
-                  </dl>
+                  {mobileColumns.length > 0 ? (
+                    <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-xs">
+                      {mobileColumns.map((column) => {
+                        const cell = unitCell(unit, column.key)
+                        return (
+                          <div className="min-w-0" key={column.key}>
+                            <dt className="text-muted-foreground">
+                              {column.label}
+                            </dt>
+                            <dd
+                              className="mt-0.5 truncate"
+                              title={
+                                typeof cell.content === 'string'
+                                  ? cell.content
+                                  : undefined
+                              }
+                            >
+                              {cell.content}
+                            </dd>
+                          </div>
+                        )
+                      })}
+                    </dl>
+                  ) : null}
                 </Link>
-                {u.canReset ? (
+                {unit.canReset ? (
                   <div className="border-t border-border px-4 py-3">
-                    <Button
-                      onClick={() => {
-                        setResetError(null)
-                        setResetTarget({ id: u.id, publicId: u.publicId })
-                      }}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      Reset ke gudang
-                    </Button>
+                    {resetButton(unit, true)}
                   </div>
                 ) : null}
               </li>
@@ -387,71 +464,26 @@ function UnitsListPage() {
           <div className="hidden md:block">
             <DataTable>
               <DataTableHead
-                columns={[
-                  'Kode',
-                  'Tempat',
-                  'Cetakan',
-                  'Rekanan',
-                  'Pemegang',
-                  'NFC',
-                  'Status',
-                  'Aktivasi',
-                  '',
-                ]}
+                columns={[...visibleColumns.map((column) => column.label), '']}
+                density={prefs.density}
               />
               <tbody>
-                {list.units.map((u) => (
-                  <tr key={u.id}>
-                    <DataTableCell>
-                      <Link
-                        className="font-medium hover:underline"
-                        params={{ unitId: u.id }}
-                        to="/dashboard/units/$unitId"
-                      >
-                        {u.publicId}
-                      </Link>
-                    </DataTableCell>
-                    <DataTableCell>{u.outletName ?? '—'}</DataTableCell>
-                    <DataTableCell muted>{u.batchLabel ?? '—'}</DataTableCell>
-                    <DataTableCell muted>{u.partnerRef ?? '—'}</DataTableCell>
-                    <DataTableCell>
-                      {u.holderId ? (
-                        <Link
-                          className="hover:underline"
-                          params={{ userId: u.holderId }}
-                          to="/admin/users/$userId"
+                {list.units.map((unit) => (
+                  <tr key={unit.id}>
+                    {visibleColumns.map((column) => {
+                      const cell = unitCell(unit, column.key)
+                      return (
+                        <DataTableCell
+                          density={prefs.density}
+                          key={column.key}
+                          muted={cell.muted}
                         >
-                          {u.holderName ?? u.holderEmail ?? 'Akun pemegang'}
-                        </Link>
-                      ) : (
-                        'Belum dialokasikan'
-                      )}
-                    </DataTableCell>
-                    <DataTableCell muted>
-                      {u.nfcEncodedAt ? 'Sudah ditulis' : 'Belum ditulis'}
-                    </DataTableCell>
-                    <DataTableCell>
-                      <StatusBadge status={u.status} />
-                    </DataTableCell>
-                    <DataTableCell muted>
-                      {u.activatedAt
-                        ? new Date(u.activatedAt).toLocaleDateString('id-ID')
-                        : '—'}
-                    </DataTableCell>
-                    <DataTableCell>
-                      {u.canReset ? (
-                        <Button
-                          onClick={() => {
-                            setResetError(null)
-                            setResetTarget({ id: u.id, publicId: u.publicId })
-                          }}
-                          size="sm"
-                          type="button"
-                          variant="outline"
-                        >
-                          Reset
-                        </Button>
-                      ) : null}
+                          {cell.content}
+                        </DataTableCell>
+                      )
+                    })}
+                    <DataTableCell density={prefs.density}>
+                      {resetButton(unit)}
                     </DataTableCell>
                   </tr>
                 ))}
@@ -507,6 +539,6 @@ function UnitsListPage() {
         pending={resetting}
         title="Reset kartu ke gudang?"
       />
-    </>
+    </div>
   )
 }
