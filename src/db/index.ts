@@ -1,4 +1,4 @@
-export { db, getDb, insertBatchWithUnits } from '#db-runtime'
+export { db, getDb, insertBatchWithUnits, replaceRoleGrantRows } from '#db-runtime'
 export type {
   AppDb,
   InsertedStockBatch,

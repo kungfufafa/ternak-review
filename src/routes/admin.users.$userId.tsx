@@ -1,4 +1,4 @@
-import { createFileRoute, Link, notFound, useRouter } from '@tanstack/react-router'
+import { createFileRoute, Link, notFound, useRouteContext, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
 import { useState, type FormEvent } from 'react'
 import { ConfirmDelete } from '#/components/confirm-delete'
@@ -15,13 +15,11 @@ import {
   CardTitle,
 } from '#/components/ui/card'
 import { Field, FieldDescription, FieldLabel } from '#/components/ui/field'
-import { Input } from '#/components/ui/input'
+import { Input, Select } from '#/components/ui/input'
 import { Spinner } from '#/components/ui/spinner'
+import { can } from '#/lib/access'
 import {
-  assignUnitToHolderFn,
   getHolderFn,
-  getUnitDetailFn,
-  listUnitsFn,
   resetHolderPasswordFn,
   resetHolderPinFn,
   setHolderStatusFn,
@@ -43,18 +41,17 @@ export const Route = createFileRoute('/admin/users/$userId')({
 
 function UserDetailPage() {
   const { user } = Route.useLoaderData()
+  const { owner } = useRouteContext({ from: '/admin' })
+  const canHandoff = can(owner.permissions, 'holders.manage')
   const router = useRouter()
   const updateProfile = useServerFn(updateHolderProfileFn)
   const setStatus = useServerFn(setHolderStatusFn)
   const resetPin = useServerFn(resetHolderPinFn)
   const resetPassword = useServerFn(resetHolderPasswordFn)
-  const assignCard = useServerFn(assignUnitToHolderFn)
-  const findCards = useServerFn(listUnitsFn)
-  const getCardDetail = useServerFn(getUnitDetailFn)
   const unassign = useServerFn(unassignUnitFn)
   const [name, setName] = useState(user.name ?? '')
   const [whatsapp, setWhatsapp] = useState(user.whatsapp ?? '')
-  const [publicId, setPublicId] = useState('')
+  const [role, setRole] = useState(user.role)
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -65,9 +62,6 @@ function UserDetailPage() {
   } | null>(null)
   const [saved, setSaved] = useState(false)
   const [statusConfirmOpen, setStatusConfirmOpen] = useState(false)
-  const [pendingTransfer, setPendingTransfer] = useState<
-    NonNullable<Awaited<ReturnType<typeof getUnitDetailFn>>> | null
-  >(null)
   const [pendingRemoval, setPendingRemoval] = useState<
     (typeof user.cards)[number] | null
   >(null)
@@ -82,37 +76,10 @@ function UserDetailPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal menyimpan.')
       setStatusConfirmOpen(false)
-      setPendingTransfer(null)
       setPendingRemoval(null)
     } finally {
       setBusy(false)
     }
-  }
-
-  async function prepareAssignment() {
-    const code = publicId.trim().toUpperCase()
-    await run(async () => {
-      for (let page = 1; ; page += 1) {
-        const result = await findCards({ data: { q: code, page, pageSize: 100 } })
-        const card = result.units.find((item) => item.publicId === code)
-        if (card) {
-          const detail = await getCardDetail({ data: { unitId: card.id } })
-          if (!detail) throw new Error('Kartu tidak ditemukan.')
-          if (detail.holder && detail.holder.id !== user.id) {
-            setPendingTransfer(detail)
-            return
-          }
-          if (detail.holder?.id === user.id) {
-            throw new Error(`${code} sudah terhubung ke akun ini.`)
-          }
-          await assignCard({ data: { ownerId: user.id, unitId: detail.id } })
-          setPublicId('')
-          setSaved(true)
-          return
-        }
-        if (page >= result.pageCount) throw new Error('Kartu tidak ditemukan.')
-      }
-    })
   }
 
   return (
@@ -167,7 +134,7 @@ function UserDetailPage() {
             event.preventDefault()
             void run(async () => {
               await updateProfile({
-                data: { userId: user.id, name, whatsapp },
+                data: { userId: user.id, name, whatsapp, role },
               })
               setSaved(true)
             })
@@ -182,6 +149,20 @@ function UserDetailPage() {
                 onChange={(event) => setName(event.target.value)}
                 value={name}
               />
+            </Field>
+            <Field className="mt-4">
+              <FieldLabel htmlFor="holder-role">Peran</FieldLabel>
+              <Select
+                id="holder-role"
+                onChange={(event) => setRole(event.target.value)}
+                value={role}
+              >
+                {user.roles.map((item) => (
+                  <option key={item.key} value={item.key}>
+                    {item.name}
+                  </option>
+                ))}
+              </Select>
             </Field>
             <Field className="mt-4">
               <FieldLabel htmlFor="holder-whatsapp">WhatsApp</FieldLabel>
@@ -267,40 +248,16 @@ function UserDetailPage() {
         <CardHeader>
           <CardTitle>Kartu</CardTitle>
           <CardDescription>
-            Tempel kode kartu untuk menghubungkan ke akun ini. PIN akun dipakai
-            saat aktivasi publik.
+            Scan kartu supaya nempel ke akun ini. PIN akun dipakai saat aktivasi.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <form
-            className="flex flex-col gap-3 sm:flex-row"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void prepareAssignment()
-            }}
-          >
-            <Input
-              className="sm:flex-1"
-              aria-label="Kode kartu yang akan dihubungkan"
-              disabled={busy || user.status !== 'ACTIVE'}
-              maxLength={32}
-              onChange={(event) => setPublicId(event.target.value.toUpperCase())}
-              placeholder="Kode kartu"
-              required
-              value={publicId}
-            />
-            <Button
-              disabled={busy || publicId.trim().length < 4 || user.status !== 'ACTIVE'}
-              type="submit"
-            >
-              {busy ? <Spinner data-icon="inline-start" /> : null}
-              Hubungkan kartu
+          {canHandoff ? (
+            <Button asChild>
+              <Link search={{ holder: user.id }} to="/admin/users/serah">
+                Serahkan kartu
+              </Link>
             </Button>
-          </form>
-          {user.status !== 'ACTIVE' ? (
-            <p className="text-sm text-muted-foreground">
-              Aktifkan akun terlebih dahulu untuk menghubungkan kartu.
-            </p>
           ) : null}
           {user.cards.length === 0 ? (
             <p className="text-sm text-muted-foreground">Belum ada kartu.</p>
@@ -368,27 +325,6 @@ function UserDetailPage() {
         pending={busy}
         title={user.status === 'ACTIVE' ? 'Nonaktifkan akun pemegang?' : 'Aktifkan akun pemegang?'}
         variant={user.status === 'ACTIVE' ? 'destructive' : 'default'}
-      />
-
-      <ConfirmDelete
-        confirmLabel="Pindahkan pemegang"
-        description={`${pendingTransfer?.holder?.name ?? pendingTransfer?.holder?.email ?? 'Pemegang lama'} tidak lagi bisa kelola ${pendingTransfer?.publicId ?? 'kartu ini'}. Akses pindah ke ${user.name ?? user.email}. Toko dan paket tidak berubah.`}
-        onConfirm={() =>
-          run(async () => {
-            if (!pendingTransfer) return
-            await assignCard({ data: { ownerId: user.id, unitId: pendingTransfer.id } })
-            setPendingTransfer(null)
-            setPublicId('')
-            setSaved(true)
-          })
-        }
-        onOpenChange={(open) => {
-          if (!open && !busy) setPendingTransfer(null)
-        }}
-        open={pendingTransfer !== null}
-        pending={busy}
-        title="Pindahkan kartu ke akun ini?"
-        variant="default"
       />
 
       <ConfirmDelete

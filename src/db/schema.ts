@@ -37,9 +37,7 @@ export const owners = sqliteTable('owners', {
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash'),
   name: text('name'),
-  role: text('role', { enum: ['ADMIN', 'USER'] })
-    .notNull()
-    .default('ADMIN'),
+  role: text('role').notNull().default('ADMIN'),
   status: text('status', { enum: ['ACTIVE', 'DISABLED'] })
     .notNull()
     .default('ACTIVE'),
@@ -49,6 +47,21 @@ export const owners = sqliteTable('owners', {
     .notNull()
     .$defaultFn(now),
 }, (t) => [uniqueIndex('owners_whatsapp_unique').on(t.whatsapp)])
+
+export const accessRoles = sqliteTable('access_roles', {
+  key: text('key').primaryKey(),
+  name: text('name').notNull(),
+  system: integer('system', { mode: 'boolean' }).notNull().default(false),
+})
+
+export const roleGrants = sqliteTable(
+  'role_grants',
+  {
+    role: text('role').notNull(),
+    permission: text('permission').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.role, t.permission] })],
+)
 
 export const sessions = sqliteTable(
   'sessions',
@@ -153,7 +166,7 @@ export const prospects = sqliteTable(
   'prospects',
   {
     id: text('id').primaryKey().$defaultFn(uuid),
-    googlePlaceId: text('google_place_id').notNull().unique(),
+    googlePlaceId: text('google_place_id').notNull(),
     name: text('name').notNull(),
     formattedAddress: text('formatted_address'),
     rating: real('rating'),
@@ -203,6 +216,7 @@ export const prospects = sqliteTable(
     index('prospects_trial_ends_idx').on(t.trialEndsAt),
     index('prospects_partner_idx').on(t.partnerRef),
     index('prospects_created_idx').on(t.createdAt),
+    uniqueIndex('prospects_owner_place_idx').on(t.createdByOwnerId, t.googlePlaceId),
   ],
 )
 

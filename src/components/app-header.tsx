@@ -1,6 +1,7 @@
 "use client"
 
 import { useRouterState } from "@tanstack/react-router"
+import { useAdminUser } from "#/components/admin-user"
 import { AppBreadcrumbs } from "#/components/app-breadcrumbs.tsx"
 import { getActivePage } from "#/components/app-shared.tsx"
 import { CustomSidebarTrigger } from "#/components/custom-sidebar-trigger.tsx"
@@ -9,8 +10,9 @@ import { Separator } from "#/components/ui/separator.tsx"
 import { cn } from "#/lib/utils.ts"
 
 export function AppHeader() {
+  const { permissions } = useAdminUser()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const page = getActivePage(pathname)
+  const page = getActivePage(pathname, permissions)
 
   return (
     <header

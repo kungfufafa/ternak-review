@@ -35,6 +35,7 @@ import {
   SheetTitle,
 } from "#/components/ui/sheet"
 import { Spinner } from "#/components/ui/spinner"
+import { roleLabel } from "#/lib/access"
 import { changePasswordFn, logoutFn } from "#/server/functions"
 
 export function NavUser() {
@@ -42,8 +43,8 @@ export function NavUser() {
   const logout = useServerFn(logoutFn)
   const changePassword = useServerFn(changePasswordFn)
   const router = useRouter()
-  const roleLabel = role === 'ADMIN' ? 'Admin' : 'Pemegang kartu'
-  const displayName = name?.trim() || roleLabel
+  const accountLabel = roleLabel(role)
+  const displayName = name?.trim() || accountLabel
   const identity = email.endsWith('@wa.holder') ? email.split('@')[0] : email
   const initial = (displayName[0] ?? "A").toUpperCase()
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -106,7 +107,7 @@ export function NavUser() {
                 {displayName}
               </span>
               <span className="truncate text-xs text-muted-foreground">
-                {roleLabel} · {identity}
+                {accountLabel} · {identity}
               </span>
             </span>
           </DropdownMenuLabel>

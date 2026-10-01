@@ -1,9 +1,10 @@
-import { and, desc, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { db } from '#/db'
 import { emailOtps, loginOtps, owners } from '#/db/schema'
 import { hashToken, timingSafeEqualText } from '#/lib/crypto'
 import { normalizeWhatsapp } from '#/server/review'
 import { createSessionForOwner, type OwnerRole } from './auth'
+import { holderRoleKeys } from './role-access'
 import { isSmtpReady, sendAppEmail } from './smtp'
 import { isWhatsappGatewayOpen, queueWhatsappOutbox } from './whatsapp'
 
@@ -38,7 +39,7 @@ export async function requestLoginOtp(whatsappRaw: string) {
   const owner = await db.query.owners.findFirst({
     where: and(
       eq(owners.whatsapp, whatsapp),
-      eq(owners.role, 'USER'),
+      inArray(owners.role, await holderRoleKeys()),
       eq(owners.status, 'ACTIVE'),
     ),
   })
@@ -81,7 +82,7 @@ export async function verifyLoginOtp(whatsappRaw: string, codeRaw: string) {
   const owner = await db.query.owners.findFirst({
     where: and(
       eq(owners.whatsapp, whatsapp),
-      eq(owners.role, 'USER'),
+      inArray(owners.role, await holderRoleKeys()),
       eq(owners.status, 'ACTIVE'),
     ),
   })
@@ -137,7 +138,7 @@ async function findActiveOwnerByEmail(email: string) {
 }
 
 function sessionRole(role: string): OwnerRole {
-  return role === 'ADMIN' ? 'ADMIN' : 'USER'
+  return role
 }
 
 export async function requestEmailLoginOtp(emailRaw: string) {

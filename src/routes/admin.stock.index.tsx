@@ -1,4 +1,4 @@
-import { createFileRoute, Link, redirect, useRouter } from '@tanstack/react-router'
+import { createFileRoute, Link, redirect, useRouteContext, useRouter } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
 import { HashIcon, PrinterIcon, SearchIcon } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
@@ -62,6 +62,7 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from '#/components/ui/toggle-group'
+import { can } from '#/lib/access'
 import { formatDay } from '#/lib/utils'
 import {
   deleteStockBatchFn,
@@ -107,6 +108,8 @@ const STOCK_COLUMNS: ViewColumnDef[] = [
 function AdminStockPage() {
   const { batches, appUrl, prefs: savedPrefs, cardDesign } =
     Route.useLoaderData()
+  const { owner } = useRouteContext({ from: '/admin' })
+  const canHandoff = can(owner.permissions, 'holders.manage')
   const generate = useServerFn(generateStockFn)
   const removeBatch = useServerFn(deleteStockBatchFn)
   const router = useRouter()
@@ -229,18 +232,25 @@ function AdminStockPage() {
     return (
       <>
         {batch.remaining === 0 ? null : next === 'ready' ? (
-          <Button asChild size="sm" variant="outline">
-            <Link
-              search={{
-                batch: batch.id,
-                status: batch.inStock > 0 ? 'IN_STOCK' : undefined,
-                ownership: batch.available > 0 ? 'unassigned' : undefined,
-              }}
-              to="/dashboard/units"
-            >
-              {batch.available > 0 ? 'Atur pemegang' : 'Kelola kartu'}
-            </Link>
-          </Button>
+          <>
+            {canHandoff ? (
+              <Button asChild size="sm">
+                <Link to="/admin/users/serah">Serahkan kartu</Link>
+              </Button>
+            ) : null}
+            <Button asChild size="sm" variant={canHandoff ? 'outline' : 'default'}>
+              <Link
+                search={{
+                  batch: batch.id,
+                  status: batch.inStock > 0 ? 'IN_STOCK' : undefined,
+                  ownership: batch.available > 0 ? 'unassigned' : undefined,
+                }}
+                to="/dashboard/units"
+              >
+                {canHandoff || batch.available === 0 ? 'Kelola kartu' : 'Atur pemegang'}
+              </Link>
+            </Button>
+          </>
         ) : next === 'nfc' ? (
           <Button asChild size="sm">
             <Link search={{ batch: batch.id }} to="/admin/stock/nfc">
@@ -321,7 +331,7 @@ function AdminStockPage() {
             withMode
           />
         }
-        description="Buat QR → cetak → tulis NFC → tentukan pemegang → aktivasi toko."
+        description="Buat QR → cetak → tulis NFC → serahkan ke pemegang → aktivasi toko."
         title="Produksi"
       />
 

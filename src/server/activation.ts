@@ -1,10 +1,11 @@
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { db } from '#/db'
 import { owners, units } from '#/db/schema'
+import { holderRoleKeys, storedPermissions } from '#/server/role-access'
 import { hashPin, normalizePin, pinMatches } from '#/lib/pin'
 import { upsertOutletFromPlace } from './outlets'
 import { getPlaceDetails } from './places'
-import { resetUnitToStock } from './clicks'
+import { releaseCardFromShop } from './clicks'
 import {
   collectProspectForUnit,
   convertProspectToSold,
@@ -62,12 +63,16 @@ export async function getActivationCard(publicId: string) {
  */
 export async function getActivationCardForViewer(
   publicId: string,
-  viewer: { ownerId: string; role: 'ADMIN' | 'USER' } | null,
+  viewer: { ownerId: string; role: string } | null,
 ) {
   const card = await getActivationCard(publicId)
   if (!card) return null
-  const isAdmin = viewer?.role === 'ADMIN'
-  const isHolder = viewer?.role === 'USER' && viewer.ownerId === card.ownerId
+  const isAdmin = viewer
+    ? (await storedPermissions(viewer.role)).has('home.read')
+    : false
+  const isHolder = Boolean(
+    viewer && card.ownerId && viewer.ownerId === card.ownerId && !isAdmin,
+  )
   return {
     id: card.id,
     publicId: card.publicId,
@@ -88,7 +93,7 @@ export async function verifyActivationAccess(input: {
   pin?: string
   clientKey?: string | null
   sessionOwnerId?: string | null
-  sessionRole?: 'ADMIN' | 'USER' | null
+  sessionRole?: string | null
 }) {
   const publicId = input.publicId.trim().toUpperCase()
   const unit = await db.query.units.findFirst({
@@ -112,7 +117,7 @@ export async function activateUnit(input: {
   clientKey?: string | null
   pin?: string
   sessionOwnerId?: string | null
-  sessionRole?: 'ADMIN' | 'USER' | null
+  sessionRole?: string | null
   installKind?: 'TRIAL' | 'SOLD'
   trialDays?: number
 }) {
@@ -129,13 +134,11 @@ export async function activateUnit(input: {
 
   // Do this only after the caller has proved access. Otherwise an attacker
   // can spend the shared card bucket with bad PIN submissions and block the
-  // legitimate holder or admin from finishing activation. A truly public,
-  // unassigned card uses the client bucket only, so abuse before assignment
-  // cannot poison the later holder's card bucket.
+  // legitimate holder or admin from finishing activation.
   if (
     actor.holderOwnerId ||
     input.sessionOwnerId ||
-    input.sessionRole === 'ADMIN'
+    (await storedPermissions(input.sessionRole)).has('home.read')
   ) {
     await assertRateLimit(
       `activate-card:${hashRateLimitIdentifier(publicId)}`,
@@ -182,6 +185,7 @@ export async function activateUnit(input: {
     throw new Error('Aktivasi gagal — kartu mungkin sudah diklaim')
   }
 
+  const prospectOwnerId = input.sessionOwnerId ?? actor.holderOwnerId ?? null
   await upsertProspectRecord({
     googlePlaceId: details.placeId,
     name: details.name,
@@ -191,7 +195,7 @@ export async function activateUnit(input: {
     googleMapsUri: details.googleMapsUri,
     primaryType: details.primaryType,
     partnerRef,
-    createdByOwnerId: input.sessionOwnerId,
+    createdByOwnerId: prospectOwnerId,
   })
   const prospect = await markProspectInstalledForPlace({
     googlePlaceId: details.placeId,
@@ -199,6 +203,7 @@ export async function activateUnit(input: {
     partnerRef,
     installKind: input.installKind ?? 'TRIAL',
     trialDays: input.trialDays,
+    ownerId: prospectOwnerId,
   })
 
   return {
@@ -244,12 +249,14 @@ export async function rebindUnitOutlet(input: {
     googleMapsUri: details.googleMapsUri,
     primaryType: details.primaryType,
     partnerRef: unit.partnerRef,
+    createdByOwnerId: input.actorOwnerId ?? null,
   })
   await markProspectInstalledForPlace({
     googlePlaceId: details.placeId,
     unitId: unit.id,
     partnerRef: unit.partnerRef,
     installKind: nextKind,
+    ownerId: input.actorOwnerId ?? null,
   })
   return { outlet: details }
 }
@@ -269,7 +276,12 @@ export async function attachProspectToCard(input: {
   trialDays?: number
 }) {
   const prospect = await getProspect(input.prospectId)
-  if (!prospect) throw new Error('Prospek tidak ditemukan.')
+  if (
+    !prospect ||
+    (input.sessionOwnerId && prospect.createdByOwnerId !== input.sessionOwnerId)
+  ) {
+    throw new Error('Prospek tidak ditemukan.')
+  }
   if (prospect.installState === 'sold' && prospect.unitId) {
     throw new Error('Toko ini sudah closing dan kartunya masih terpasang.')
   }
@@ -327,18 +339,20 @@ export async function attachPlaceToCard(input: {
   })
 }
 
-export async function collectProspectTrial(id: string) {
+export async function collectProspectTrial(id: string, ownerId?: string | null) {
   const prospect = await getProspect(id)
-  if (!prospect) throw new Error('Prospek tidak ditemukan.')
+  if (!prospect || (ownerId && prospect.createdByOwnerId !== ownerId)) {
+    throw new Error('Prospek tidak ditemukan.')
+  }
   if (prospect.installKind !== 'TRIAL' || prospect.trialCollectedAt) {
     throw new Error('Prospek ini tidak sedang trial.')
   }
   if (!prospect.unitId) {
     throw new Error('Kartu trial sudah tidak terpasang.')
   }
-  const reset = await resetUnitToStock(prospect.unitId)
-  if (!reset.ok) {
-    throw new Error(reset.error)
+  const released = await releaseCardFromShop(prospect.unitId)
+  if (!released.ok) {
+    throw new Error(released.error)
   }
   const collected = await getProspect(id)
   if (!collected) throw new Error('Prospek tidak ditemukan.')
@@ -398,7 +412,7 @@ async function findHolderByPin(pin: string) {
   }
   return db.query.owners.findMany({
     where: and(
-      eq(owners.role, 'USER'),
+      inArray(owners.role, await holderRoleKeys()),
       eq(owners.status, 'ACTIVE'),
       eq(owners.pinHash, pinHash),
     ),
@@ -421,13 +435,17 @@ async function assertHolderMayActivate(
     pin?: string
     clientKey?: string | null
     sessionOwnerId?: string | null
-    sessionRole?: 'ADMIN' | 'USER' | null
+    sessionRole?: string | null
   },
 ): Promise<{ holderOwnerId: string | null }> {
-  if (input.sessionRole === 'ADMIN') {
+  if ((await storedPermissions(input.sessionRole)).has('home.read')) {
     return { holderOwnerId: unit.ownerId }
   }
-  if (unit.ownerId && unit.owner?.role === 'USER') {
+  const holderAccount =
+    unit.ownerId &&
+    unit.owner &&
+    !(await storedPermissions(unit.owner.role)).has('home.read')
+  if (holderAccount && unit.owner) {
     if (unit.owner.status !== 'ACTIVE') {
       throw new Error(
         'Akun pemegang dinonaktifkan. Hubungi admin untuk mengaktifkan akun sebelum memasang kartu.',
@@ -447,9 +465,6 @@ async function assertHolderMayActivate(
     }
     await clearSuccessfulPinAttempt(unit.publicId, input.clientKey)
     return { holderOwnerId: unit.ownerId }
-  }
-  if (!input.pin && !input.sessionOwnerId && !input.sessionRole) {
-    return { holderOwnerId: null }
   }
   if (!input.pin) {
     throw new Error(

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { storedPermissions } from '#/server/role-access'
 import { getSessionOwner, type SessionOwner } from '#/server/auth'
 
 export const mobileCorsHeaders = {
@@ -31,7 +32,7 @@ export async function readJsonBody(request: Request) {
 export async function requireMobileAdmin(): Promise<SessionOwner> {
   const owner = await getSessionOwner()
   if (!owner) throw new Error('UNAUTHORIZED')
-  if (owner.role !== 'ADMIN') throw new Error('FORBIDDEN')
+  if (!(await storedPermissions(owner.role)).has('home.read')) throw new Error('FORBIDDEN')
   return owner
 }
 

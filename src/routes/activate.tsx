@@ -20,6 +20,7 @@ import {
   InputGroupInput,
 } from '#/components/ui/input-group'
 import { Spinner } from '#/components/ui/spinner'
+import { isStaff } from '#/lib/access'
 import { parseCode } from '#/lib/card-code'
 import { DEFAULT_TRIAL_DAYS } from '#/lib/place-rating'
 import type { ServiceTier } from '#/lib/review-settings'
@@ -75,7 +76,7 @@ export const Route = createFileRoute('/activate')({
       return { card: null as null, session }
     }
     if (card.status !== 'IN_STOCK') {
-      if (session?.role === 'ADMIN') {
+      if (session && isStaff(session.permissions)) {
         throw redirect({ params: { unitId: card.id }, to: '/dashboard/units/$unitId' })
       }
       if (card.isHolder) {
@@ -111,16 +112,11 @@ function ActivatePage() {
   const router = useRouter()
 
   const publicId = (card?.publicId ?? prefillId).toUpperCase()
-  const isAdmin = session?.role === 'ADMIN'
+  const isAdmin = session ? isStaff(session.permissions) : false
   const isHolder = Boolean(card?.isHolder)
-  const publicUnassigned = Boolean(
-    !session && card?.status === 'IN_STOCK' && !card.hasOwner,
-  )
-  const skipPin = isAdmin || isHolder || publicUnassigned
+  const skipPin = isAdmin || isHolder
   const otherAccount = Boolean(
-    session?.role === 'USER' &&
-      card?.hasOwner &&
-      !card.isHolder,
+    session && !isAdmin && card?.hasOwner && !isHolder,
   )
   const [step, setStep] = useState<Step>(() => (skipPin ? 'outlet' : 'pin'))
   const [pin, setPin] = useState('')
@@ -364,8 +360,8 @@ function ActivatePage() {
       {error ? <Alert variant="danger">{error}</Alert> : null}
       {otherAccount && step === 'pin' ? (
         <Alert>
-          Kamu masuk dengan akun lain. Pakai PIN pemegang kartu ini, atau masuk
-          pakai akun yang memegangnya.
+          Kamu masuk dengan akun lain. Masukkan PIN pemegang kartu ini, atau
+          masuk dengan akun yang memegangnya.
         </Alert>
       ) : null}
       {isAdmin && step === 'outlet' ? (
@@ -375,19 +371,13 @@ function ActivatePage() {
             : 'Belum ada pemegang. Setelah toko terpasang, tetapkan akun di halaman kartu agar toko bisa kelola dari aplikasi.'}
         </p>
       ) : null}
-      {publicUnassigned && step === 'outlet' ? (
-        <p className="text-sm text-muted-foreground">
-          Kartu publik ini belum memiliki pemegang. Pilih toko sekarang; admin
-          dapat menetapkan pemegang setelah aktivasi.
-        </p>
-      ) : null}
 
       {step === 'pin' ? (
         <form className="flex flex-col gap-4" onSubmit={onVerifyPin}>
           <p className="text-sm text-muted-foreground">
             {card.hasOwner
-              ? 'Masukkan PIN aktivasi 4 digit dari admin, atau masuk dengan akun pemegang kartu ini untuk melanjutkan tanpa PIN.'
-              : 'Kartu belum memiliki pemegang. PIN aktivasi akunmu akan menghubungkan kartu ini ke akun tersebut. Jika belum punya akun atau PIN, hubungi admin.'}
+              ? 'Masukkan PIN pemegang kartu ini. PIN memastikan yang mengaktifkan adalah orang yang tepat.'
+              : 'Masukkan PIN akun yang akan memegang kartu ini.'}
           </p>
           <InputGroup>
             <InputGroupInput

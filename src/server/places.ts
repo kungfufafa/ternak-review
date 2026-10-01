@@ -32,6 +32,14 @@ export type PlaceSuggestion = {
   userRatingCount: number | null
   googleMapsUri: string | null
   primaryType: string | null
+  businessStatus?: string | null
+  hasPhone?: boolean
+  hasWebsite?: boolean
+  hasHours?: boolean
+  hasPhotos?: boolean
+  serviceAreaOnly?: boolean
+  newestReviewAt?: number | null
+  lowReviewShare?: number | null
 }
 
 export type PlaceDetails = {
@@ -89,6 +97,14 @@ function suggestion(
     userRatingCount?: number | null
     googleMapsUri?: string | null
     primaryType?: string | null
+    businessStatus?: string | null
+    hasPhone?: boolean
+    hasWebsite?: boolean
+    hasHours?: boolean
+    hasPhotos?: boolean
+    serviceAreaOnly?: boolean
+    newestReviewAt?: number | null
+    lowReviewShare?: number | null
     stubMetrics?: boolean
   },
 ): PlaceSuggestion {
@@ -106,7 +122,69 @@ function suggestion(
     userRatingCount: normalizeReviewCount(metrics?.userRatingCount ?? null),
     googleMapsUri: extra?.googleMapsUri ?? null,
     primaryType: extra?.primaryType ?? null,
+    businessStatus: extra?.businessStatus,
+    hasPhone: extra?.hasPhone,
+    hasWebsite: extra?.hasWebsite,
+    hasHours: extra?.hasHours,
+    hasPhotos: extra?.hasPhotos,
+    serviceAreaOnly: extra?.serviceAreaOnly,
+    newestReviewAt: extra?.newestReviewAt ?? null,
+    lowReviewShare: extra?.lowReviewShare ?? null,
   }
+}
+
+const BASIC_TEXT_MASK =
+  'nextPageToken,places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.googleMapsUri,places.primaryType'
+
+const PROSPECT_TEXT_MASK = [
+  BASIC_TEXT_MASK,
+  'places.businessStatus',
+  'places.nationalPhoneNumber',
+  'places.websiteUri',
+  'places.regularOpeningHours.weekdayDescriptions',
+  'places.pureServiceAreaBusiness',
+].join(',')
+
+const BASIC_NEARBY_MASK =
+  'places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.googleMapsUri,places.primaryType'
+
+const PROSPECT_NEARBY_MASK = [
+  BASIC_NEARBY_MASK,
+  'places.businessStatus',
+  'places.nationalPhoneNumber',
+  'places.websiteUri',
+  'places.regularOpeningHours.weekdayDescriptions',
+  'places.pureServiceAreaBusiness',
+].join(',')
+
+type GooglePlaceRow = {
+  id?: string
+  displayName?: { text?: string }
+  formattedAddress?: string
+  rating?: number
+  userRatingCount?: number
+  googleMapsUri?: string
+  primaryType?: string
+  businessStatus?: string
+  nationalPhoneNumber?: string
+  websiteUri?: string
+  regularOpeningHours?: { weekdayDescriptions?: string[] }
+  pureServiceAreaBusiness?: boolean
+}
+
+function suggestionFromGooglePlace(place: GooglePlaceRow) {
+  if (!place.id || !place.displayName?.text) return null
+  return suggestion(place.id, place.displayName.text, place.formattedAddress ?? null, {
+    rating: place.rating,
+    userRatingCount: place.userRatingCount,
+    googleMapsUri: place.googleMapsUri,
+    primaryType: place.primaryType,
+    businessStatus: place.businessStatus ?? null,
+    hasPhone: Boolean(place.nationalPhoneNumber?.trim()),
+    hasWebsite: Boolean(place.websiteUri?.trim()),
+    hasHours: (place.regularOpeningHours?.weekdayDescriptions?.length ?? 0) > 0,
+    serviceAreaOnly: place.pureServiceAreaBusiness === true,
+  })
 }
 
 function stubCityPlaces(city: string): PlaceSuggestion[] {
@@ -372,6 +450,7 @@ export async function nearbyPlacesByTypes(
 export async function nearbyPlaces(input: {
   loc: LatLng
   includedTypes?: string[]
+  signals?: boolean
 }): Promise<PlaceSearchResult> {
   await assertPlacesConfiguredForProduction()
   if (!(await isGooglePlacesConfigured())) {
@@ -388,7 +467,57 @@ export async function nearbyPlaces(input: {
     }
   }
 
-  return nearbyPlacesNew(input.loc, input.includedTypes)
+  try {
+    return await nearbyPlacesNew(input.loc, input.includedTypes, input.signals === true)
+  } catch (err) {
+    if (!isPlacesQuotaError(err)) throw err
+    try {
+      const nearby = nearbyActivationLookup()
+      return await textSearchPlacesPaged({
+        query: nearbyFallbackQuery(input.includedTypes),
+        loc: input.loc,
+        radius: nearby.locationRestrictionRadiusM,
+        maxPages: 1,
+      })
+    } catch (fallbackErr) {
+      if (isPlacesQuotaError(fallbackErr)) {
+        throw new Error('Kuota pencarian Google untuk hari ini sudah habis. Coba lagi besok.')
+      }
+      throw fallbackErr
+    }
+  }
+}
+
+function isPlacesQuotaError(err: unknown) {
+  const message = err instanceof Error ? err.message : ''
+  return message.includes('Quota exceeded') || message.includes('RESOURCE_EXHAUSTED')
+}
+
+function nearbyFallbackQuery(types?: string[]) {
+  const labels: Record<string, string> = {
+    coffee_shop: 'kafe',
+    cafe: 'kafe',
+    restaurant: 'restoran',
+    bakery: 'toko roti',
+    meal_takeaway: 'makanan',
+    bar: 'bar',
+    store: 'toko',
+    convenience_store: 'minimarket',
+    supermarket: 'supermarket',
+    clothing_store: 'toko pakaian',
+    hair_salon: 'salon',
+    beauty_salon: 'salon',
+    barber_shop: 'barbershop',
+    spa: 'spa',
+    dentist: 'dokter gigi',
+    doctor: 'klinik',
+    pharmacy: 'apotek',
+    veterinary_care: 'klinik hewan',
+  }
+  const words = [
+    ...new Set((types ?? []).map((type) => labels[type] ?? type.replaceAll('_', ' '))),
+  ]
+  return words.length > 0 ? words.join(' ') : 'kafe restoran toko'
 }
 
 export function nearbySearchBody(loc: LatLng, includedTypes?: string[]) {
@@ -408,35 +537,17 @@ export function nearbySearchBody(loc: LatLng, includedTypes?: string[]) {
 async function nearbyPlacesNew(
   loc: LatLng,
   includedTypes?: string[],
+  signals = false,
 ): Promise<PlaceSearchResult> {
   const body = nearbySearchBody(loc, includedTypes)
 
-  const data = await placesNew<{
-    places?: Array<{
-      id?: string
-      displayName?: { text?: string }
-      formattedAddress?: string
-      rating?: number
-      userRatingCount?: number
-      googleMapsUri?: string
-      primaryType?: string
-    }>
-  }>('/places:searchNearby', {
-    fieldMask:
-      'places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.googleMapsUri,places.primaryType',
+  const data = await placesNew<{ places?: GooglePlaceRow[] }>('/places:searchNearby', {
+    fieldMask: signals ? PROSPECT_NEARBY_MASK : BASIC_NEARBY_MASK,
     body,
   })
 
   const places = (data.places ?? [])
-    .map((p) => {
-      if (!p.id || !p.displayName?.text) return null
-      return suggestion(p.id, p.displayName.text, p.formattedAddress ?? null, {
-        rating: p.rating,
-        userRatingCount: p.userRatingCount,
-        googleMapsUri: p.googleMapsUri,
-        primaryType: p.primaryType,
-      })
-    })
+    .map((place) => suggestionFromGooglePlace(place))
     .filter((row): row is PlaceSuggestion => row !== null)
 
   return { source: 'google', places }
@@ -529,7 +640,7 @@ async function scanCityPlacesNew(
   const keywords = cityScanKeywords(category)
   const batches = await Promise.all(
     keywords.map((keyword) =>
-      textSearchPlaces({
+      textSearchPlacesPaged({
         query: `${keyword} di ${city}`,
         loc: cityCenter.loc,
         radius: CITY_RADIUS_M,
@@ -545,9 +656,9 @@ async function scanCityPlacesNew(
       places.push(place)
     }
   }
-  const ranked = sortPlacesByClosing(places).filter((place) =>
-    potentialOnly ? isPotentialProspect(place) : true,
-  )
+  const ranked = potentialOnly
+    ? sortPlacesByClosing(places).filter(isPotentialProspect)
+    : places
   return {
     source: 'google',
     city: cityCenter,
@@ -571,38 +682,21 @@ export async function textSearchPlaces(input: {
 }
 
 async function runTextSearch(body: Record<string, unknown>): Promise<PlaceSearchResult> {
-  const page = await runTextSearchPage(body)
+  const page = await runTextSearchPage(body, false)
   return { source: 'google', places: page.places }
 }
 
-async function runTextSearchPage(body: Record<string, unknown>) {
+async function runTextSearchPage(body: Record<string, unknown>, signals: boolean) {
   const data = await placesNew<{
     nextPageToken?: string
-    places?: Array<{
-      id?: string
-      displayName?: { text?: string }
-      formattedAddress?: string
-      rating?: number
-      userRatingCount?: number
-      googleMapsUri?: string
-      primaryType?: string
-    }>
+    places?: GooglePlaceRow[]
   }>('/places:searchText', {
-    fieldMask:
-      'nextPageToken,places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.googleMapsUri,places.primaryType',
+    fieldMask: signals ? PROSPECT_TEXT_MASK : BASIC_TEXT_MASK,
     body,
   })
 
   const places = (data.places ?? [])
-    .map((p) => {
-      if (!p.id || !p.displayName?.text) return null
-      return suggestion(p.id, p.displayName.text, p.formattedAddress ?? null, {
-        rating: p.rating,
-        userRatingCount: p.userRatingCount,
-        googleMapsUri: p.googleMapsUri,
-        primaryType: p.primaryType,
-      })
-    })
+    .map((place) => suggestionFromGooglePlace(place))
     .filter((row): row is PlaceSuggestion => row !== null)
 
   return { places, nextPageToken: data.nextPageToken }
@@ -651,6 +745,7 @@ export async function textSearchPlacesPaged(input: {
     try {
       const result = await runTextSearchPage(
         pageToken ? { ...body, pageToken } : body,
+        true,
       )
       for (const place of result.places) {
         if (seen.has(place.placeId)) continue

@@ -1,6 +1,8 @@
-import { and, count, desc, eq, or, sql } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
-import { owners, units } from '#/db/schema'
+import { accessRoles, owners, units } from '#/db/schema'
+import { assignableAccountRoles, ensureSystemRoles, holderRoleKeys } from '#/server/role-access'
+import { parseCode } from '#/lib/card-code'
 import { hashPassword } from '#/lib/crypto'
 import { generatePin, hashPin, normalizePin } from '#/lib/pin'
 import { replaceHolderSessions } from './auth'
@@ -8,6 +10,13 @@ import { notifyHolderCredentials } from './holder-notify'
 import { normalizeWhatsapp } from './review'
 
 const MIN_PASSWORD_LENGTH = 6
+
+async function holderScope(userId?: string) {
+  const roles = await holderRoleKeys()
+  const filters = [inArray(owners.role, roles)]
+  if (userId) filters.push(eq(owners.id, userId))
+  return and(...filters)
+}
 
 function normalizeEmail(email: string) {
   const value = email.trim().toLowerCase()
@@ -26,6 +35,7 @@ export async function createHolder(input: {
   whatsapp?: string | null
   name?: string | null
   pin?: string
+  role?: string
 }) {
   const whatsapp = input.whatsapp?.trim()
     ? normalizeWhatsapp(input.whatsapp)
@@ -46,6 +56,13 @@ export async function createHolder(input: {
     ? normalizeEmail(emailInput)
     : `${whatsapp}@wa.holder`
   const pin = input.pin?.trim() ? normalizePin(input.pin) : generatePin()
+  await ensureSystemRoles()
+  const roleKey = input.role?.trim() || 'USER'
+  if (roleKey === 'SUPER_ADMIN') throw new Error('Peran ini tidak bisa dipilih.')
+  const role = await db.query.accessRoles.findFirst({
+    where: eq(accessRoles.key, roleKey),
+  })
+  if (!role) throw new Error('Peran tidak ditemukan.')
   try {
     const [created] = await db
       .insert(owners)
@@ -54,7 +71,7 @@ export async function createHolder(input: {
         name: normalizeName(input.name),
         passwordHash: hasPassword ? await hashPassword(password) : null,
         whatsapp,
-        role: 'USER',
+        role: role.key,
         status: 'ACTIVE',
         pinHash: hashPin(pin),
       })
@@ -97,7 +114,7 @@ export async function listHolders(input?: {
   const pageSize = Math.min(Math.max(input?.pageSize ?? 20, 1), 100)
   const page = Math.max(input?.page ?? 1, 1)
   const needle = (input?.q ?? '').trim().toLowerCase().replace(/[%_]/g, '')
-  const filters = [eq(owners.role, 'USER')]
+  const filters = [inArray(owners.role, await holderRoleKeys())]
   if (needle) {
     const pattern = `%${needle}%`
     filters.push(
@@ -117,8 +134,9 @@ export async function listHolders(input?: {
   const total = Number(totalRow?.total ?? 0)
   const pageCount = Math.max(1, Math.ceil(total / pageSize) || 1)
   const safePage = Math.min(page, pageCount)
+  const roles = await assignableAccountRoles()
   if (total === 0) {
-    return { users: [], total: 0, page: 1, pageSize, pageCount: 1 }
+    return { users: [], roles, total: 0, page: 1, pageSize, pageCount: 1 }
   }
 
   const rows = await db
@@ -128,10 +146,13 @@ export async function listHolders(input?: {
       name: owners.name,
       whatsapp: owners.whatsapp,
       status: owners.status,
+      role: owners.role,
+      roleName: accessRoles.name,
       createdAt: owners.createdAt,
       cardCount: count(units.id),
     })
     .from(owners)
+    .leftJoin(accessRoles, eq(owners.role, accessRoles.key))
     .leftJoin(units, eq(units.ownerId, owners.id))
     .where(where)
     .groupBy(owners.id)
@@ -146,6 +167,8 @@ export async function listHolders(input?: {
       name: row.name,
       whatsapp: row.whatsapp,
       status: row.status,
+      role: row.role,
+      roleName: row.roleName ?? row.role,
       cardCount: Number(row.cardCount ?? 0),
       createdAt: row.createdAt?.getTime() ?? null,
     })),
@@ -153,12 +176,13 @@ export async function listHolders(input?: {
     page: safePage,
     pageSize,
     pageCount,
+    roles,
   }
 }
 
 export async function getHolder(userId: string) {
   const user = await db.query.owners.findFirst({
-    where: and(eq(owners.id, userId), eq(owners.role, 'USER')),
+    where: await holderScope(userId),
   })
   if (!user) return null
   const cards = await db.query.units.findMany({
@@ -173,6 +197,10 @@ export async function getHolder(userId: string) {
     name: user.name,
     whatsapp: user.whatsapp,
     status: user.status,
+    role: user.role,
+    roles: (
+      await db.select({ key: accessRoles.key, name: accessRoles.name }).from(accessRoles)
+    ).filter((role) => role.key !== 'SUPER_ADMIN'),
     createdAt: user.createdAt?.getTime() ?? null,
     cards: cards.map((card) => ({
       id: card.id,
@@ -191,7 +219,7 @@ export async function setHolderStatus(
   const [row] = await db
     .update(owners)
     .set({ status })
-    .where(and(eq(owners.id, userId), eq(owners.role, 'USER')))
+    .where(await holderScope(userId))
     .returning({ id: owners.id, status: owners.status })
   if (!row) throw new Error('Pengguna tidak ditemukan.')
   if (status === 'DISABLED') await replaceHolderSessions(userId)
@@ -203,7 +231,7 @@ export async function resetHolderPin(userId: string, pin?: string) {
   const [row] = await db
     .update(owners)
     .set({ pinHash: hashPin(nextPin) })
-    .where(and(eq(owners.id, userId), eq(owners.role, 'USER')))
+    .where(await holderScope(userId))
     .returning({
       id: owners.id,
       email: owners.email,
@@ -228,7 +256,7 @@ export async function resetHolderPassword(userId: string, password: string) {
   const [row] = await db
     .update(owners)
     .set({ passwordHash: await hashPassword(password) })
-    .where(and(eq(owners.id, userId), eq(owners.role, 'USER')))
+    .where(await holderScope(userId))
     .returning({ id: owners.id })
   if (!row) throw new Error('Pengguna tidak ditemukan.')
   await replaceHolderSessions(userId)
@@ -237,8 +265,17 @@ export async function resetHolderPassword(userId: string, password: string) {
 
 export async function updateHolderProfile(
   userId: string,
-  input: { name?: string | null; whatsapp?: string | null },
+  input: { name?: string | null; whatsapp?: string | null; role?: string },
 ) {
+  if (input.role) {
+    if (input.role === 'SUPER_ADMIN') {
+      throw new Error('Peran ini tidak bisa dipilih.')
+    }
+    const found = await db.query.accessRoles.findFirst({
+      where: eq(accessRoles.key, input.role),
+    })
+    if (!found) throw new Error('Peran tidak ditemukan.')
+  }
   const whatsapp =
     input.whatsapp === undefined
       ? undefined
@@ -253,8 +290,9 @@ export async function updateHolderProfile(
     .set({
       name: normalizeName(input.name),
       ...(whatsapp !== undefined ? { whatsapp } : {}),
+      ...(input.role ? { role: input.role } : {}),
     })
-    .where(and(eq(owners.id, userId), eq(owners.role, 'USER')))
+    .where(await holderScope(userId))
     .returning({
       id: owners.id,
       name: owners.name,
@@ -271,7 +309,7 @@ export async function assignUnitToHolder(input: {
   ownerId: string
 }) {
   const user = await db.query.owners.findFirst({
-    where: and(eq(owners.id, input.ownerId), eq(owners.role, 'USER')),
+    where: await holderScope(input.ownerId),
   })
   if (!user) throw new Error('Pengguna tidak ditemukan.')
   if (user.status !== 'ACTIVE') {
@@ -291,6 +329,44 @@ export async function assignUnitToHolder(input: {
   }
 }
 
+export async function getHolderHandoff(userId: string) {
+  const user = await db.query.owners.findFirst({
+    where: await holderScope(userId),
+  })
+  if (!user) return null
+  const [row] = await db
+    .select({ total: count() })
+    .from(units)
+    .where(eq(units.ownerId, user.id))
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    status: user.status,
+    cardCount: Number(row?.total ?? 0),
+  }
+}
+
+export async function previewHandoff(raw: string) {
+  const parsed = parseCode(raw)
+  const unit = await db.query.units.findFirst({
+    where: eq(units.publicId, parsed.id),
+    with: { owner: true },
+  })
+  if (!unit) throw new Error('QR kartu tidak ditemukan')
+  return {
+    unitId: unit.id,
+    publicId: unit.publicId,
+    holder: unit.owner
+      ? {
+          id: unit.owner.id,
+          name: unit.owner.name,
+          email: unit.owner.email,
+        }
+      : null,
+  }
+}
+
 export async function unassignUnit(unitId: string) {
   const unit = await db.query.units.findFirst({ where: eq(units.id, unitId) })
   if (!unit) throw new Error('Kartu tidak ditemukan.')
@@ -304,9 +380,10 @@ export async function listAssignableHolders() {
       id: owners.id,
       email: owners.email,
       name: owners.name,
+      whatsapp: owners.whatsapp,
     })
     .from(owners)
-    .where(and(eq(owners.role, 'USER'), eq(owners.status, 'ACTIVE')))
+    .where(and(inArray(owners.role, await holderRoleKeys()), eq(owners.status, 'ACTIVE')))
     .orderBy(owners.email)
     .limit(300)
   return rows

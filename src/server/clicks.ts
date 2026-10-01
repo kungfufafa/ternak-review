@@ -130,6 +130,7 @@ export async function listUnits(input?: {
   batchId?: string
   page?: number
   pageSize?: number
+  ownerId?: string
 }) {
   const pageSize = Math.min(
     Math.max(input?.pageSize ?? DEFAULT_PAGE_SIZE, 1),
@@ -141,6 +142,7 @@ export async function listUnits(input?: {
   const batchId = input?.batchId?.trim() || undefined
 
   const filters = []
+  if (input?.ownerId) filters.push(eq(units.ownerId, input.ownerId))
   if (input?.status) filters.push(eq(units.status, input.status))
   if (input?.ownership === 'unassigned') filters.push(isNull(units.ownerId))
   if (input?.ownership === 'assigned') filters.push(isNotNull(units.ownerId))
@@ -320,6 +322,32 @@ export async function resetUnitToStock(unitId: string) {
   await collectProspectForUnit(unitId)
 
   return { ok: true as const }
+}
+
+export async function releaseCardFromShop(unitId: string) {
+  const unit = await db.query.units.findFirst({
+    where: eq(units.id, unitId),
+  })
+  if (!unit) return { ok: false as const, error: 'Kartu tidak ditemukan.' }
+
+  const alreadyFree =
+    unit.status === 'IN_STOCK' && !unit.outletId && !unit.activatedAt
+  if (!alreadyFree) {
+    await db.delete(clicks).where(eq(clicks.unitId, unitId))
+    await db.delete(reviewFeedbacks).where(eq(reviewFeedbacks.unitId, unitId))
+    await db
+      .update(units)
+      .set({
+        status: 'IN_STOCK',
+        outletId: null,
+        activatedAt: null,
+        partnerRef: null,
+      })
+      .where(eq(units.id, unitId))
+  }
+
+  await collectProspectForUnit(unitId)
+  return { ok: true as const, ownerId: unit.ownerId }
 }
 
 export async function getDailyClicks(days = 14, now = Date.now()) {

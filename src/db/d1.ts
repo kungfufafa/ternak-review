@@ -3,7 +3,8 @@ import { getTableColumns } from 'drizzle-orm'
 import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1'
 import { env } from 'cloudflare:workers'
 import * as schema from './schema.ts'
-import { stockBatches, units } from './schema.ts'
+import { eq } from 'drizzle-orm'
+import { roleGrants, stockBatches, units } from './schema.ts'
 import { sqlVariableChunkSize } from './sql.ts'
 import type { AppDb, InsertedStockBatch, NewStockBatch, NewStockUnit } from './types.ts'
 
@@ -40,6 +41,28 @@ function getD1(): D1Db {
 
 export function getDb(): AppDb {
   return getD1() as AppDb
+}
+
+export async function replaceRoleGrantRows(
+  role: string,
+  next: { role: string; permission: string }[],
+  seed: { role: string; permission: string }[],
+) {
+  const database = getD1()
+  const existing = await database.select({ role: roleGrants.role }).from(roleGrants)
+  const statements: BatchItem<'sqlite'>[] = []
+  if (existing.length === 0 && seed.length > 0) {
+    statements.push(database.insert(roleGrants).values(seed))
+  }
+  statements.push(database.delete(roleGrants).where(eq(roleGrants.role, role)))
+  if (next.length > 0) statements.push(database.insert(roleGrants).values(next))
+  const [first, ...rest] = statements
+  if (!first) return
+  if (rest.length === 0) {
+    await first
+    return
+  }
+  await database.batch([first, ...rest])
 }
 
 export const db = new Proxy({} as AppDb, {

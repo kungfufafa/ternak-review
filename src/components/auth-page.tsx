@@ -5,6 +5,7 @@ import { useServerFn } from '@tanstack/react-start'
 import { AtSignIcon, KeyRoundIcon, LockIcon, PhoneIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { AuthShell, AuthTitle } from '#/components/auth-shell'
+import { homePath } from '#/lib/access'
 import { Alert } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
 import {
@@ -19,6 +20,7 @@ import {
 } from '#/components/ui/input-group'
 import { Spinner } from '#/components/ui/spinner'
 import {
+  getCurrentOwnerFn,
   loginPasswordFn,
   registerPasswordFn,
   requestEmailLoginOtpFn,
@@ -44,6 +46,7 @@ export function AuthPage({
 }) {
   const navigate = useNavigate()
   const router = useRouter()
+  const currentOwner = useServerFn(getCurrentOwnerFn)
   const loginPassword = useServerFn(loginPasswordFn)
   const registerPassword = useServerFn(registerPasswordFn)
   const requestOtp = useServerFn(requestLoginOtpFn)
@@ -75,12 +78,13 @@ export function AuthPage({
     return () => window.clearTimeout(timer)
   }, [resendSeconds])
 
-  async function goIn(role: 'ADMIN' | 'USER') {
+  async function goIn() {
     await router.invalidate()
+    const me = await currentOwner()
     if (activation) {
       await navigate({ to: '/activate', search: { id: activation, ref: partnerRef } })
     } else {
-      await navigate({ to: role === 'USER' ? '/app' : '/admin' })
+      await navigate({ to: homePath(me?.permissions ?? 'USER') })
     }
   }
 
@@ -89,10 +93,12 @@ export function AuthPage({
     setBusy(true)
     setError(null)
     try {
-      const result = isSetup
-        ? await registerPassword({ data: { email, password, setupToken } })
-        : await loginPassword({ data: { email, password } })
-      await goIn(result.role)
+      if (isSetup) {
+        await registerPassword({ data: { email, password, setupToken } })
+      } else {
+        await loginPassword({ data: { email, password } })
+      }
+      await goIn()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal masuk')
     } finally {
@@ -127,11 +133,12 @@ export function AuthPage({
     setBusy(true)
     setError(null)
     try {
-      const result =
-        mode === 'email'
-          ? await verifyEmailOtp({ data: { email, code } })
-          : await verifyOtp({ data: { whatsapp, code } })
-      await goIn(result.role)
+      if (mode === 'email') {
+        await verifyEmailOtp({ data: { email, code } })
+      } else {
+        await verifyOtp({ data: { whatsapp, code } })
+      }
+      await goIn()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Kode belum cocok.')
     } finally {

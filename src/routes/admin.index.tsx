@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute, Link, useRouteContext } from '@tanstack/react-router'
 import { ChevronRightIcon, PrinterIcon } from 'lucide-react'
 import { KitPreview } from '#/components/kit-preview'
 import { Sparkline } from '#/components/Sparkline'
@@ -27,6 +27,7 @@ import {
   ItemTitle,
 } from '#/components/ui/item'
 import { AppUrlBanner } from '#/components/app-url-banner'
+import { can } from '#/lib/access'
 import { formatDay } from '#/lib/utils'
 import {
   getAppUrlInfoFn,
@@ -63,6 +64,8 @@ export const Route = createFileRoute('/admin/')({
 function AdminHomePage() {
   const { summary, batches, affiliates, appUrl, cardDesign } =
     Route.useLoaderData()
+  const { owner } = useRouteContext({ from: '/admin' })
+  const canHandoff = can(owner.permissions, 'holders.manage')
   const recentAffiliates = affiliates.leads
   const pendingBatches = batches.filter(
     (batch) => batch.remaining > 0 && batch.next !== 'ready',
@@ -134,7 +137,9 @@ function AdminHomePage() {
                     ? 'Cetak & siapkan NFC'
                     : 'Selesaikan NFC'
                   : focusBatch.available > 0
-                    ? 'Tentukan pemegang kartu'
+                    ? canHandoff
+                      ? 'Serahkan kartu'
+                      : 'Tentukan pemegang kartu'
                     : focusBatch.assigned > 0
                       ? 'Pantau aktivasi pemegang'
                       : 'Produksi selesai'}
@@ -175,6 +180,10 @@ function AdminHomePage() {
                     </Link>
                   </Button>
                 )
+              ) : canHandoff && focusBatch.available > 0 ? (
+                <Button asChild>
+                  <Link to="/admin/users/serah">Serahkan kartu</Link>
+                </Button>
               ) : (
                 <Button asChild>
                   <Link

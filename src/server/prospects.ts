@@ -40,6 +40,7 @@ export function serializeProspect(row: {
   notes: string | null
   status: string
   partnerRef: string | null
+  createdByOwnerId?: string | null
   unitId: string | null
   installKind?: string | null
   trialStartedAt?: Date | null
@@ -78,6 +79,7 @@ export function serializeProspect(row: {
     notes: row.notes,
     status: row.status as ProspectStatus,
     partnerRef: row.partnerRef,
+    createdByOwnerId: row.createdByOwnerId ?? null,
     unitId: row.unitId,
     installKind,
     installState,
@@ -93,6 +95,16 @@ export function serializeProspect(row: {
   }
 }
 
+function ownedPlace(googlePlaceId: string, ownerId?: string | null) {
+  if (ownerId) {
+    return and(
+      eq(prospects.googlePlaceId, googlePlaceId),
+      eq(prospects.createdByOwnerId, ownerId),
+    )
+  }
+  return and(eq(prospects.googlePlaceId, googlePlaceId), isNull(prospects.createdByOwnerId))
+}
+
 export async function markProspectInstalledForPlace(input: {
   googlePlaceId: string
   unitId: string
@@ -100,9 +112,10 @@ export async function markProspectInstalledForPlace(input: {
   installKind?: ProspectInstallKind
   trialDays?: number
   now?: Date
+  ownerId?: string | null
 }) {
   const existing = await db.query.prospects.findFirst({
-    where: eq(prospects.googlePlaceId, input.googlePlaceId),
+    where: ownedPlace(input.googlePlaceId, input.ownerId),
   })
   if (!existing) return null
   const now = input.now ?? new Date()
@@ -167,11 +180,17 @@ export async function collectProspectForUnit(unitId: string, now = new Date()) {
   return last
 }
 
-export async function convertProspectToSold(id: string, now = new Date()) {
+export async function convertProspectToSold(
+  id: string,
+  now = new Date(),
+  ownerId?: string | null,
+) {
   const existing = await db.query.prospects.findFirst({
     where: eq(prospects.id, id),
   })
-  if (!existing) throw new Error('Prospek tidak ditemukan.')
+  if (!existing || (ownerId && existing.createdByOwnerId !== ownerId)) {
+    throw new Error('Prospek tidak ditemukan.')
+  }
   const state = prospectInstallState(existing, now.getTime())
   if (state !== 'trial' && state !== 'due') {
     throw new Error('Hanya toko yang sedang trial yang bisa di-closing.')
@@ -205,7 +224,7 @@ export async function upsertProspectRecord(input: {
   createdByOwnerId?: string | null
 }) {
   const existing = await db.query.prospects.findFirst({
-    where: eq(prospects.googlePlaceId, input.googlePlaceId),
+    where: ownedPlace(input.googlePlaceId, input.createdByOwnerId),
   })
   const now = new Date()
   const notes = input.notes?.trim().slice(0, 500) || null
@@ -234,7 +253,7 @@ export async function upsertProspectRecord(input: {
     return { prospect: serializeProspect(updated), created: false as const }
   }
 
-  const [created] = await db
+  const inserted = await db
     .insert(prospects)
     .values({
       googlePlaceId: input.googlePlaceId,
@@ -248,9 +267,18 @@ export async function upsertProspectRecord(input: {
       partnerRef,
       createdByOwnerId: input.createdByOwnerId ?? null,
     })
+    .onConflictDoNothing({
+      target: [prospects.createdByOwnerId, prospects.googlePlaceId],
+    })
     .returning()
-  if (!created) throw new Error('Gagal menyimpan prospek.')
-  return { prospect: serializeProspect(created), created: true as const }
+  const created = inserted[0]
+  if (created) return { prospect: serializeProspect(created), created: true as const }
+
+  const winner = await db.query.prospects.findFirst({
+    where: ownedPlace(input.googlePlaceId, input.createdByOwnerId),
+  })
+  if (!winner) throw new Error('Gagal menyimpan prospek.')
+  return { prospect: serializeProspect(winner), created: false as const }
 }
 
 export async function saveProspect(input: {
@@ -342,7 +370,7 @@ function installFilter(install: ProspectInstallFilter | undefined, now: Date) {
   )
 }
 
-async function summarizeProspectInstalls(now = Date.now()) {
+async function summarizeProspectInstalls(now = Date.now(), ownerId?: string | null) {
   const rows = await db
     .select({
       installKind: prospects.installKind,
@@ -352,6 +380,7 @@ async function summarizeProspectInstalls(now = Date.now()) {
       status: prospects.status,
     })
     .from(prospects)
+    .where(ownerId ? eq(prospects.createdByOwnerId, ownerId) : undefined)
   const summary = {
     none: 0,
     trial: 0,
@@ -373,6 +402,7 @@ export async function listProspects(input?: {
   page?: number
   pageSize?: number
   sort?: 'reviews' | 'rating' | 'recent' | 'pickup'
+  ownerId?: string | null
 }) {
   const pageSize = Math.min(Math.max(input?.pageSize ?? DEFAULT_PAGE_SIZE, 1), 100)
   const page = Math.max(input?.page ?? 1, 1)
@@ -380,6 +410,7 @@ export async function listProspects(input?: {
   const partner = input?.partner?.trim() || undefined
   const now = new Date()
   const filters = []
+  if (input?.ownerId) filters.push(eq(prospects.createdByOwnerId, input.ownerId))
   if (input?.status) filters.push(eq(prospects.status, input.status))
   const installWhere = installFilter(input?.install, now)
   if (installWhere) filters.push(installWhere)
@@ -398,7 +429,7 @@ export async function listProspects(input?: {
 
   const [[totalRow], summary] = await Promise.all([
     db.select({ total: count() }).from(prospects).where(where),
-    summarizeProspectInstalls(now.getTime()),
+    summarizeProspectInstalls(now.getTime(), input?.ownerId),
   ])
   const total = Number(totalRow?.total ?? 0)
   const pageCount = Math.max(1, Math.ceil(total / pageSize) || 1)
@@ -442,7 +473,7 @@ export async function listProspects(input?: {
   }
 }
 
-export async function listProspectInstalls(now = Date.now()) {
+export async function listProspectInstalls(now = Date.now(), ownerId?: string | null) {
   const [rows, occupied] = await Promise.all([
     db
       .select({
@@ -456,7 +487,8 @@ export async function listProspectInstalls(now = Date.now()) {
         trialCollectedAt: prospects.trialCollectedAt,
         unitId: prospects.unitId,
       })
-      .from(prospects),
+      .from(prospects)
+      .where(ownerId ? eq(prospects.createdByOwnerId, ownerId) : undefined),
     db
       .select({
         googlePlaceId: outlets.googlePlaceId,
@@ -529,11 +561,14 @@ export async function updateProspect(input: {
   status?: ProspectStatus
   notes?: string
   partnerRef?: string
+  ownerId?: string | null
 }) {
   const existing = await db.query.prospects.findFirst({
     where: eq(prospects.id, input.id),
   })
-  if (!existing) throw new Error('Prospek tidak ditemukan.')
+  if (!existing || (input.ownerId && existing.createdByOwnerId !== input.ownerId)) {
+    throw new Error('Prospek tidak ditemukan.')
+  }
   const now = new Date()
   const [updated] = await db
     .update(prospects)
@@ -555,8 +590,8 @@ export async function updateProspect(input: {
   return serializeProspect(updated)
 }
 
-export async function deleteProspect(id: string) {
-  const result = await deleteProspects([id])
+export async function deleteProspect(id: string, ownerId?: string | null) {
+  const result = await deleteProspects([id], ownerId)
   if (result.missing > 0) throw new Error('Prospek tidak ditemukan.')
   if (result.skipped > 0) {
     throw new Error('Ambil kartu dulu sebelum menghapus prospek ini.')
@@ -564,14 +599,16 @@ export async function deleteProspect(id: string) {
   return { ok: true as const }
 }
 
-export async function deleteProspects(ids: string[]) {
+export async function deleteProspects(ids: string[], ownerId?: string | null) {
   const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))]
   if (unique.length === 0) return { deleted: 0, skipped: 0, missing: 0 }
   if (unique.length > 100) {
     throw new Error('Sekali hapus paling banyak 100 prospek.')
   }
   const rows = await db.query.prospects.findMany({
-    where: inArray(prospects.id, unique),
+    where: ownerId
+      ? and(inArray(prospects.id, unique), eq(prospects.createdByOwnerId, ownerId))
+      : inArray(prospects.id, unique),
     columns: { id: true, unitId: true },
   })
   const removable = rows.filter((row) => !row.unitId).map((row) => row.id)
@@ -585,10 +622,11 @@ export async function deleteProspects(ids: string[]) {
   }
 }
 
-export async function listProspectPlaceIds() {
+export async function listProspectPlaceIds(ownerId?: string | null) {
   const rows = await db
     .select({ googlePlaceId: prospects.googlePlaceId })
     .from(prospects)
+    .where(ownerId ? eq(prospects.createdByOwnerId, ownerId) : undefined)
   return rows.map((row) => row.googlePlaceId)
 }
 

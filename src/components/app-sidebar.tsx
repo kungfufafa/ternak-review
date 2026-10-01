@@ -1,8 +1,10 @@
 "use client"
 
 import { Link, useRouterState } from "@tanstack/react-router"
+import { useAdminUser } from "#/components/admin-user"
 import { BrandMark } from "#/components/brand-mark"
 import { getNavGroups } from "#/components/app-shared.tsx"
+import { homePath } from "#/lib/access"
 import { NavGroup } from "#/components/nav-group.tsx"
 import {
   Sidebar,
@@ -12,14 +14,15 @@ import {
 } from "#/components/ui/sidebar.tsx"
 
 export function AppSidebar() {
+  const { permissions } = useAdminUser()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const navGroups = getNavGroups(pathname)
+  const navGroups = getNavGroups(pathname, permissions)
 
   return (
     <Sidebar collapsible="icon" variant="inset">
       <SidebarHeader className="h-14 justify-center">
         <SidebarMenuButton asChild>
-          <Link to={pathname.startsWith("/app") ? "/app" : "/admin"}>
+          <Link to={homePath(permissions)}>
             <BrandMark className="size-4 rounded-sm" title="" />
             <span>
               Ternak

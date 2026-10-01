@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router'
+import { isStaff } from '#/lib/access'
 import { Field, FieldDescription, FieldLabel } from '#/components/ui/field'
 import { Input, Select } from '#/components/ui/input'
 import {
@@ -24,7 +25,7 @@ export function ReviewPathFields({
   serviceTier: ServiceTier
   ownerWhatsapp: string
   whatsappGatewayOpen: boolean
-  viewerRole?: 'ADMIN' | 'USER'
+  viewerRole?: string | null
   allowTierChange?: boolean
   compact?: boolean
   onTierChange: (tier: ServiceTier) => void
@@ -40,7 +41,7 @@ export function ReviewPathFields({
   )
   const proOffline = serviceTier === 'PRO' && !whatsappGatewayOpen
   const reconnectHint =
-    viewerRole === 'ADMIN' ? (
+    isStaff(viewerRole) ? (
       <>
         <Link
           className="text-pine underline underline-offset-4"
@@ -83,7 +84,7 @@ export function ReviewPathFields({
         {compact ? null : (
           <FieldDescription>
             {allowTierChange
-              ? viewerRole === 'ADMIN'
+              ? isStaff(viewerRole)
                 ? 'Paket menentukan jalur review tamu setelah tempel atau scan.'
                 : 'Paket menentukan jalur review tamu. Nomor WhatsApp tindak lanjut diisi pengelola toko.'
               : 'Paket ditetapkan admin. Hubungi admin jika ingin mengubah paket kartu.'}

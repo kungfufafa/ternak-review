@@ -176,6 +176,27 @@
       "when": 1790485705711,
       "tag": "0024_tiresome_maddog",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1790812800000,
+      "tag": "0025_prospect_owner_place",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1790816400000,
+      "tag": "0026_role_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1790820000000,
+      "tag": "0027_access_roles",
+      "breakpoints": true
     }
   ]
 }

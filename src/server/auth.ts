@@ -2,7 +2,7 @@ import {
   getRequestHeader,
   setResponseHeader,
 } from '@tanstack/react-start/server'
-import { and, count, eq, gt, lt } from 'drizzle-orm'
+import { and, count, eq, gt, lt, or } from 'drizzle-orm'
 import { db } from '#/db'
 import { owners, sessions } from '#/db/schema'
 import {
@@ -91,7 +91,7 @@ export function readSessionToken(): string | null {
   }
 }
 
-export type OwnerRole = 'ADMIN' | 'USER'
+export type OwnerRole = string
 export type OwnerStatus = 'ACTIVE' | 'DISABLED'
 
 export type SessionOwner = {
@@ -166,7 +166,7 @@ export async function adminExists() {
   const [row] = await db
     .select({ n: count() })
     .from(owners)
-    .where(eq(owners.role, 'ADMIN'))
+    .where(or(eq(owners.role, 'ADMIN'), eq(owners.role, 'SUPER_ADMIN')))
   return Number(row?.n ?? 0) > 0
 }
 

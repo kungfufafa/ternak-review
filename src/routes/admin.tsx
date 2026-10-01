@@ -1,12 +1,15 @@
 import { Outlet, createFileRoute, redirect } from '@tanstack/react-router'
 import { AdminShell } from '#/components/admin-shell'
+import { canAccessPath, homePath } from '#/lib/access'
 import { getCurrentOwnerFn } from '#/server/functions'
 
 export const Route = createFileRoute('/admin')({
-  beforeLoad: async () => {
+  beforeLoad: async ({ location }) => {
     const owner = await getCurrentOwnerFn()
     if (!owner) throw redirect({ to: '/login' })
-    if (owner.role !== 'ADMIN') throw redirect({ to: '/app' })
+    if (!canAccessPath(owner.permissions, location.pathname)) {
+      throw redirect({ to: homePath(owner.permissions) })
+    }
     return { owner }
   },
   component: AdminLayout,

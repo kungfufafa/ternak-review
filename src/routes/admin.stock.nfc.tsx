@@ -44,8 +44,9 @@ export const Route = createFileRoute('/admin/stock/nfc')({
   loader: async ({ deps }) => {
     const owner = await getCurrentOwnerFn()
     if (!owner) throw redirect({ to: '/login' })
+    const canHandoff = owner.permissions.includes('holders.manage')
     const appUrl = await getAppUrlInfoFn()
-    if (!deps.batch) return { run: null, appUrl }
+    if (!deps.batch) return { run: null, appUrl, canHandoff }
     try {
       const [data, batches] = await Promise.all([
         getBatchPrintFn({ data: { batchId: deps.batch } }),
@@ -55,6 +56,7 @@ export const Route = createFileRoute('/admin/stock/nfc')({
       const summary = batches.find((batch) => batch.id === data.batch.id)
       return {
         appUrl,
+        canHandoff,
         run: {
           id: data.batch.id,
           label: data.batch.label,
@@ -66,7 +68,7 @@ export const Route = createFileRoute('/admin/stock/nfc')({
         },
       }
     } catch {
-      return { run: null, appUrl }
+      return { run: null, appUrl, canHandoff }
     }
   },
   component: NfcPage,
@@ -89,7 +91,7 @@ function friendlyNfcError(err: unknown) {
 }
 
 function NfcPage() {
-  const { run, appUrl } = Route.useLoaderData()
+  const { run, appUrl, canHandoff } = Route.useLoaderData()
   const lookup = useServerFn(lookupQrFn)
   const markEncoded = useServerFn(markNfcEncodedFn)
 
@@ -276,7 +278,16 @@ function NfcPage() {
           <Progress
             value={run.count > 0 ? (runEncoded / run.count) * 100 : 0}
           />
-          {runLeft === 0 && completionTarget ? (
+          {runLeft === 0 && canHandoff ? (
+            <div className="mt-3 rounded-xl bg-muted/50 p-4">
+              <p className="text-sm text-muted-foreground">
+                Penulisan NFC selesai. Serahkan kartu ke pemegang dengan scan.
+              </p>
+              <Button asChild className="mt-3" size="sm">
+                <Link to="/admin/users/serah">Serahkan kartu</Link>
+              </Button>
+            </div>
+          ) : runLeft === 0 && completionTarget ? (
             <div className="mt-3 rounded-xl bg-muted/50 p-4">
               <p className="text-sm text-muted-foreground">
                 Penulisan NFC selesai. Lanjutkan proses sebelum kartu
@@ -421,6 +432,14 @@ function NfcPage() {
       )}
 
       <p className="text-center text-sm text-muted-foreground">
+        {canHandoff ? (
+          <>
+            <Link className="underline underline-offset-4" to="/admin/users/serah">
+              Serahkan kartu
+            </Link>
+            {' · '}
+          </>
+        ) : null}
         <Link className="underline underline-offset-4" to="/admin/stock">
           Ke produksi
         </Link>

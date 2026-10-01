@@ -24,7 +24,7 @@ import {
   EmptyTitle,
 } from '#/components/ui/empty'
 import { Field, FieldDescription, FieldLabel } from '#/components/ui/field'
-import { Input } from '#/components/ui/input'
+import { Input, Select } from '#/components/ui/input'
 import {
   InputGroup,
   InputGroupAddon,
@@ -91,6 +91,7 @@ function UsersPage() {
   const [password, setPassword] = useState('')
   const [whatsapp, setWhatsapp] = useState('')
   const [pin, setPin] = useState('')
+  const [role, setRole] = useState('USER')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<{
@@ -128,6 +129,7 @@ function UsersPage() {
           whatsapp: whatsapp.trim() || undefined,
           name: name.trim() || undefined,
           pin: pin.trim() || undefined,
+          role,
         },
       })
       setCreated({
@@ -140,6 +142,7 @@ function UsersPage() {
       setPassword('')
       setWhatsapp('')
       setPin('')
+      setRole('USER')
       await router.invalidate({ sync: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal membuat akun pemegang.')
@@ -214,6 +217,20 @@ function UsersPage() {
               <FieldDescription>Opsional. Minimal 6 karakter kalau diisi.</FieldDescription>
             </Field>
             <Field>
+              <FieldLabel htmlFor="user-role">Peran</FieldLabel>
+              <Select
+                id="user-role"
+                onChange={(event) => setRole(event.target.value)}
+                value={role}
+              >
+                {list.roles.map((item) => (
+                  <option key={item.key} value={item.key}>
+                    {item.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field>
               <FieldLabel htmlFor="user-pin">PIN 4 digit (opsional)</FieldLabel>
               <Input
                 id="user-pin"
@@ -286,6 +303,12 @@ function UsersPage() {
                   </span>
                 ),
                 header: 'WhatsApp',
+              }),
+              holderColumn.accessor('roleName', {
+                cell: ({ getValue }) => (
+                  <Badge variant="outline">{getValue()}</Badge>
+                ),
+                header: 'Peran',
               }),
               holderColumn.accessor('cardCount', {
                 cell: ({ getValue }) => (

@@ -1,10 +1,12 @@
 import { createContext, useContext } from "react"
+import { permissionsFor } from "#/lib/access"
 
 export type AppUser = {
   email: string
   name: string | null
-  role: 'ADMIN' | 'USER'
+  role: string
   hasPassword: boolean
+  permissions: string[]
 }
 
 export const AdminUserContext = createContext<AppUser>({
@@ -12,6 +14,7 @@ export const AdminUserContext = createContext<AppUser>({
   name: null,
   role: 'USER',
   hasPassword: false,
+  permissions: [...permissionsFor('USER')],
 })
 
 export function useAdminUser() {

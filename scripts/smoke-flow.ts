@@ -1631,15 +1631,18 @@ async function main() {
   const publicBatch = await generateStockBatch({ count: 1, label: 'QA-PUBLIC-ACTIVATE' })
   const publicCard = publicBatch.units[0]
   if (!publicCard) throw new Error('Expected public activation card')
-  await verifyActivationAccess({ publicId: publicCard.publicId })
-  await activateUnit({
-    publicId: publicCard.publicId,
-    placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
-  })
-  const publicState = await getActivationCard(publicCard.publicId)
-  if (publicState?.status !== 'ACTIVE' || publicState.ownerId !== null) {
-    throw new Error('Public activation must allow an unassigned card without PIN')
-  }
+  await expectReject(
+    () => verifyActivationAccess({ publicId: publicCard.publicId }),
+    'Public activation without PIN',
+  )
+  await expectReject(
+    () =>
+      activateUnit({
+        publicId: publicCard.publicId,
+        placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+      }),
+    'Public activation without PIN',
+  )
 
   await expectReject(
     () =>

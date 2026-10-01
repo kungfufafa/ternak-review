@@ -8,7 +8,8 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import * as schema from './schema.ts'
 import { resolveSqliteFilePath } from './url.ts'
 import type { AppDb, InsertedStockBatch, NewStockBatch, NewStockUnit } from './types.ts'
-import { stockBatches, units } from './schema.ts'
+import { eq } from 'drizzle-orm'
+import { roleGrants, stockBatches, units } from './schema.ts'
 
 config({ path: '.env.local', quiet: true })
 config({ path: '.env', quiet: true })
@@ -56,6 +57,24 @@ function open(): SqliteDrizzle {
 
 export function getDb(): AppDb {
   return open()
+}
+
+export function replaceRoleGrantRows(
+  role: string,
+  next: { role: string; permission: string }[],
+  seed: { role: string; permission: string }[],
+) {
+  const database = open()
+  const sqlite = getSqlite()
+  const run = sqlite.transaction(() => {
+    const existing = database.select({ role: roleGrants.role }).from(roleGrants).all()
+    if (existing.length === 0 && seed.length > 0) {
+      database.insert(roleGrants).values(seed).run()
+    }
+    database.delete(roleGrants).where(eq(roleGrants.role, role)).run()
+    if (next.length > 0) database.insert(roleGrants).values(next).run()
+  })
+  run.immediate()
 }
 
 export const db = new Proxy({} as AppDb, {

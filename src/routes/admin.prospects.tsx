@@ -20,7 +20,7 @@ import { z } from 'zod'
 import { ConfirmDelete } from '#/components/confirm-delete'
 import { ListPager } from '#/components/list-pager'
 import { PageHeader } from '#/components/page'
-import { PlaceRatingLine } from '#/components/place-rating'
+import { PlaceRatingLine, ProspectFitMarks } from '#/components/place-rating'
 import { Alert } from '#/components/ui/alert'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
@@ -46,7 +46,6 @@ import {
 } from '#/components/ui/input-group'
 import {
   Item,
-  ItemActions,
   ItemContent,
   ItemDescription,
   ItemGroup,
@@ -55,7 +54,9 @@ import {
 import { Spinner } from '#/components/ui/spinner'
 import { useDebounced } from '#/hooks/use-debounced'
 import {
-  DEFAULT_TRIAL_DAYS,
+  branchCounts,
+  googlePlaceTypeLabel,
+  prospectFit,
   PROSPECT_CATEGORIES,
   PROSPECT_INSTALL_LABEL,
   PROSPECT_STATUS_LABEL,
@@ -70,19 +71,17 @@ import {
   convertProspectToSoldFn,
   deleteProspectFn,
   deleteProspectsFn,
-  listProspectInstallsFn,
   listProspectPlaceIdsFn,
   listProspectsFn,
   prospectNearbyPlacesFn,
   prospectSearchPlacesFn,
   saveProspectBatchFn,
-  saveProspectFn,
   scanCityProspectsFn,
   updateProspectFn,
 } from '#/server/functions'
 import type { PlaceSuggestion } from '#/server/places'
 
-const searchSchema = z.object({
+export const searchSchema = z.object({
   q: z.string().trim().min(1).optional().catch(undefined),
   stage: z.enum(['NEW', 'CONTACTED', 'WON', 'LOST']).optional().catch(undefined),
   install: z
@@ -109,6 +108,53 @@ type ProspectRow = Awaited<
 
 const prospectColumn = createColumnHelper<DataTableFeatures, ProspectRow>()
 
+type ResultFilter = 'priority' | 'deal' | 'save' | 'check' | 'skip' | 'all'
+
+function withBranchCounts(places: PlaceSuggestion[]) {
+  const counts = branchCounts(places.map((place) => place.name))
+  return places.map((place, index) => ({
+    ...place,
+    branchCount: counts[index] ?? 1,
+  }))
+}
+
+function sortResultPlaces(places: ReturnType<typeof withBranchCounts>) {
+  const rank = { deal: 0, save: 1, check: 2, skip: 3 }
+  return [...places].sort((left, right) => {
+    const leftFit = prospectFit(left)
+    const rightFit = prospectFit(right)
+    if (rank[leftFit.verdict] !== rank[rightFit.verdict]) {
+      return rank[leftFit.verdict] - rank[rightFit.verdict]
+    }
+    const leftCount = left.userRatingCount ?? Number.POSITIVE_INFINITY
+    const rightCount = right.userRatingCount ?? Number.POSITIVE_INFINITY
+    if (leftCount !== rightCount) return leftCount - rightCount
+    return left.name.localeCompare(right.name, 'id')
+  })
+}
+
+function resultFilterSummary(
+  filter: ResultFilter,
+  count: number,
+  city: string | null,
+) {
+  const where = city ? ` di ${city}` : ''
+  if (filter === 'deal') return `${count} toko pasti deal${where}.`
+  if (filter === 'save') return `${count} toko layak disimpan${where}.`
+  if (filter === 'check') return `${count} toko yang masih perlu dicek.`
+  if (filter === 'skip') return `${count} toko yang sebaiknya dilewati.`
+  if (filter === 'all') return `${count} toko yang belum masuk daftar.`
+  return `${count} toko prioritas${where}. Yang datanya tipis atau sudah ramai tidak ditampilkan.`
+}
+function matchesResultFilter(
+  verdict: ReturnType<typeof prospectFit>['verdict'],
+  filter: ResultFilter,
+) {
+  if (filter === 'all') return true
+  if (filter === 'priority') return verdict === 'deal' || verdict === 'save'
+  return verdict === filter
+}
+
 export const Route = createFileRoute('/admin/prospects')({
   validateSearch: searchSchema,
   search: {
@@ -123,7 +169,7 @@ export const Route = createFileRoute('/admin/prospects')({
     page: search.page,
   }),
   loader: async ({ deps }) => {
-    const [list, installs, prospectPlaceIds] = await Promise.all([
+    const [list, prospectPlaceIds] = await Promise.all([
       listProspectsFn({
         data: {
           q: deps.q,
@@ -135,10 +181,9 @@ export const Route = createFileRoute('/admin/prospects')({
           pageSize: 20,
         },
       }),
-      listProspectInstallsFn(),
       listProspectPlaceIdsFn(),
     ])
-    return { list, installs, prospectPlaceIds }
+    return { list, prospectPlaceIds }
   },
   component: ProspectsPage,
   head: () => ({
@@ -147,21 +192,36 @@ export const Route = createFileRoute('/admin/prospects')({
 })
 
 function ProspectsPage() {
-  const { list, installs, prospectPlaceIds } = Route.useLoaderData()
+  const data = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/admin/prospects' })
+  return <ProspectsScreen {...data} search={search} navigate={navigate} />
+}
+
+export function ProspectsScreen({
+  list,
+  prospectPlaceIds,
+  search,
+  navigate,
+}: {
+  list: Awaited<ReturnType<typeof listProspectsFn>>
+  prospectPlaceIds: string[]
+  search: ReturnType<typeof Route.useSearch>
+  navigate: (options: {
+    replace?: boolean
+    search: ReturnType<typeof Route.useSearch>
+  }) => void | Promise<void>
+}) {
   const router = useRouter()
   const nearbyFn = useServerFn(prospectNearbyPlacesFn)
   const searchFn = useServerFn(prospectSearchPlacesFn)
   const scanCityFn = useServerFn(scanCityProspectsFn)
   const saveBatchFn = useServerFn(saveProspectBatchFn)
-  const saveFn = useServerFn(saveProspectFn)
   const updateFn = useServerFn(updateProspectFn)
   const deleteFn = useServerFn(deleteProspectFn)
   const deleteManyFn = useServerFn(deleteProspectsFn)
   const collectFn = useServerFn(collectProspectTrialFn)
   const closeFn = useServerFn(convertProspectToSoldFn)
-  const installByPlace = new Map(installs.map((row) => [row.googlePlaceId, row]))
   const searchFnRef = useRef(searchFn)
   searchFnRef.current = searchFn
   const listId = useId()
@@ -181,8 +241,10 @@ function ProspectsPage() {
   const [places, setPlaces] = useState<PlaceSuggestion[]>([])
   const [placesBusy, setPlacesBusy] = useState(false)
   const [placesError, setPlacesError] = useState<string | null>(null)
+  const [resultFilter, setResultFilter] = useState<ResultFilter>('priority')
+  const [pickedIds, setPickedIds] = useState<Set<string>>(new Set())
+  const [savingBatch, setSavingBatch] = useState(false)
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
-  const [savingId, setSavingId] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
@@ -244,9 +306,14 @@ function ProspectsPage() {
       setScanMode('nearby')
       setScannedCity(null)
       setPlaces(res.places)
-    } catch {
+    } catch (err) {
       if (id !== requestId.current) return
-      setPlacesError('Tidak bisa memuat toko terdekat. Coba lagi.')
+      const message = err instanceof Error ? err.message : ''
+      setPlacesError(
+        message.includes('Kuota pencarian')
+          ? message
+          : 'Tidak bisa memuat toko terdekat. Coba lagi.',
+      )
     } finally {
       if (id === requestId.current) setPlacesBusy(false)
     }
@@ -329,7 +396,7 @@ function ProspectsPage() {
         data: {
           city: nextCity,
           category: nextCategory,
-          potentialOnly: true,
+          potentialOnly: false,
         },
       })
       if (id !== requestId.current) return
@@ -339,24 +406,7 @@ function ProspectsPage() {
       setQuery('')
       if (res.places.length === 0) {
         setPlacesError(
-          `Tidak ada toko potensial di ${res.city.name}. Coba kategori lain atau kota lain.`,
-        )
-      } else {
-        const saved = await saveBatchFn({
-          data: {
-            places: res.places,
-            notes: `Scan kota ${res.city.name}`,
-            partnerRef: search.partner,
-          },
-        })
-        setSavedIds((current) => {
-          const next = new Set(current)
-          for (const place of res.places) next.add(place.placeId)
-          return next
-        })
-        await router.invalidate({ sync: true })
-        setNotice(
-          `${saved.created} toko potensial di ${res.city.name} siap diaktifkan${saved.existing > 0 ? ` (${saved.existing} sudah ada)` : ''}. Klik Aktifkan, lalu scan QR kartunya.`,
+          `Tidak ada toko di ${res.city.name}. Coba kategori lain atau kota lain.`,
         )
       }
     } catch (err) {
@@ -369,28 +419,40 @@ function ProspectsPage() {
     }
   }
 
-  async function onSave(place: PlaceSuggestion, partnerRef?: string) {
-    setSavingId(place.placeId)
+  async function onSavePicked(chosen: PlaceSuggestion[]) {
+    if (chosen.length === 0) return
+    setSavingBatch(true)
     setError(null)
     setNotice(null)
     try {
-      const res = await saveFn({
-        data: {
-          placeId: place.placeId,
-          partnerRef: partnerRef || search.partner,
-        },
+      let created = 0
+      let existing = 0
+      for (let index = 0; index < chosen.length; index += 80) {
+        const res = await saveBatchFn({
+          data: {
+            places: chosen.slice(index, index + 80),
+            partnerRef: search.partner,
+          },
+        })
+        created += res.created
+        existing += res.existing
+      }
+      setSavedIds((current) => {
+        const next = new Set(current)
+        for (const place of chosen) next.add(place.placeId)
+        return next
       })
-      setSavedIds((current) => new Set(current).add(place.placeId))
+      setPickedIds(new Set())
       setNotice(
-        res.created
-          ? `${res.prospect.name} disimpan. Rating ${res.prospect.ratingLabel} sebelum kartu dipasang.`
-          : `${res.prospect.name} sudah ada di daftar. Snapshot rating sebelumnya tetap dipakai.`,
+        existing > 0
+          ? `${created} toko masuk daftar. ${existing} sudah ada.`
+          : `${created} toko masuk daftar. Pasang kartunya dari daftar di bawah.`,
       )
       await router.invalidate({ sync: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal menyimpan prospek.')
+      setError(err instanceof Error ? err.message : 'Gagal menyimpan ke daftar.')
     } finally {
-      setSavingId(null)
+      setSavingBatch(false)
     }
   }
 
@@ -464,7 +526,7 @@ function ProspectsPage() {
     setNotice(null)
     try {
       const res = await collectFn({ data: { id: prospectId } })
-      setNotice(`Kartu diambil dari ${res.name}. Masuk gudang lagi.`)
+      setNotice(`Kartu diambil dari ${res.name}. Siap dipasang ke toko lain.`)
       await router.invalidate({ sync: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal mengambil kartu.')
@@ -493,12 +555,33 @@ function ProspectsPage() {
     ...prospectPlaceIds,
     ...list.prospects.map((row) => row.googlePlaceId),
   ])
-  const visiblePlaces = places.filter((place) => !savedPlaceIds.has(place.placeId))
+  const unsavedPlaces = sortResultPlaces(
+    withBranchCounts(places).filter((place) => !savedPlaceIds.has(place.placeId)),
+  )
+  const fits = new Map(unsavedPlaces.map((place) => [place.placeId, prospectFit(place)]))
+  const fitCounts = {
+    priority: unsavedPlaces.filter((place) => {
+      const verdict = fits.get(place.placeId)?.verdict
+      return verdict === 'deal' || verdict === 'save'
+    }).length,
+    deal: unsavedPlaces.filter((place) => fits.get(place.placeId)?.verdict === 'deal').length,
+    save: unsavedPlaces.filter((place) => fits.get(place.placeId)?.verdict === 'save').length,
+    check: unsavedPlaces.filter((place) => fits.get(place.placeId)?.verdict === 'check').length,
+    skip: unsavedPlaces.filter((place) => fits.get(place.placeId)?.verdict === 'skip').length,
+    all: unsavedPlaces.length,
+  }
+  const visiblePlaces = unsavedPlaces.filter((place) =>
+    matchesResultFilter(fits.get(place.placeId)?.verdict ?? 'check', resultFilter),
+  )
+  const pickedPlaces = visiblePlaces.filter((place) => pickedIds.has(place.placeId))
+  const allVisiblePicked =
+    visiblePlaces.length > 0 &&
+    visiblePlaces.every((place) => pickedIds.has(place.placeId))
 
   return (
     <div className="mx-auto flex w-full max-w-screen-xl flex-col gap-8">
       <PageHeader
-        description={`Petakan kota, lalu aktifkan kartu seperti biasa. Aktivasi mulai trial ${DEFAULT_TRIAL_DAYS} hari — dari sini kelihatan toko mana yang sudah terpasang dan kapan harus diambil.`}
+        description="Cari toko, simpan yang mau diikuti, lalu pasang kartunya dari daftar."
         title="Prospek toko"
       />
 
@@ -524,10 +607,11 @@ function ProspectsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Petakan kota</CardTitle>
+          <CardTitle>Cari toko</CardTitle>
           <CardDescription>
-            Petakan kota. Toko potensial masuk daftar. Aktifkan lewat proses
-            kartu yang sudah ada — itu trial {DEFAULT_TRIAL_DAYS} hari.
+            Pasti deal hanya kalau toko masih buka, bisa dihubungi, jam bukanya
+            ada, dan ulasannya masih sedikit serta baru. Yang buktinya kurang
+            masuk Perlu dicek.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -547,7 +631,20 @@ function ProspectsPage() {
               {placesBusy && scanMode === 'city' ? (
                 <Spinner data-icon="inline-start" />
               ) : null}
-              Petakan kota
+              Cari di kota ini
+            </Button>
+            <Button
+              disabled={geoState === 'asking'}
+              onClick={requestLocation}
+              type="button"
+              variant="outline"
+            >
+              {geoState === 'asking' ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <LocateFixedIcon data-icon="inline-start" />
+              )}
+              {geoState === 'ready' ? 'Sekitar sini' : 'Lokasi saya'}
             </Button>
           </form>
           <div className="flex flex-wrap gap-2">
@@ -579,10 +676,10 @@ function ProspectsPage() {
           ) : null}
           <details className="rounded-xl border border-border bg-muted/30 px-3 py-2">
             <summary className="cursor-pointer text-sm text-muted-foreground">
-              Cari toko spesifik atau sekitar lokasi saya
+              Cari nama toko
             </summary>
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <InputGroup className="flex-1">
+            <div className="mt-3">
+              <InputGroup>
                 <InputGroupInput
                   aria-controls={listId}
                   autoComplete="off"
@@ -594,38 +691,68 @@ function ProspectsPage() {
                   <SearchIcon />
                 </InputGroupAddon>
               </InputGroup>
-              <Button
-                disabled={geoState === 'asking'}
-                onClick={requestLocation}
-                type="button"
-                variant="outline"
-              >
-                {geoState === 'asking' ? (
-                  <Spinner data-icon="inline-start" />
-                ) : (
-                  <LocateFixedIcon data-icon="inline-start" />
-                )}
-                {geoState === 'ready' ? 'Sekitar sini' : 'Lokasi saya'}
-              </Button>
             </div>
           </details>
-          {visiblePlaces.length > 0 ? (
-            <p className="text-sm text-muted-foreground">
-              {scanMode === 'city' && scannedCity
-                ? `${visiblePlaces.length} toko baru di ${scannedCity.name}. Yang sudah ada di daftar tidak ditampilkan.`
-                : 'Toko yang belum masuk daftar.'}
-            </p>
+          {unsavedPlaces.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    ['priority', 'Prioritas', fitCounts.priority],
+                    ['deal', 'Pasti deal', fitCounts.deal],
+                    ['save', 'Layak disimpan', fitCounts.save],
+                    ['check', 'Perlu dicek', fitCounts.check],
+                    ['skip', 'Lewati', fitCounts.skip],
+                    ['all', 'Semua', fitCounts.all],
+                  ] as const
+                ).map(([value, label, count]) => (
+                  <Button
+                    key={value}
+                    onClick={() => setResultFilter(value)}
+                    size="sm"
+                    type="button"
+                    variant={resultFilter === value ? 'default' : 'outline'}
+                  >
+                    {label}
+                    <span className="text-xs opacity-70">{count}</span>
+                  </Button>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">
+                  {resultFilterSummary(
+                    resultFilter,
+                    visiblePlaces.length,
+                    scannedCity?.name ?? null,
+                  )}
+                </p>
+                <Button
+                  disabled={savingBatch || pickedPlaces.length === 0}
+                  onClick={() => void onSavePicked(pickedPlaces)}
+                  type="button"
+                >
+                  {savingBatch ? <Spinner data-icon="inline-start" /> : null}
+                  {pickedPlaces.length > 0
+                    ? `Simpan ${pickedPlaces.length} ke daftar`
+                    : 'Simpan ke daftar'}
+                </Button>
+              </div>
+            </div>
           ) : null}
           {placesError ? <Alert variant="danger">{placesError}</Alert> : null}
           {placesBusy && visiblePlaces.length === 0 ? (
             <p className="text-sm text-muted-foreground">Mencari toko…</p>
           ) : null}
-          {!placesBusy &&
-          scanMode !== 'city' &&
-          visiblePlaces.length === 0 &&
-          places.length > 0 ? (
+          {!placesBusy && visiblePlaces.length === 0 && unsavedPlaces.length > 0 ? (
             <p className="text-sm text-muted-foreground">
-              Toko yang ketemu sudah ada di daftar prospek.
+              Tidak ada toko di saringan ini.
+            </p>
+          ) : null}
+          {!placesBusy && unsavedPlaces.length === 0 && places.length > 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {scanMode === 'city' && scannedCity
+                ? `Toko di ${scannedCity.name} sudah ada di daftar.`
+                : 'Toko yang ketemu sudah ada di daftar prospek.'}
             </p>
           ) : null}
           {visiblePlaces.length > 0 ? (
@@ -633,100 +760,74 @@ function ProspectsPage() {
               className="overflow-hidden rounded-2xl bg-card shadow-sm ring-1 ring-border"
               id={listId}
             >
-              {visiblePlaces.map((place) => {
-                const saved = savedPlaceIds.has(place.placeId)
-                const install = installByPlace.get(place.placeId)
-                const state = install?.installState ?? 'none'
-                const installed = state === 'trial' || state === 'due' || state === 'sold'
-                return (
-                  <Item
-                    className="w-full rounded-none border-0 border-b border-border/70 px-3.5 py-3.5 last:border-b-0"
-                    key={place.placeId}
-                    size="sm"
-                  >
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                      <MapPinIcon className="size-4" />
-                    </span>
-                    <ItemContent className="min-w-0 gap-0.5">
-                      <ItemTitle className="w-full min-w-0">
-                        <span className="min-w-0 flex-1 truncate">{place.name}</span>
-                      </ItemTitle>
-                      <ItemDescription>
-                        {place.address ?? 'Alamat belum tersedia'}
-                      </ItemDescription>
-                      <PlaceRatingLine
-                        className="mt-1"
-                        rating={place.rating}
-                        showHint
-                        userRatingCount={place.userRatingCount}
-                      />
-                      {installed ? (
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <Badge variant={installBadgeVariant(state)}>
-                            {PROSPECT_INSTALL_LABEL[state]}
-                          </Badge>
-                          {state !== 'sold' ? (
-                            <span className="text-[11px] text-muted-foreground">
-                              {install?.pickupLabel}
-                            </span>
-                          ) : null}
-                        </div>
+              <Item
+                className="w-full rounded-none border-0 border-b border-border/70 px-3.5 py-2.5"
+                size="sm"
+              >
+                <input
+                  aria-label="Pilih semua hasil"
+                  checked={allVisiblePicked}
+                  className="size-4 accent-primary"
+                  onChange={(event) => {
+                    setPickedIds(
+                      event.target.checked
+                        ? new Set(visiblePlaces.map((place) => place.placeId))
+                        : new Set(),
+                    )
+                  }}
+                  type="checkbox"
+                />
+                <ItemContent>
+                  <ItemDescription>Pilih semua yang tampil</ItemDescription>
+                </ItemContent>
+              </Item>
+              {visiblePlaces.map((place) => (
+                <Item
+                  className="w-full rounded-none border-0 border-b border-border/70 px-3.5 py-3.5 last:border-b-0"
+                  key={place.placeId}
+                  size="sm"
+                >
+                  <input
+                    aria-label={`Pilih ${place.name}`}
+                    checked={pickedIds.has(place.placeId)}
+                    className="size-4 accent-primary"
+                    onChange={(event) => {
+                      setPickedIds((current) => {
+                        const next = new Set(current)
+                        if (event.target.checked) next.add(place.placeId)
+                        else next.delete(place.placeId)
+                        return next
+                      })
+                    }}
+                    type="checkbox"
+                  />
+                  <ItemContent className="min-w-0 gap-0.5">
+                    <ItemTitle className="w-full min-w-0">
+                      <span className="min-w-0 flex-1 truncate">{place.name}</span>
+                      {googlePlaceTypeLabel(place.primaryType) ? (
+                        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                          {googlePlaceTypeLabel(place.primaryType)}
+                        </span>
                       ) : null}
-                    </ItemContent>
-                    <ItemActions className="ml-2 shrink-0">
-                      <div className="flex flex-col items-end gap-2">
-                        {state === 'sold' && install?.unitId ? (
-                          <span className="text-[11px] text-muted-foreground">Sudah closing</span>
-                        ) : state === 'trial' || state === 'due' ? (
-                          <>
-                            <Button
-                              disabled={actingId === install?.id}
-                              onClick={() => install && void onCollect(install.id)}
-                              size="sm"
-                              type="button"
-                            >
-                              {actingId === install?.id ? (
-                                <Spinner data-icon="inline-start" />
-                              ) : null}
-                              Ambil kartu
-                            </Button>
-                            <Button
-                              disabled={actingId === install?.id}
-                              onClick={() => install && void onCloseDeal(install.id)}
-                              size="sm"
-                              type="button"
-                              variant="outline"
-                            >
-                              Closing
-                            </Button>
-                          </>
-                        ) : (
-                          <>
-                            <Button asChild size="sm">
-                              <Link search={activateSearch(place.placeId)} to="/activate">
-                                Aktifkan
-                              </Link>
-                            </Button>
-                            {saved ? (
-                              <span className="text-[11px] text-muted-foreground">Tersimpan</span>
-                            ) : (
-                              <Button
-                                disabled={placesBusy || savingId === place.placeId}
-                                onClick={() => void onSave(place)}
-                                size="sm"
-                                type="button"
-                                variant="ghost"
-                              >
-                                Simpan saja
-                              </Button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </ItemActions>
-                  </Item>
-                )
-              })}
+                    </ItemTitle>
+                    <ItemDescription>
+                      {place.address ?? 'Alamat belum tersedia'}
+                    </ItemDescription>
+                    <PlaceRatingLine
+                      className="mt-1"
+                      rating={place.rating}
+                      showBand={false}
+                      userRatingCount={place.userRatingCount}
+                    />
+                    {fits.get(place.placeId) ? (
+                      <ProspectFitMarks
+                        className="mt-1"
+                        fit={fits.get(place.placeId)!}
+                      />
+                    ) : null}
+                  </ItemContent>
+                </Item>
+              ))}
             </ItemGroup>
           ) : null}
           {!placesBusy &&
@@ -748,7 +849,7 @@ function ProspectsPage() {
           <div className="flex flex-col gap-1">
             <h2 className="text-lg font-medium tracking-tight">Daftar prospek</h2>
             <p className="text-sm text-muted-foreground">
-              Setelah aktivasi, toko masuk trial. Dari sini ambil kartu atau closing.
+              Toko yang sudah disimpan. Dari sini pasang kartu.
             </p>
           </div>
           {selectedIds.size > 0 ? (
@@ -865,7 +966,7 @@ function ProspectsPage() {
             <EmptyHeader>
               <EmptyTitle>Belum ada prospek</EmptyTitle>
               <EmptyDescription>
-                Petakan kota di atas. Toko potensial masuk daftar ini otomatis.
+                Cari toko di atas, lalu simpan yang mau diikuti.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
@@ -905,6 +1006,11 @@ function ProspectsPage() {
                 cell: ({ row }) => (
                   <div className="flex flex-col gap-1">
                     <span className="font-medium">{row.original.name}</span>
+                    {googlePlaceTypeLabel(row.original.primaryType) ? (
+                      <span className="text-xs text-muted-foreground">
+                        {googlePlaceTypeLabel(row.original.primaryType)}
+                      </span>
+                    ) : null}
                     <span className="text-xs text-muted-foreground">
                       {row.original.formattedAddress ?? 'Alamat belum tersedia'}
                     </span>
@@ -927,11 +1033,11 @@ function ProspectsPage() {
                 cell: ({ row }) => (
                   <PlaceRatingLine
                     rating={row.original.rating}
-                    showHint
+                    showBand={false}
                     userRatingCount={row.original.userRatingCount}
                   />
                 ),
-                header: 'Rating sebelum kartu',
+                header: 'Rating Google',
                 id: 'rating',
               }),
               prospectColumn.display({

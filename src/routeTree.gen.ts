@@ -23,6 +23,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as RStatusRouteImport } from './routes/r-status'
 import { Route as SyaratKetentuanRouteImport } from './routes/syarat-ketentuan'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as AdminAccessRouteImport } from './routes/admin.access'
 import { Route as AdminCardRouteImport } from './routes/admin.card'
 import { Route as AdminGoogleRouteImport } from './routes/admin.google'
 import { Route as AdminLogsRouteImport } from './routes/admin.logs'
@@ -33,6 +34,7 @@ import { Route as AdminSmtpRouteImport } from './routes/admin.smtp'
 import { Route as AdminStockRouteImport } from './routes/admin.stock'
 import { Route as AdminWhatsappRouteImport } from './routes/admin.whatsapp'
 import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppProspectsRouteImport } from './routes/app.prospects'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
 import { Route as FeedbackPublicIdRouteImport } from './routes/feedback.$publicId'
 import { Route as RPublicIdRouteImport } from './routes/r.$publicId'
@@ -43,6 +45,7 @@ import { Route as AdminStockNfcRouteImport } from './routes/admin.stock.nfc'
 import { Route as AdminStockPrintRouteImport } from './routes/admin.stock.print'
 import { Route as AdminUsersIndexRouteImport } from './routes/admin.users.index'
 import { Route as AdminUsersUserIdRouteImport } from './routes/admin.users.$userId'
+import { Route as AdminUsersSerahRouteImport } from './routes/admin.users.serah'
 import { Route as ApiMobileLoginRouteImport } from './routes/api.mobile.login'
 import { Route as ApiMobileLogoutRouteImport } from './routes/api.mobile.logout'
 import { Route as ApiMobileMeRouteImport } from './routes/api.mobile.me'
@@ -127,6 +130,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminAccessRoute = AdminAccessRouteImport.update({
+  id: '/access',
+  path: '/access',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminCardRoute = AdminCardRouteImport.update({
   id: '/card',
   path: '/card',
@@ -177,6 +185,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppProspectsRoute = AppProspectsRouteImport.update({
+  id: '/prospects',
+  path: '/prospects',
+  getParentRoute: () => AppRoute,
+} as any)
 const DashboardIndexRoute = DashboardIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -225,6 +238,11 @@ const AdminUsersIndexRoute = AdminUsersIndexRouteImport.update({
 const AdminUsersUserIdRoute = AdminUsersUserIdRouteImport.update({
   id: '/users/$userId',
   path: '/users/$userId',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminUsersSerahRoute = AdminUsersSerahRouteImport.update({
+  id: '/users/serah',
+  path: '/users/serah',
   getParentRoute: () => AdminRoute,
 } as any)
 const ApiMobileLoginRoute = ApiMobileLoginRouteImport.update({
@@ -308,6 +326,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/admin/access': typeof AdminAccessRoute
   '/admin/card': typeof AdminCardRoute
   '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
@@ -317,6 +336,7 @@ export interface FileRoutesByFullPath {
   '/admin/smtp': typeof AdminSmtpRoute
   '/admin/stock': typeof AdminStockRouteWithChildren
   '/admin/whatsapp': typeof AdminWhatsappRoute
+  '/app/prospects': typeof AppProspectsRoute
   '/feedback/$publicId': typeof FeedbackPublicIdRoute
   '/r/$publicId': typeof RPublicIdRoute
   '/admin/': typeof AdminIndexRoute
@@ -326,6 +346,7 @@ export interface FileRoutesByFullPath {
   '/admin/stock/nfc': typeof AdminStockNfcRoute
   '/admin/stock/print': typeof AdminStockPrintRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
+  '/admin/users/serah': typeof AdminUsersSerahRoute
   '/api/mobile/login': typeof ApiMobileLoginRoute
   '/api/mobile/logout': typeof ApiMobileLogoutRoute
   '/api/mobile/me': typeof ApiMobileMeRoute
@@ -354,6 +375,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/admin/access': typeof AdminAccessRoute
   '/admin/card': typeof AdminCardRoute
   '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
@@ -362,6 +384,7 @@ export interface FileRoutesByTo {
   '/admin/site': typeof AdminSiteRoute
   '/admin/smtp': typeof AdminSmtpRoute
   '/admin/whatsapp': typeof AdminWhatsappRoute
+  '/app/prospects': typeof AppProspectsRoute
   '/feedback/$publicId': typeof FeedbackPublicIdRoute
   '/r/$publicId': typeof RPublicIdRoute
   '/admin': typeof AdminIndexRoute
@@ -371,6 +394,7 @@ export interface FileRoutesByTo {
   '/admin/stock/nfc': typeof AdminStockNfcRoute
   '/admin/stock/print': typeof AdminStockPrintRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
+  '/admin/users/serah': typeof AdminUsersSerahRoute
   '/api/mobile/login': typeof ApiMobileLoginRoute
   '/api/mobile/logout': typeof ApiMobileLogoutRoute
   '/api/mobile/me': typeof ApiMobileMeRoute
@@ -403,6 +427,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/admin/access': typeof AdminAccessRoute
   '/admin/card': typeof AdminCardRoute
   '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
@@ -412,6 +437,7 @@ export interface FileRoutesById {
   '/admin/smtp': typeof AdminSmtpRoute
   '/admin/stock': typeof AdminStockRouteWithChildren
   '/admin/whatsapp': typeof AdminWhatsappRoute
+  '/app/prospects': typeof AppProspectsRoute
   '/feedback/$publicId': typeof FeedbackPublicIdRoute
   '/r/$publicId': typeof RPublicIdRoute
   '/admin/': typeof AdminIndexRoute
@@ -421,6 +447,7 @@ export interface FileRoutesById {
   '/admin/stock/nfc': typeof AdminStockNfcRoute
   '/admin/stock/print': typeof AdminStockPrintRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
+  '/admin/users/serah': typeof AdminUsersSerahRoute
   '/api/mobile/login': typeof ApiMobileLoginRoute
   '/api/mobile/logout': typeof ApiMobileLogoutRoute
   '/api/mobile/me': typeof ApiMobileMeRoute
@@ -454,6 +481,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/r-status'
     | '/syarat-ketentuan'
+    | '/admin/access'
     | '/admin/card'
     | '/admin/google'
     | '/admin/logs'
@@ -463,6 +491,7 @@ export interface FileRouteTypes {
     | '/admin/smtp'
     | '/admin/stock'
     | '/admin/whatsapp'
+    | '/app/prospects'
     | '/feedback/$publicId'
     | '/r/$publicId'
     | '/admin/'
@@ -472,6 +501,7 @@ export interface FileRouteTypes {
     | '/admin/stock/nfc'
     | '/admin/stock/print'
     | '/admin/users/$userId'
+    | '/admin/users/serah'
     | '/api/mobile/login'
     | '/api/mobile/logout'
     | '/api/mobile/me'
@@ -500,6 +530,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/r-status'
     | '/syarat-ketentuan'
+    | '/admin/access'
     | '/admin/card'
     | '/admin/google'
     | '/admin/logs'
@@ -508,6 +539,7 @@ export interface FileRouteTypes {
     | '/admin/site'
     | '/admin/smtp'
     | '/admin/whatsapp'
+    | '/app/prospects'
     | '/feedback/$publicId'
     | '/r/$publicId'
     | '/admin'
@@ -517,6 +549,7 @@ export interface FileRouteTypes {
     | '/admin/stock/nfc'
     | '/admin/stock/print'
     | '/admin/users/$userId'
+    | '/admin/users/serah'
     | '/api/mobile/login'
     | '/api/mobile/logout'
     | '/api/mobile/me'
@@ -548,6 +581,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/r-status'
     | '/syarat-ketentuan'
+    | '/admin/access'
     | '/admin/card'
     | '/admin/google'
     | '/admin/logs'
@@ -557,6 +591,7 @@ export interface FileRouteTypes {
     | '/admin/smtp'
     | '/admin/stock'
     | '/admin/whatsapp'
+    | '/app/prospects'
     | '/feedback/$publicId'
     | '/r/$publicId'
     | '/admin/'
@@ -566,6 +601,7 @@ export interface FileRouteTypes {
     | '/admin/stock/nfc'
     | '/admin/stock/print'
     | '/admin/users/$userId'
+    | '/admin/users/serah'
     | '/api/mobile/login'
     | '/api/mobile/logout'
     | '/api/mobile/me'
@@ -712,6 +748,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/access': {
+      id: '/admin/access'
+      path: '/access'
+      fullPath: '/admin/access'
+      preLoaderRoute: typeof AdminAccessRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/card': {
       id: '/admin/card'
       path: '/card'
@@ -782,6 +825,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/prospects': {
+      id: '/app/prospects'
+      path: '/prospects'
+      fullPath: '/app/prospects'
+      preLoaderRoute: typeof AppProspectsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/dashboard/': {
       id: '/dashboard/'
       path: '/'
@@ -850,6 +900,13 @@ declare module '@tanstack/react-router' {
       path: '/users/$userId'
       fullPath: '/admin/users/$userId'
       preLoaderRoute: typeof AdminUsersUserIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/users/serah': {
+      id: '/admin/users/serah'
+      path: '/users/serah'
+      fullPath: '/admin/users/serah'
+      preLoaderRoute: typeof AdminUsersSerahRouteImport
       parentRoute: typeof AdminRoute
     }
     '/api/mobile/login': {
@@ -963,6 +1020,7 @@ const AdminStockRouteWithChildren = AdminStockRoute._addFileChildren(
 )
 
 interface AdminRouteChildren {
+  AdminAccessRoute: typeof AdminAccessRoute
   AdminCardRoute: typeof AdminCardRoute
   AdminGoogleRoute: typeof AdminGoogleRoute
   AdminLogsRoute: typeof AdminLogsRoute
@@ -975,11 +1033,13 @@ interface AdminRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
   AdminAffiliateLeadIdRoute: typeof AdminAffiliateLeadIdRoute
   AdminUsersUserIdRoute: typeof AdminUsersUserIdRoute
+  AdminUsersSerahRoute: typeof AdminUsersSerahRoute
   AdminAffiliateIndexRoute: typeof AdminAffiliateIndexRoute
   AdminUsersIndexRoute: typeof AdminUsersIndexRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminAccessRoute: AdminAccessRoute,
   AdminCardRoute: AdminCardRoute,
   AdminGoogleRoute: AdminGoogleRoute,
   AdminLogsRoute: AdminLogsRoute,
@@ -992,6 +1052,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
   AdminAffiliateLeadIdRoute: AdminAffiliateLeadIdRoute,
   AdminUsersUserIdRoute: AdminUsersUserIdRoute,
+  AdminUsersSerahRoute: AdminUsersSerahRoute,
   AdminAffiliateIndexRoute: AdminAffiliateIndexRoute,
   AdminUsersIndexRoute: AdminUsersIndexRoute,
 }
@@ -999,11 +1060,13 @@ const AdminRouteChildren: AdminRouteChildren = {
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 interface AppRouteChildren {
+  AppProspectsRoute: typeof AppProspectsRoute
   AppIndexRoute: typeof AppIndexRoute
   AppUnitsUnitIdRoute: typeof AppUnitsUnitIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppProspectsRoute: AppProspectsRoute,
   AppIndexRoute: AppIndexRoute,
   AppUnitsUnitIdRoute: AppUnitsUnitIdRoute,
 }

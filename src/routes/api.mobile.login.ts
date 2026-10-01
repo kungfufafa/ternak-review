@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { storedPermissions } from '#/server/role-access'
 import {
   createSessionForOwner,
   verifyPasswordLogin,
@@ -30,7 +31,7 @@ export const Route = createFileRoute('/api/mobile/login')({
             { max: 50, windowMs: 60 * 60_000 },
           )
           const owner = await verifyPasswordLogin(body.email, body.password)
-          if (owner.role !== 'ADMIN') {
+          if (!(await storedPermissions(owner.role)).has('home.read')) {
             return mobileError(
               'Hanya admin yang bisa nulis NFC dari app.',
               403,
