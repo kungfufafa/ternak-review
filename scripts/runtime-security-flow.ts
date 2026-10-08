@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const temp = mkdtempSync(path.join(os.tmpdir(), 'review-runtime-'))
+const serverOutput = new WeakMap<ChildProcess, string[]>()
 
 async function reservePort() {
   const server = net.createServer()
@@ -41,7 +42,30 @@ function startServer(port: number, overrides: Record<string, string> = {}) {
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  // Drain both pipes so a chatty server never blocks, and keep the tail for
+  // the failure report.
+  const lines: string[] = []
+  const keep = (chunk: Buffer) => {
+    lines.push(chunk.toString())
+    if (lines.length > 200) lines.shift()
+  }
+  child.stdout?.on('data', keep)
+  child.stderr?.on('data', keep)
+  serverOutput.set(child, lines)
   return child
+}
+
+function printServerOutput(child: ChildProcess) {
+  const output = serverOutput.get(child)?.join('').trim()
+  console.error(
+    output ? `--- output server runtime ---\n${output}` : '--- server runtime tidak mencetak apa pun ---',
+  )
+}
+
+async function expectStatus(response: Response, status: number, label: string) {
+  if (response.status === status) return
+  const body = (await response.text()).slice(0, 2000)
+  throw new Error(`${label} wajib ${status}, dapat ${response.status}: ${body}`)
 }
 
 async function waitForServer(child: ChildProcess, url: string) {
@@ -106,7 +130,7 @@ async function runValidConfig() {
   const base = `http://127.0.0.1:${port}`
   try {
     const health = await waitForServer(child, `${base}/health`)
-    if (health.status !== 200) throw new Error('Health valid wajib 200')
+    await expectStatus(health, 200, 'Health valid')
     assertSecurityHeaders(health)
     if (health.headers.get('cache-control') !== 'no-store') {
       throw new Error('Health wajib no-store')
@@ -115,11 +139,14 @@ async function runValidConfig() {
     const redirect = await fetch(`${base}/r/DOESNOTEXIST`, {
       redirect: 'manual',
     })
-    if (redirect.status !== 302) throw new Error('Redirect kartu wajib 302')
+    await expectStatus(redirect, 302, 'Redirect kartu')
     assertSecurityHeaders(redirect)
     if (redirect.headers.get('cache-control') !== 'no-store') {
       throw new Error('Redirect kartu wajib no-store')
     }
+  } catch (error) {
+    printServerOutput(child)
+    throw error
   } finally {
     await stopServer(child)
   }
@@ -131,14 +158,15 @@ async function runInvalidConfig() {
   const base = `http://127.0.0.1:${port}`
   try {
     const health = await waitForServer(child, `${base}/health`)
-    if (health.status !== 503) throw new Error('Health invalid wajib 503')
+    await expectStatus(health, 503, 'Health invalid')
     assertSecurityHeaders(health)
 
     const app = await fetch(`${base}/login`)
-    if (app.status !== 503) {
-      throw new Error('Aplikasi dengan config invalid wajib fail-closed 503')
-    }
+    await expectStatus(app, 503, 'Aplikasi dengan config invalid (fail-closed)')
     assertSecurityHeaders(app)
+  } catch (error) {
+    printServerOutput(child)
+    throw error
   } finally {
     await stopServer(child)
   }
