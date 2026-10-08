@@ -342,6 +342,9 @@ export async function releaseCardFromShop(unitId: string) {
         outletId: null,
         activatedAt: null,
         partnerRef: null,
+        // The number belongs to the shop owner the card just left. Keeping it
+        // would send the next shop's feedback to them.
+        ownerWhatsapp: null,
       })
       .where(eq(units.id, unitId))
   }

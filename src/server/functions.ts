@@ -2,8 +2,6 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import {
   activateUnit,
-  attachPlaceToCard,
-  attachProspectToCard,
   collectProspectTrial,
   convertProspectToSold,
   getActivationCard,
@@ -49,10 +47,8 @@ import {
 import {
   deleteProspect,
   deleteProspects,
-  listProspectInstalls,
   listProspectPlaceIds,
   listProspects,
-  listReadyStockCards,
   saveProspect,
   saveProspectBatch,
   updateProspect,
@@ -348,8 +344,12 @@ export const rebindUnitOutletFn = createServerFn({ method: 'POST' })
     }),
   )
   .handler(async ({ data }) => {
-    await requirePermission('cards.manage.all')
-    return rebindUnitOutlet({ ...data, asAdmin: true })
+    const owner = await requirePermission('cards.manage.all')
+    return rebindUnitOutlet({
+      ...data,
+      actorOwnerId: owner.ownerId,
+      asAdmin: true,
+    })
   })
 
 export const rebindMyUnitOutletFn = createServerFn({ method: 'POST' })
@@ -1036,8 +1036,8 @@ export const listHoldersFn = createServerFn({ method: 'GET' })
       .optional(),
   )
   .handler(async ({ data }) => {
-    await requirePermission('holders.read')
-    return listHolders(data ?? {})
+    const owner = await requirePermission('holders.read')
+    return listHolders({ ...(data ?? {}), actorRole: owner.role })
   })
 
 export const listAssignableHoldersFn = createServerFn({ method: 'GET' }).handler(
@@ -1051,9 +1051,9 @@ export const listAssignableHoldersFn = createServerFn({ method: 'GET' }).handler
 export const getHolderFn = createServerFn({ method: 'GET' })
   .validator(z.object({ userId: z.string().min(1).max(80) }))
   .handler(async ({ data }) => {
-    await requirePermission('holders.read')
+    const owner = await requirePermission('holders.read')
     if (!z.string().uuid().safeParse(data.userId).success) return null
-    return getHolder(data.userId)
+    return getHolder(data.userId, owner.role)
   })
 
 export const getHolderNotifyStatusFn = createServerFn({ method: 'GET' }).handler(
@@ -1075,15 +1075,18 @@ export const createHolderFn = createServerFn({ method: 'POST' })
     }),
   )
   .handler(async ({ data }) => {
-    await requirePermission('holders.manage')
-    return createHolder({
-      email: data.email || undefined,
-      password: data.password || undefined,
-      whatsapp: data.whatsapp || undefined,
-      name: data.name,
-      pin: data.pin,
-      role: data.role,
-    })
+    const owner = await requirePermission('holders.manage')
+    return createHolder(
+      {
+        email: data.email || undefined,
+        password: data.password || undefined,
+        whatsapp: data.whatsapp || undefined,
+        name: data.name,
+        pin: data.pin,
+        role: data.role,
+      },
+      owner,
+    )
   })
 
 export const setHolderStatusFn = createServerFn({ method: 'POST' })
@@ -1094,8 +1097,8 @@ export const setHolderStatusFn = createServerFn({ method: 'POST' })
     }),
   )
   .handler(async ({ data }) => {
-    await requirePermission('holders.manage')
-    return setHolderStatus(data.userId, data.status)
+    const owner = await requirePermission('holders.manage')
+    return setHolderStatus(data.userId, data.status, owner)
   })
 
 export const resetHolderPinFn = createServerFn({ method: 'POST' })
@@ -1106,8 +1109,8 @@ export const resetHolderPinFn = createServerFn({ method: 'POST' })
     }),
   )
   .handler(async ({ data }) => {
-    await requirePermission('holders.manage')
-    return resetHolderPin(data.userId, data.pin)
+    const owner = await requirePermission('holders.manage')
+    return resetHolderPin(data.userId, data.pin, owner)
   })
 
 export const resetHolderPasswordFn = createServerFn({ method: 'POST' })
@@ -1118,8 +1121,8 @@ export const resetHolderPasswordFn = createServerFn({ method: 'POST' })
     }),
   )
   .handler(async ({ data }) => {
-    await requirePermission('holders.manage')
-    return resetHolderPassword(data.userId, data.password)
+    const owner = await requirePermission('holders.manage')
+    return resetHolderPassword(data.userId, data.password, owner)
   })
 
 export const updateHolderProfileFn = createServerFn({ method: 'POST' })
@@ -1132,12 +1135,16 @@ export const updateHolderProfileFn = createServerFn({ method: 'POST' })
     }),
   )
   .handler(async ({ data }) => {
-    await requirePermission('holders.manage')
-    return updateHolderProfile(data.userId, {
-      name: data.name,
-      whatsapp: data.whatsapp,
-      role: data.role,
-    })
+    const owner = await requirePermission('holders.manage')
+    return updateHolderProfile(
+      data.userId,
+      {
+        name: data.name,
+        whatsapp: data.whatsapp,
+        role: data.role,
+      },
+      owner,
+    )
   })
 
 export const getHolderHandoffFn = createServerFn({ method: 'GET' })
@@ -1382,13 +1389,6 @@ export const listProspectPlaceIdsFn = createServerFn({ method: 'GET' }).handler(
   },
 )
 
-export const listProspectInstallsFn = createServerFn({ method: 'GET' }).handler(
-  async () => {
-    const owner = await requirePermission('prospects.manage.own')
-    return listProspectInstalls(Date.now(), owner.ownerId)
-  },
-)
-
 export const updateProspectFn = createServerFn({ method: 'POST' })
   .validator(
     z.object({
@@ -1421,64 +1421,6 @@ export const deleteProspectFn = createServerFn({ method: 'POST' })
     return deleteProspect(data.id, owner.ownerId)
   })
 
-export const listReadyStockCardsFn = createServerFn({ method: 'GET' }).handler(
-  async () => {
-    await requirePermission('stock.read')
-    return listReadyStockCards()
-  },
-)
-
-export const attachProspectToCardFn = createServerFn({ method: 'POST' })
-  .validator(
-    z.object({
-      prospectId: z.string().uuid(),
-      publicId: z.string().min(4).max(32).optional(),
-    }),
-  )
-  .handler(async ({ data }) => {
-    const owner = await requirePermission('prospects.manage.own')
-    await assertRateLimit(`prospect-attach:${getClientFingerprint()}`, {
-      max: 20,
-      windowMs: 60 * 60_000,
-    })
-    return attachProspectToCard({
-      ...data,
-      sessionOwnerId: owner.ownerId,
-    })
-  })
-
-const scannedPlaceSchema = z.object({
-  placeId: z.string().min(2).max(256),
-  name: z.string().trim().min(1).max(200),
-  address: z.string().max(300).nullable(),
-  description: z.string().max(500),
-  rating: z.number().min(0).max(5).nullable(),
-  userRatingCount: z.number().int().min(0).nullable(),
-  googleMapsUri: z.string().max(500).nullable(),
-  primaryType: z.string().max(80).nullable(),
-})
-
-export const attachPlaceToCardFn = createServerFn({ method: 'POST' })
-  .validator(
-    z.object({
-      place: scannedPlaceSchema,
-      publicId: z.string().min(4).max(32).optional(),
-      notes: z.string().max(500).optional(),
-      partnerRef: z.string().max(80).optional(),
-    }),
-  )
-  .handler(async ({ data }) => {
-    const owner = await requirePermission('prospects.manage.own')
-    await assertRateLimit(`prospect-attach:${getClientFingerprint()}`, {
-      max: 20,
-      windowMs: 60 * 60_000,
-    })
-    return attachPlaceToCard({
-      ...data,
-      sessionOwnerId: owner.ownerId,
-    })
-  })
-
 export const collectProspectTrialFn = createServerFn({ method: 'POST' })
   .validator(z.object({ id: z.string().uuid() }))
   .handler(async ({ data }) => {
@@ -1487,7 +1429,10 @@ export const collectProspectTrialFn = createServerFn({ method: 'POST' })
       max: 20,
       windowMs: 60 * 60_000,
     })
-    return collectProspectTrial(data.id, owner.ownerId)
+    const grants = await storedPermissions(owner.role)
+    return collectProspectTrial(data.id, owner.ownerId, {
+      manageAll: grants.has('cards.manage.all'),
+    })
   })
 
 export const convertProspectToSoldFn = createServerFn({ method: 'POST' })
@@ -1498,7 +1443,10 @@ export const convertProspectToSoldFn = createServerFn({ method: 'POST' })
       max: 20,
       windowMs: 60 * 60_000,
     })
-    return convertProspectToSold(data.id, new Date(), owner.ownerId)
+    const grants = await storedPermissions(owner.role)
+    return convertProspectToSold(data.id, new Date(), owner.ownerId, {
+      manageAll: grants.has('cards.manage.all'),
+    })
   })
 
 export const listRoleGrantsFn = createServerFn({ method: 'GET' }).handler(

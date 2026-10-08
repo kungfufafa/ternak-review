@@ -9,18 +9,27 @@ process.env.DATABASE_URL = `file:${join(mkdtempSync(join(tmpdir(), 'review-qa-')
 const { PERMISSIONS, canAccessPath, permissionsFor } = await import('#/lib/access')
 const { db } = await import('#/db')
 const { prospects, roleGrants, units } = await import('#/db/schema')
-const { saveRoleGrants, storedPermissions, clearRoleGrantCache } = await import(
-  '#/server/role-access'
-)
+const {
+  assignableAccountRoles,
+  clearRoleGrantCache,
+  createRole,
+  saveRoleGrants,
+  storedPermissions,
+} = await import('#/server/role-access')
 const { saveProspect, listProspects, deleteProspect } = await import(
   '#/server/prospects'
 )
 const { listUnits } = await import('#/server/clicks')
 const { generateStockBatch } = await import('#/server/stock')
 const { collectProspectTrial } = await import('#/server/activation')
-const { assignUnitToHolder, createHolder, previewHandoff } = await import(
-  '#/server/users'
-)
+const {
+  assignUnitToHolder,
+  createHolder,
+  previewHandoff,
+  resetHolderPassword,
+  setHolderStatus,
+  updateHolderProfile,
+} = await import('#/server/users')
 const { eq } = await import('drizzle-orm')
 
 const failures: string[] = []
@@ -33,6 +42,15 @@ function check(name: string, ok: boolean, detail = '') {
   const line = detail ? `${name} — ${detail}` : name
   failures.push(line)
   console.error(`FAIL ${line}`)
+}
+
+async function rejects(run: () => Promise<unknown>) {
+  try {
+    await run()
+    return false
+  } catch {
+    return true
+  }
 }
 
 async function main() {
@@ -308,6 +326,70 @@ async function main() {
     'Holder B tetap 20 toko unik',
     holderRows.filter((row) => burstIds.has(row.googlePlaceId)).length === 20,
   )
+
+  const managerRole = await createRole('Pengelola akun QA')
+  await saveRoleGrants({
+    role: managerRole.key,
+    permissions: ['holders.read', 'holders.manage', ...permissionsFor('USER')],
+    actorRole: 'SUPER_ADMIN',
+  })
+  const wideRole = await createRole('Pengawas kartu QA')
+  await saveRoleGrants({
+    role: wideRole.key,
+    permissions: ['cards.read.all', 'cards.manage.all', 'access.manage'],
+    actorRole: 'SUPER_ADMIN',
+  })
+  const manager = await createHolder({
+    email: 'manager-qa@example.com',
+    password: 'manager-qa-pass',
+    pin: '6153',
+    role: managerRole.key,
+  })
+  const wide = await createHolder({
+    email: 'wide-qa@example.com',
+    password: 'wide-qa-pass',
+    pin: '3917',
+    role: wideRole.key,
+  })
+  const actor = { ownerId: manager.id, role: managerRole.key }
+  const offered = (await assignableAccountRoles(managerRole.key)).map((role) => role.key)
+  check(
+    'pengelola akun hanya ditawari peran setara',
+    offered.includes('USER') && !offered.includes('ADMIN') && !offered.includes(wideRole.key),
+    offered.join(', '),
+  )
+  const made = await createHolder(
+    { email: 'made-by-manager@example.com', password: 'made-by-manager', pin: '8264' },
+    actor,
+  )
+  check('pengelola akun boleh membuat pemegang biasa', Boolean(made.id))
+  check(
+    'pengelola akun tidak bisa membuat admin',
+    await rejects(() =>
+      createHolder(
+        { email: 'sneaky-admin@example.com', password: 'sneaky-admin-1', pin: '4071', role: 'ADMIN' },
+        actor,
+      ),
+    ),
+  )
+  check(
+    'pengelola akun tidak bisa menaikkan pemegang jadi admin',
+    await rejects(() => updateHolderProfile(amar.id, { role: 'ADMIN' }, actor)),
+  )
+  check(
+    'pengelola akun tidak bisa mengubah perannya sendiri',
+    await rejects(() => updateHolderProfile(manager.id, { role: 'USER' }, actor)),
+  )
+  check(
+    'pengelola akun tidak bisa reset password akun berakses lebih tinggi',
+    await rejects(() => resetHolderPassword(wide.id, 'taken-over-1', actor)),
+  )
+  check(
+    'pengelola akun tidak bisa menonaktifkan akun berakses lebih tinggi',
+    await rejects(() => setHolderStatus(wide.id, 'DISABLED', actor)),
+  )
+  const renamed = await updateHolderProfile(amar.id, { name: 'Amar QA', role: 'USER' }, actor)
+  check('pengelola akun tetap bisa mengubah profil pemegang biasa', renamed.name === 'Amar QA')
 
   const grantRows = await db.select().from(roleGrants)
   check('tabel izin peran terisi', grantRows.length > 0)

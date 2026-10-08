@@ -184,6 +184,7 @@ export async function convertProspectToSold(
   id: string,
   now = new Date(),
   ownerId?: string | null,
+  options?: { manageAll?: boolean },
 ) {
   const existing = await db.query.prospects.findFirst({
     where: eq(prospects.id, id),
@@ -197,6 +198,9 @@ export async function convertProspectToSold(
   }
   if (!existing.unitId) {
     throw new Error('Kartu trial sudah tidak terpasang.')
+  }
+  if (ownerId && !options?.manageAll) {
+    await assertUnitNotHeldByOther(existing.unitId, ownerId)
   }
   const [updated] = await db
     .update(prospects)
@@ -630,26 +634,70 @@ export async function listProspectPlaceIds(ownerId?: string | null) {
   return rows.map((row) => row.googlePlaceId)
 }
 
-export async function listReadyStockCards(limit = 12) {
-  const rows = await db.query.units.findMany({
-    where: eq(units.status, 'IN_STOCK'),
-    columns: {
-      id: true,
-      publicId: true,
-      serviceTier: true,
-    },
-    with: {
-      batch: { columns: { label: true } },
-    },
-    orderBy: [desc(units.createdAt)],
-    limit: Math.min(Math.max(limit, 1), 40),
+export async function hasProspectForUnit(unitId: string) {
+  const row = await db.query.prospects.findFirst({
+    where: eq(prospects.unitId, unitId),
+    columns: { id: true },
   })
-  return rows.map((row) => ({
-    id: row.id,
-    publicId: row.publicId,
-    serviceTier: row.serviceTier,
-    batchLabel: row.batch?.label ?? null,
-  }))
+  return Boolean(row)
+}
+
+/**
+ * A card handed over to another account belongs to that account's trial
+ * now. Stop the previous holder from collecting or closing it.
+ */
+export async function assertUnitNotHeldByOther(unitId: string, ownerId: string) {
+  const unit = await db.query.units.findFirst({
+    where: eq(units.id, unitId),
+    columns: { ownerId: true },
+  })
+  if (unit?.ownerId && unit.ownerId !== ownerId) {
+    throw new Error('Kartu ini sudah dipegang akun lain. Hubungi admin.')
+  }
+}
+
+/**
+ * Move the prospects that track a card to the account now holding it, so the
+ * trial and its pickup date follow the card when it is handed over.
+ */
+export async function transferUnitProspects(
+  unitId: string,
+  ownerId: string,
+  now = new Date(),
+) {
+  const rows = await db.query.prospects.findMany({
+    where: eq(prospects.unitId, unitId),
+  })
+  for (const row of rows) {
+    if (row.createdByOwnerId === ownerId) continue
+    const existing = await db.query.prospects.findFirst({
+      where: ownedPlace(row.googlePlaceId, ownerId),
+    })
+    if (!existing) {
+      await db
+        .update(prospects)
+        .set({ createdByOwnerId: ownerId, updatedAt: now })
+        .where(eq(prospects.id, row.id))
+      continue
+    }
+    // The new holder already tracks this shop. Keep their row, give it the
+    // card's install, and drop the old row so no phantom trial is left.
+    await db
+      .update(prospects)
+      .set({
+        unitId: row.unitId,
+        status: row.status,
+        installKind: row.installKind,
+        trialStartedAt: row.trialStartedAt,
+        trialEndsAt: row.trialEndsAt,
+        trialCollectedAt: row.trialCollectedAt,
+        notes: existing.notes ?? row.notes,
+        partnerRef: existing.partnerRef ?? row.partnerRef,
+        updatedAt: now,
+      })
+      .where(eq(prospects.id, existing.id))
+    await db.delete(prospects).where(eq(prospects.id, row.id))
+  }
 }
 
 export async function getProspect(id: string) {

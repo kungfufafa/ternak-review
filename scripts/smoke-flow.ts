@@ -130,7 +130,7 @@ import {
 } from '../src/server/prospects.ts'
 import { eq, or } from 'drizzle-orm'
 import { db } from '../src/db/index.ts'
-import { outlets, reviewFeedbacks, units, whatsappCommands, whatsappGatewayState, whatsappOutbox } from '../src/db/schema.ts'
+import { outlets, prospects, reviewFeedbacks, units, whatsappCommands, whatsappGatewayState, whatsappOutbox } from '../src/db/schema.ts'
 import {
   deleteUnit,
   getAdminDashboardSummary,
@@ -639,6 +639,7 @@ async function checkHolderAccounts() {
   await expectReject(
     () =>
       attachPlaceToCard({
+        sessionRole: 'ADMIN',
         place: {
           placeId: prospectPlace,
           name: savedProspect.prospect.name,
@@ -899,6 +900,16 @@ async function checkHolderAccounts() {
   if (!unknownMail.ok) {
     throw new Error('Unknown email OTP must stay generic')
   }
+  const staff = await createHolder({
+    email: 'staff-otp@example.com',
+    password: 'staff-otp-pass',
+    pin: '4826',
+    role: 'ADMIN',
+  })
+  const staffMail = await requestEmailLoginOtp(staff.email)
+  if (!staffMail.ok) {
+    throw new Error('Staff email OTP must stay generic')
+  }
   await expectReject(
     () => requestEmailLoginOtp(holder.email),
     'Fake Resend key must fail holder OTP send',
@@ -919,6 +930,11 @@ async function checkHolderAccounts() {
     )
   ) {
     throw new Error('Unknown email must not enqueue an OTP message')
+  }
+  if (
+    otpLogs.items.some((item) => item.kind === 'OTP' && item.to === staff.email)
+  ) {
+    throw new Error('Email OTP must never go to staff accounts; they sign in with a password')
   }
   const pinMail = await resetHolderPin(holder.id)
   if (pinMail.notify.email.status !== 'FAILED') {
@@ -1289,6 +1305,142 @@ async function checkStockOwnership() {
   console.log('stock ownership flow passed')
 }
 
+async function checkTrialOwnership() {
+  await setSmokeGateway('OFFLINE')
+  const giver = await createHolder({
+    email: 'trial-giver@example.com',
+    password: 'trial-giver-1',
+    pin: '7391',
+  })
+  const taker = await createHolder({
+    email: 'trial-taker@example.com',
+    password: 'trial-taker-1',
+    pin: '5194',
+  })
+  const batch = await generateStockBatch({ count: 2, label: 'QA-TRIAL-OWNER' })
+  const [trialCard, takerCard] = batch.units
+  if (!trialCard || !takerCard) throw new Error('Expected trial ownership cards')
+  await assignUnitToHolder({ ownerId: giver.id, publicId: trialCard.publicId })
+  await assignUnitToHolder({ ownerId: taker.id, publicId: takerCard.publicId })
+
+  await expectReject(
+    () =>
+      attachPlaceToCard({
+        place: {
+          placeId: 'DEV_dG9rby1vd25lcg',
+          name: 'toko-owner',
+          address: null,
+          description: 'toko-owner',
+          rating: 4.1,
+          userRatingCount: 12,
+          googleMapsUri: null,
+          primaryType: null,
+        },
+        publicId: takerCard.publicId,
+        sessionOwnerId: giver.id,
+        sessionRole: 'USER',
+      }),
+    "Holder installing another holder's card without their PIN",
+  )
+  const untouched = await db.query.units.findFirst({
+    where: eq(units.publicId, takerCard.publicId),
+  })
+  if (untouched?.status !== 'IN_STOCK' || untouched.ownerId !== taker.id) {
+    throw new Error("A rejected install must leave the other holder's card untouched")
+  }
+
+  const trialPlace = 'DEV_dG9rby10cmlhbA'
+  const installed = await activateUnit({
+    publicId: trialCard.publicId,
+    placeId: trialPlace,
+    serviceTier: 'PRO',
+    ownerWhatsapp: '081234567890',
+    installKind: 'TRIAL',
+    sessionOwnerId: giver.id,
+    sessionRole: 'USER',
+  })
+  if (installed.prospect?.installState !== 'trial') {
+    throw new Error('A holder installing their own card must start a trial')
+  }
+  await rebindUnitOutlet({
+    unitId: installed.unitId,
+    placeId: trialPlace,
+    actorOwnerId: giver.id,
+  })
+  const sameShop = (await listProspects({ ownerId: giver.id })).prospects.find(
+    (row) => row.unitId === installed.unitId,
+  )
+  if (sameShop?.installState !== 'trial') {
+    throw new Error('Picking the same shop again must not turn a trial into a sale')
+  }
+
+  await assignUnitToHolder({ ownerId: taker.id, unitId: installed.unitId })
+  const takerTrial = (await listProspects({ ownerId: taker.id })).prospects.find(
+    (row) => row.unitId === installed.unitId,
+  )
+  if (!takerTrial || takerTrial.installState !== 'trial') {
+    throw new Error('Handing a card over must move its trial to the new holder')
+  }
+  const giverLeft = await listProspects({ ownerId: giver.id })
+  if (giverLeft.prospects.some((row) => row.unitId === installed.unitId)) {
+    throw new Error('The previous holder must no longer track a handed-over card')
+  }
+
+  // Cards moved before handovers carried the trial: the holder of the
+  // prospect must not collect a card another account now holds.
+  await db.update(units).set({ ownerId: giver.id }).where(eq(units.id, installed.unitId))
+  await expectReject(
+    () => collectProspectTrial(takerTrial.id, taker.id),
+    'Collecting a trial card another holder now holds',
+  )
+  await expectReject(
+    () => convertProspectToSold(takerTrial.id, new Date(), taker.id),
+    'Closing a trial card another holder now holds',
+  )
+  await db.update(units).set({ ownerId: taker.id }).where(eq(units.id, installed.unitId))
+
+  const collected = await collectProspectTrial(takerTrial.id, taker.id)
+  if (collected.installState !== 'collected') {
+    throw new Error('The new holder must be able to collect the trial card')
+  }
+  const released = await db.query.units.findFirst({
+    where: eq(units.id, installed.unitId),
+  })
+  if (
+    released?.status !== 'IN_STOCK' ||
+    released.ownerId !== taker.id ||
+    released.ownerWhatsapp !== null
+  ) {
+    throw new Error(
+      'A collected trial card must return to stock without the previous shop owner number',
+    )
+  }
+
+  // Cards installed before prospects existed have no prospect row. Picking
+  // their shop again must still record the install, as it did before.
+  const legacyPlace = 'DEV_dG9rby1sYW1h'
+  const legacy = await activateUnit({
+    publicId: takerCard.publicId,
+    placeId: legacyPlace,
+    installKind: 'SOLD',
+    sessionOwnerId: taker.id,
+    sessionRole: 'USER',
+  })
+  await db.delete(prospects).where(eq(prospects.unitId, legacy.unitId))
+  await rebindUnitOutlet({
+    unitId: legacy.unitId,
+    placeId: legacyPlace,
+    actorOwnerId: taker.id,
+  })
+  const recorded = (await listProspects({ ownerId: taker.id })).prospects.find(
+    (row) => row.unitId === legacy.unitId,
+  )
+  if (recorded?.installState !== 'sold') {
+    throw new Error('Re-picking the shop of a card without a prospect must record it as sold')
+  }
+  console.log('trial ownership passed')
+}
+
 async function main() {
   const summaryBeforeBatch = await getAdminDashboardSummary()
   const batch = await generateStockBatch({
@@ -1493,6 +1645,7 @@ async function main() {
   await expectReject(
     () =>
       attachPlaceToCard({
+        sessionRole: 'ADMIN',
         place: oneTapPlace,
         notes: 'Scan kota Cirebon',
         partnerRef: 'cirebon-map',
@@ -1500,6 +1653,7 @@ async function main() {
     'Activation without the card in hand',
   )
   const oneTap = await attachPlaceToCard({
+    sessionRole: 'ADMIN',
     place: oneTapPlace,
     publicId: oneTapCard.publicId,
     notes: 'Scan kota Cirebon',
@@ -1537,6 +1691,7 @@ async function main() {
   await expectReject(
     () =>
       attachPlaceToCard({
+        sessionRole: 'ADMIN',
         place: oneTapPlace,
         publicId: oneTapCard.publicId,
         notes: 'Scan kota Cirebon',
@@ -1554,6 +1709,7 @@ async function main() {
   const duePlace = cityScan.places[1]
   if (!dueCard || !duePlace) throw new Error('Expected a second Cirebon shop for due trial')
   const dueTap = await attachPlaceToCard({
+    sessionRole: 'ADMIN',
     place: duePlace,
     publicId: dueCard.publicId,
     notes: 'Scan kota Cirebon',
@@ -1949,6 +2105,7 @@ async function main() {
   await checkHolderAccounts()
   await checkBusinessQa()
   await checkStockOwnership()
+  await checkTrialOwnership()
 
   const uiKey = 'AIzaSySmokeGooglePlacesKey12345678'
   await saveGooglePlacesKey(uiKey)
