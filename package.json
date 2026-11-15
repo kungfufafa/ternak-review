@@ -40,6 +40,8 @@
     "mobile:android": "npm --prefix mobile run android"
   },
   "dependencies": {
+    "@sentry/cloudflare": "^11.12.0",
+    "@sentry/tanstackstart-react": "^11.12.0",
     "@tanstack/react-query": "5.101.4",
     "@tanstack/react-router": "1.170.30",
     "@tanstack/react-router-ssr-query": "1.167.1",
