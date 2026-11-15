@@ -73,7 +73,12 @@ import {
   testAffiliateWebhookUrl,
 } from '#/server/affiliate-settings'
 import { getCardDesign, saveCardDesign } from '#/server/card-design'
-import { getPublicSiteFlags, saveSiteFlags } from '#/server/site'
+import {
+  getPublicSiteFlags,
+  isActivationPinEnabled,
+  saveActivationPinEnabled,
+  saveSiteFlags,
+} from '#/server/site'
 import { getViewPrefs, saveViewPrefs } from '#/server/view-prefs'
 import { lookupQr, markNfcEncoded } from '#/server/nfc'
 import {
@@ -235,7 +240,9 @@ async function limitPlaces(publicId: string, pin?: string) {
     max: 40,
     windowMs: 60_000,
   })
-  if (card.ownerId || mayRebind) {
+  // With the PIN off nobody has proved access, so every card gets the
+  // per-card cap that otherwise only follows a PIN or a session.
+  if (card.ownerId || mayRebind || !(await isActivationPinEnabled())) {
     await assertRateLimit(
       `places-card:${hashRateLimitIdentifier(card.publicId)}`,
       { max: 200, windowMs: 15 * 60_000 },
@@ -905,6 +912,24 @@ export const saveSiteSettingsFn = createServerFn({ method: 'POST' })
       windowMs: 15 * 60_000,
     })
     return saveSiteFlags(data)
+  })
+
+export const getActivationSettingsFn = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    await requirePermission('activation.manage')
+    return { pinEnabled: await isActivationPinEnabled() }
+  },
+)
+
+export const saveActivationSettingsFn = createServerFn({ method: 'POST' })
+  .validator(z.object({ pinEnabled: z.boolean() }))
+  .handler(async ({ data }) => {
+    await requirePermission('activation.manage')
+    await assertRateLimit(`activation-settings:${getClientFingerprint()}`, {
+      max: 40,
+      windowMs: 15 * 60_000,
+    })
+    return saveActivationPinEnabled(data.pinEnabled)
   })
 
 export const getCardDesignFn = createServerFn({ method: 'GET' }).handler(

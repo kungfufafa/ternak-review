@@ -24,6 +24,7 @@ import { Route as RStatusRouteImport } from './routes/r-status'
 import { Route as SyaratKetentuanRouteImport } from './routes/syarat-ketentuan'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAccessRouteImport } from './routes/admin.access'
+import { Route as AdminActivationRouteImport } from './routes/admin.activation'
 import { Route as AdminCardRouteImport } from './routes/admin.card'
 import { Route as AdminGoogleRouteImport } from './routes/admin.google'
 import { Route as AdminLogsRouteImport } from './routes/admin.logs'
@@ -133,6 +134,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
 const AdminAccessRoute = AdminAccessRouteImport.update({
   id: '/access',
   path: '/access',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminActivationRoute = AdminActivationRouteImport.update({
+  id: '/activation',
+  path: '/activation',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminCardRoute = AdminCardRouteImport.update({
@@ -327,6 +333,7 @@ export interface FileRoutesByFullPath {
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
   '/admin/access': typeof AdminAccessRoute
+  '/admin/activation': typeof AdminActivationRoute
   '/admin/card': typeof AdminCardRoute
   '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
@@ -376,6 +383,7 @@ export interface FileRoutesByTo {
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
   '/admin/access': typeof AdminAccessRoute
+  '/admin/activation': typeof AdminActivationRoute
   '/admin/card': typeof AdminCardRoute
   '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
@@ -428,6 +436,7 @@ export interface FileRoutesById {
   '/r-status': typeof RStatusRoute
   '/syarat-ketentuan': typeof SyaratKetentuanRoute
   '/admin/access': typeof AdminAccessRoute
+  '/admin/activation': typeof AdminActivationRoute
   '/admin/card': typeof AdminCardRoute
   '/admin/google': typeof AdminGoogleRoute
   '/admin/logs': typeof AdminLogsRoute
@@ -482,6 +491,7 @@ export interface FileRouteTypes {
     | '/r-status'
     | '/syarat-ketentuan'
     | '/admin/access'
+    | '/admin/activation'
     | '/admin/card'
     | '/admin/google'
     | '/admin/logs'
@@ -531,6 +541,7 @@ export interface FileRouteTypes {
     | '/r-status'
     | '/syarat-ketentuan'
     | '/admin/access'
+    | '/admin/activation'
     | '/admin/card'
     | '/admin/google'
     | '/admin/logs'
@@ -582,6 +593,7 @@ export interface FileRouteTypes {
     | '/r-status'
     | '/syarat-ketentuan'
     | '/admin/access'
+    | '/admin/activation'
     | '/admin/card'
     | '/admin/google'
     | '/admin/logs'
@@ -753,6 +765,13 @@ declare module '@tanstack/react-router' {
       path: '/access'
       fullPath: '/admin/access'
       preLoaderRoute: typeof AdminAccessRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/activation': {
+      id: '/admin/activation'
+      path: '/activation'
+      fullPath: '/admin/activation'
+      preLoaderRoute: typeof AdminActivationRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/card': {
@@ -1021,6 +1040,7 @@ const AdminStockRouteWithChildren = AdminStockRoute._addFileChildren(
 
 interface AdminRouteChildren {
   AdminAccessRoute: typeof AdminAccessRoute
+  AdminActivationRoute: typeof AdminActivationRoute
   AdminCardRoute: typeof AdminCardRoute
   AdminGoogleRoute: typeof AdminGoogleRoute
   AdminLogsRoute: typeof AdminLogsRoute
@@ -1040,6 +1060,7 @@ interface AdminRouteChildren {
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminAccessRoute: AdminAccessRoute,
+  AdminActivationRoute: AdminActivationRoute,
   AdminCardRoute: AdminCardRoute,
   AdminGoogleRoute: AdminGoogleRoute,
   AdminLogsRoute: AdminLogsRoute,

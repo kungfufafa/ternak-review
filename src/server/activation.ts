@@ -25,6 +25,7 @@ import {
   type ServiceTier,
 } from './review'
 import { getServicePackages, getServicePackage } from './service-packages'
+import { isActivationPinEnabled } from './site'
 import { isWhatsappGatewayOpen } from './whatsapp-status'
 
 function normalizePartnerRef(raw?: string | null) {
@@ -75,6 +76,8 @@ export async function getActivationCardForViewer(
   const isHolder = Boolean(
     viewer && card.ownerId && viewer.ownerId === card.ownerId && !isAdmin,
   )
+  const pinRequired =
+    !isAdmin && !isHolder && (await isActivationPinEnabled())
   return {
     id: card.id,
     publicId: card.publicId,
@@ -86,6 +89,7 @@ export async function getActivationCardForViewer(
     reviewMode: card.reviewMode,
     hasOwner: Boolean(card.ownerId),
     isHolder,
+    pinRequired,
     ownerWhatsapp: isAdmin || isHolder ? card.ownerWhatsapp : null,
   }
 }
@@ -478,6 +482,11 @@ async function assertHolderMayActivate(
     if (input.sessionOwnerId && input.sessionOwnerId === unit.ownerId) {
       return { holderOwnerId: unit.ownerId }
     }
+    // PIN switched off in the admin settings: whoever has the card may
+    // install it, and it stays with the holder it was handed to.
+    if (!(await isActivationPinEnabled())) {
+      return { holderOwnerId: unit.ownerId }
+    }
     if (!input.pin) {
       throw new Error(
         'Masukkan PIN pemegang, atau masuk sebagai admin untuk pasang tanpa PIN.',
@@ -489,6 +498,11 @@ async function assertHolderMayActivate(
     }
     await clearSuccessfulPinAttempt(unit.publicId, input.clientKey)
     return { holderOwnerId: unit.ownerId }
+  }
+  // PIN switched off and the card has no holder yet: a signed-in holder
+  // takes it, an anonymous visitor installs it with no holder at all.
+  if (!(await isActivationPinEnabled())) {
+    return { holderOwnerId: input.sessionOwnerId ?? null }
   }
   if (!input.pin) {
     throw new Error(

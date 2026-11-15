@@ -114,7 +114,8 @@ function ActivatePage() {
   const publicId = (card?.publicId ?? prefillId).toUpperCase()
   const isAdmin = session ? isStaff(session.permissions) : false
   const isHolder = Boolean(card?.isHolder)
-  const skipPin = isAdmin || isHolder
+  // pinRequired is false when the PIN is switched off in the admin settings.
+  const skipPin = isAdmin || isHolder || card?.pinRequired === false
   const otherAccount = Boolean(
     session && !isAdmin && card?.hasOwner && !isHolder,
   )

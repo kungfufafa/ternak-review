@@ -5,6 +5,7 @@ import {
   GlobeIcon,
   HandshakeIcon,
   HouseIcon,
+  KeyRoundIcon,
   MessageCircleIcon,
   MailIcon,
   MapPinIcon,
@@ -144,6 +145,13 @@ export function getNavGroups(
           icon: <GlobeIcon />,
           isActive: pathname.startsWith("/admin/site"),
           permission: "site.read",
+        },
+        {
+          title: "Aktivasi kartu",
+          path: "/admin/activation",
+          icon: <KeyRoundIcon />,
+          isActive: pathname.startsWith("/admin/activation"),
+          permission: "activation.manage",
         },
         {
           title: "Paket review",

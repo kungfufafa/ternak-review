@@ -34,7 +34,12 @@ import {
   resolveAffiliateWebhookUrl,
   saveAffiliateWebhookUrl,
 } from '../src/server/affiliate-settings.ts'
-import { getPublicSiteFlags, saveSiteFlags } from '../src/server/site.ts'
+import {
+  getPublicSiteFlags,
+  isActivationPinEnabled,
+  saveActivationPinEnabled,
+  saveSiteFlags,
+} from '../src/server/site.ts'
 import { submitAffiliateLead } from '../src/server/affiliate.ts'
 import {
   mobileBatchIdSchema,
@@ -1441,7 +1446,88 @@ async function checkTrialOwnership() {
   console.log('trial ownership passed')
 }
 
+async function checkActivationPinSwitch() {
+  const place = 'ChIJN1t_tDeuEmsRUsoyG83frY4'
+  const batch = await generateStockBatch({ count: 5, label: 'QA-PIN-SWITCH' })
+  const [held, free, taken, blocked, later] = batch.units
+  if (!held || !free || !taken || !blocked || !later) {
+    throw new Error('Expected PIN switch test cards')
+  }
+  const tag = held.publicId.toLowerCase()
+  const holder = await createHolder({
+    email: `pin-switch-a-${tag}@smoke.test`,
+    password: 'smoke-holder-12',
+    pin: '4816',
+  })
+  const walkIn = await createHolder({
+    email: `pin-switch-b-${tag}@smoke.test`,
+    password: 'smoke-holder-12',
+    pin: '5927',
+  })
+  const disabled = await createHolder({
+    email: `pin-switch-c-${tag}@smoke.test`,
+    password: 'smoke-holder-12',
+    pin: '6038',
+  })
+  await assignUnitToHolder({ ownerId: holder.id, publicId: held.publicId })
+  await assignUnitToHolder({ ownerId: disabled.id, publicId: blocked.publicId })
+  await setHolderStatus(disabled.id, 'DISABLED')
+
+  await saveActivationPinEnabled(false)
+  const offView = await getActivationCardForViewer(held.publicId, null)
+  if (offView?.pinRequired !== false) {
+    throw new Error('With the PIN off, the activation page must not ask for one')
+  }
+  await verifyActivationAccess({ publicId: held.publicId })
+  await activateUnit({ publicId: held.publicId, placeId: place })
+  const heldAfter = await getActivationCard(held.publicId)
+  if (heldAfter?.status !== 'ACTIVE' || heldAfter.ownerId !== holder.id) {
+    throw new Error('With the PIN off, a held card installs and stays with its holder')
+  }
+  await activateUnit({ publicId: free.publicId, placeId: place })
+  const freeAfter = await getActivationCard(free.publicId)
+  if (freeAfter?.status !== 'ACTIVE' || freeAfter.ownerId !== null) {
+    throw new Error('With the PIN off, a free card installs without a holder')
+  }
+  await activateUnit({
+    publicId: taken.publicId,
+    placeId: place,
+    sessionOwnerId: walkIn.id,
+    sessionRole: 'USER',
+  })
+  if ((await getActivationCard(taken.publicId))?.ownerId !== walkIn.id) {
+    throw new Error('With the PIN off, a signed-in holder takes the free card they install')
+  }
+  await expectReject(
+    () => activateUnit({ publicId: blocked.publicId, placeId: place }),
+    'Installing a disabled holder\'s card with the PIN off',
+  )
+
+  await saveActivationPinEnabled(true)
+  const onView = await getActivationCardForViewer(later.publicId, null)
+  if (onView?.pinRequired !== true) {
+    throw new Error('With the PIN on, the activation page must ask for it')
+  }
+  await expectReject(
+    () => verifyActivationAccess({ publicId: later.publicId }),
+    'Public activation without PIN after the switch is back on',
+  )
+  await expectReject(
+    () => activateUnit({ publicId: later.publicId, placeId: place }),
+    'Public activation without PIN after the switch is back on',
+  )
+  console.log('activation PIN switch passed')
+}
+
 async function main() {
+  // A new database starts with the activation PIN off. The flows below test
+  // the PIN rules, so they run with it on; checkActivationPinSwitch tests off.
+  const pinWasEnabled = await isActivationPinEnabled()
+  if (process.env.SMOKE_USE_APP_DB !== '1' && pinWasEnabled) {
+    throw new Error('Activation PIN must be off until an admin turns it on')
+  }
+  await saveActivationPinEnabled(true)
+
   const summaryBeforeBatch = await getAdminDashboardSummary()
   const batch = await generateStockBatch({
     count: 2,
@@ -2106,6 +2192,7 @@ async function main() {
   await checkBusinessQa()
   await checkStockOwnership()
   await checkTrialOwnership()
+  await checkActivationPinSwitch()
 
   const uiKey = 'AIzaSySmokeGooglePlacesKey12345678'
   await saveGooglePlacesKey(uiKey)
@@ -2187,6 +2274,7 @@ async function main() {
   ) {
     throw new Error('Dashboard chart must retain exactly 14 latest buckets')
   }
+  await saveActivationPinEnabled(pinWasEnabled)
 }
 
 main()

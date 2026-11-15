@@ -85,6 +85,18 @@ async function main() {
   check('pemegang masuk kartu sendiri', canAccessPath('USER', '/dashboard/units'))
   check('pemegang masuk prospek', canAccessPath('USER', '/app/prospects'))
   check('admin masuk produksi', canAccessPath('ADMIN', '/admin/stock'))
+  check(
+    'pemegang tidak mengatur PIN aktivasi',
+    !userDefaults.has('activation.manage'),
+  )
+  check(
+    'pemegang tidak masuk pengaturan aktivasi',
+    !canAccessPath('USER', '/admin/activation'),
+  )
+  check(
+    'admin masuk pengaturan aktivasi',
+    canAccessPath('ADMIN', '/admin/activation'),
+  )
 
   const beforeSave = await storedPermissions('USER')
   check('belum ada simpanan, pemegang pakai bawaan', !beforeSave.has('holders.read'))
