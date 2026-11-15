@@ -27,6 +27,7 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from '#/components/ui/toggle-group'
+import { formatNumericDay } from '#/lib/utils'
 import type { ViewPrefs } from '#/lib/view-prefs'
 import { getViewPrefsFn, listStockBatchesFn, listUnitsFn, resetUnitFn } from '#/server/functions'
 
@@ -214,7 +215,7 @@ function UnitsListPage() {
       case 'activatedAt':
         return {
           content: unit.activatedAt
-            ? new Date(unit.activatedAt).toLocaleDateString('id-ID')
+            ? formatNumericDay(unit.activatedAt)
             : '—',
           muted: true,
         }
