@@ -8,6 +8,7 @@ import {
   assertProductionConfig,
   isProduction,
 } from '#/lib/env'
+import { sentryIngestOrigin } from '#/lib/sentry-config'
 
 export const securityHeadersMiddleware = createMiddleware().server(
   async ({ next, request }) => {
@@ -21,10 +22,13 @@ export const securityHeadersMiddleware = createMiddleware().server(
     }
 
     if (isProduction()) {
+      // With Sentry on, the browser posts events to the ingest host and
+      // Session Replay compresses in a blob: worker (child-src: old Safari).
+      const sentryOrigin = sentryIngestOrigin()
       headers['Content-Security-Policy'] = [
         "default-src 'self'",
         "base-uri 'self'",
-        "connect-src 'self'",
+        sentryOrigin ? `connect-src 'self' ${sentryOrigin}` : "connect-src 'self'",
         "font-src 'self' data: https://fonts.gstatic.com",
         "form-action 'self'",
         "frame-src 'self' https://www.google.com",
@@ -33,6 +37,9 @@ export const securityHeadersMiddleware = createMiddleware().server(
         "object-src 'none'",
         "script-src 'self' 'unsafe-inline'",
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        ...(sentryOrigin
+          ? ["worker-src 'self' blob:", "child-src 'self' blob:"]
+          : []),
       ].join('; ')
       headers['Strict-Transport-Security'] =
         'max-age=63072000; includeSubDomains'

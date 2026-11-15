@@ -451,6 +451,10 @@ export const siteSettings = sqliteTable('site_settings', {
   affiliateEnabled: integer('affiliate_enabled', { mode: 'boolean' })
     .notNull()
     .default(true),
+  // Off by default: activation then asks for no holder PIN.
+  activationPinEnabled: integer('activation_pin_enabled', { mode: 'boolean' })
+    .notNull()
+    .default(false),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(now),

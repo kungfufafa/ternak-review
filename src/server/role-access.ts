@@ -78,14 +78,36 @@ export async function storedPermissions(role: string | null | undefined) {
   return new Set<Permission>()
 }
 
-export async function assignableAccountRoles() {
+/**
+ * True when every permission of `targetRole` is also held by `actorRole`.
+ * An account may only give out, or act on, access it already has. Without
+ * this, `holders.manage` alone could create an admin or reset an account
+ * with more access than the person doing it.
+ */
+export async function roleWithinActor(actorRole: string, targetRole: string) {
+  if (targetRole === 'SUPER_ADMIN') return false
+  const [actor, target] = await Promise.all([
+    storedPermissions(actorRole),
+    storedPermissions(targetRole),
+  ])
+  for (const permission of target) {
+    if (!actor.has(permission)) return false
+  }
+  return true
+}
+
+export async function assignableAccountRoles(actorRole?: string) {
   await ensureSystemRoles()
   const roles = await db
     .select({ key: accessRoles.key, name: accessRoles.name })
     .from(accessRoles)
-  return roles
-    .filter((role) => role.key !== 'SUPER_ADMIN')
-    .sort((left, right) => left.name.localeCompare(right.name, 'id'))
+  const allowed: typeof roles = []
+  for (const role of roles) {
+    if (role.key === 'SUPER_ADMIN') continue
+    if (actorRole && !(await roleWithinActor(actorRole, role.key))) continue
+    allowed.push(role)
+  }
+  return allowed.sort((left, right) => left.name.localeCompare(right.name, 'id'))
 }
 
 export async function holderRoleKeys() {

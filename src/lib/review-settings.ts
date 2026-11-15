@@ -113,10 +113,10 @@ export function packageSetupCopy(
   const high = googleRangeLabel(maxRating)
   if (serviceTier === 'PLUS') {
     return high
-      ? `Tamu pilih bintang. ${low} lanjut ke WhatsApp owner. ${high} ke Google Review. Nomor owner untuk tindak lanjut — tamu tidak mengisi nomor.`
-      : 'Tamu pilih bintang, lalu lanjut ke WhatsApp owner. Nomor owner untuk tindak lanjut — tamu tidak mengisi nomor.'
+      ? `Tamu pilih bintang. ${low} ditawari chat WhatsApp owner, atau tetap menulis di Google Review. ${high} langsung ke Google Review. Nomor owner untuk tindak lanjut — tamu tidak mengisi nomor.`
+      : 'Tamu pilih bintang, lalu ditawari chat WhatsApp owner atau tetap menulis di Google Review. Nomor owner untuk tindak lanjut — tamu tidak mengisi nomor.'
   }
   return high
-    ? `Tamu pilih bintang. ${low} isi form; sistem kirim ke WhatsApp owner. ${high} ke Google Review. Nomor owner untuk tindak lanjut — tamu tidak lihat nomor ini.`
-    : 'Tamu pilih bintang lalu isi form; sistem kirim ke WhatsApp owner. Nomor owner untuk tindak lanjut — tamu tidak lihat nomor ini.'
+    ? `Tamu pilih bintang. ${low} ditawari form masukan ke WhatsApp owner, atau tetap menulis di Google Review. ${high} langsung ke Google Review. Nomor owner untuk tindak lanjut — tamu tidak lihat nomor ini.`
+    : 'Tamu pilih bintang, lalu ditawari form masukan ke WhatsApp owner atau tetap menulis di Google Review. Nomor owner untuk tindak lanjut — tamu tidak lihat nomor ini.'
 }

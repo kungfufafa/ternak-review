@@ -81,3 +81,26 @@ export async function saveSiteFlags(input: PublicSiteFlags) {
   cache = { flags, at: Date.now() }
   return flags
 }
+
+/**
+ * Whether activation asks for the holder PIN. Off until it is turned on in
+ * Admin → Aktivasi kartu. Read straight from the database, never cached, so
+ * a change applies to the next request on every server instance.
+ */
+export async function isActivationPinEnabled(): Promise<boolean> {
+  const row = await loadRow()
+  return row?.activationPinEnabled ?? false
+}
+
+export async function saveActivationPinEnabled(enabled: boolean) {
+  const now = new Date()
+  const activationPinEnabled = Boolean(enabled)
+  await db
+    .insert(siteSettings)
+    .values({ id: PRIMARY, activationPinEnabled, updatedAt: now })
+    .onConflictDoUpdate({
+      target: siteSettings.id,
+      set: { activationPinEnabled, updatedAt: now },
+    })
+  return { pinEnabled: activationPinEnabled }
+}

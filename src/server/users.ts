@@ -1,21 +1,54 @@
 import { and, count, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import { accessRoles, owners, units } from '#/db/schema'
-import { assignableAccountRoles, ensureSystemRoles, holderRoleKeys } from '#/server/role-access'
+import {
+  assignableAccountRoles,
+  ensureSystemRoles,
+  holderRoleKeys,
+  roleWithinActor,
+} from '#/server/role-access'
 import { parseCode } from '#/lib/card-code'
 import { hashPassword } from '#/lib/crypto'
 import { generatePin, hashPin, normalizePin } from '#/lib/pin'
 import { replaceHolderSessions } from './auth'
 import { notifyHolderCredentials } from './holder-notify'
+import { transferUnitProspects } from './prospects'
 import { normalizeWhatsapp } from './review'
 
 const MIN_PASSWORD_LENGTH = 6
+
+/** The signed-in account changing another account. Scripts pass none. */
+export type AccountActor = { ownerId: string; role: string }
 
 async function holderScope(userId?: string) {
   const roles = await holderRoleKeys()
   const filters = [inArray(owners.role, roles)]
   if (userId) filters.push(eq(owners.id, userId))
   return and(...filters)
+}
+
+async function managedAccount(userId: string, actor?: AccountActor) {
+  const user = await db.query.owners.findFirst({
+    where: await holderScope(userId),
+    columns: { id: true, role: true },
+  })
+  if (!user) throw new Error('Pengguna tidak ditemukan.')
+  if (actor && !(await roleWithinActor(actor.role, user.role))) {
+    throw new Error('Akun ini punya akses yang tidak kamu miliki.')
+  }
+  return user
+}
+
+async function assertMayAssignRole(roleKey: string, actor?: AccountActor) {
+  if (roleKey === 'SUPER_ADMIN') throw new Error('Peran ini tidak bisa dipilih.')
+  const role = await db.query.accessRoles.findFirst({
+    where: eq(accessRoles.key, roleKey),
+  })
+  if (!role) throw new Error('Peran tidak ditemukan.')
+  if (actor && !(await roleWithinActor(actor.role, role.key))) {
+    throw new Error('Peran ini punya akses yang tidak kamu miliki.')
+  }
+  return role
 }
 
 function normalizeEmail(email: string) {
@@ -29,14 +62,17 @@ function normalizeName(name?: string | null) {
   return value.length > 0 ? value.slice(0, 80) : null
 }
 
-export async function createHolder(input: {
-  email?: string
-  password?: string
-  whatsapp?: string | null
-  name?: string | null
-  pin?: string
-  role?: string
-}) {
+export async function createHolder(
+  input: {
+    email?: string
+    password?: string
+    whatsapp?: string | null
+    name?: string | null
+    pin?: string
+    role?: string
+  },
+  actor?: AccountActor,
+) {
   const whatsapp = input.whatsapp?.trim()
     ? normalizeWhatsapp(input.whatsapp)
     : null
@@ -57,12 +93,7 @@ export async function createHolder(input: {
     : `${whatsapp}@wa.holder`
   const pin = input.pin?.trim() ? normalizePin(input.pin) : generatePin()
   await ensureSystemRoles()
-  const roleKey = input.role?.trim() || 'USER'
-  if (roleKey === 'SUPER_ADMIN') throw new Error('Peran ini tidak bisa dipilih.')
-  const role = await db.query.accessRoles.findFirst({
-    where: eq(accessRoles.key, roleKey),
-  })
-  if (!role) throw new Error('Peran tidak ditemukan.')
+  const role = await assertMayAssignRole(input.role?.trim() || 'USER', actor)
   try {
     const [created] = await db
       .insert(owners)
@@ -110,6 +141,7 @@ export async function listHolders(input?: {
   q?: string
   page?: number
   pageSize?: number
+  actorRole?: string
 }) {
   const pageSize = Math.min(Math.max(input?.pageSize ?? 20, 1), 100)
   const page = Math.max(input?.page ?? 1, 1)
@@ -134,7 +166,7 @@ export async function listHolders(input?: {
   const total = Number(totalRow?.total ?? 0)
   const pageCount = Math.max(1, Math.ceil(total / pageSize) || 1)
   const safePage = Math.min(page, pageCount)
-  const roles = await assignableAccountRoles()
+  const roles = await assignableAccountRoles(input?.actorRole)
   if (total === 0) {
     return { users: [], roles, total: 0, page: 1, pageSize, pageCount: 1 }
   }
@@ -180,7 +212,7 @@ export async function listHolders(input?: {
   }
 }
 
-export async function getHolder(userId: string) {
+export async function getHolder(userId: string, actorRole?: string) {
   const user = await db.query.owners.findFirst({
     where: await holderScope(userId),
   })
@@ -191,6 +223,15 @@ export async function getHolder(userId: string) {
     orderBy: [desc(units.createdAt)],
     limit: 200,
   })
+  const roles = await assignableAccountRoles(actorRole)
+  if (!roles.some((role) => role.key === user.role)) {
+    // Keep the current role in the list so the form still shows it.
+    const current = await db.query.accessRoles.findFirst({
+      where: eq(accessRoles.key, user.role),
+      columns: { key: true, name: true },
+    })
+    roles.unshift(current ?? { key: user.role, name: user.role })
+  }
   return {
     id: user.id,
     email: user.email,
@@ -198,9 +239,7 @@ export async function getHolder(userId: string) {
     whatsapp: user.whatsapp,
     status: user.status,
     role: user.role,
-    roles: (
-      await db.select({ key: accessRoles.key, name: accessRoles.name }).from(accessRoles)
-    ).filter((role) => role.key !== 'SUPER_ADMIN'),
+    roles,
     createdAt: user.createdAt?.getTime() ?? null,
     cards: cards.map((card) => ({
       id: card.id,
@@ -215,7 +254,9 @@ export async function getHolder(userId: string) {
 export async function setHolderStatus(
   userId: string,
   status: 'ACTIVE' | 'DISABLED',
+  actor?: AccountActor,
 ) {
+  await managedAccount(userId, actor)
   const [row] = await db
     .update(owners)
     .set({ status })
@@ -226,7 +267,12 @@ export async function setHolderStatus(
   return row
 }
 
-export async function resetHolderPin(userId: string, pin?: string) {
+export async function resetHolderPin(
+  userId: string,
+  pin?: string,
+  actor?: AccountActor,
+) {
+  await managedAccount(userId, actor)
   const nextPin = pin?.trim() ? normalizePin(pin) : generatePin()
   const [row] = await db
     .update(owners)
@@ -249,10 +295,15 @@ export async function resetHolderPin(userId: string, pin?: string) {
   return { id: row.id, pin: nextPin, notify }
 }
 
-export async function resetHolderPassword(userId: string, password: string) {
+export async function resetHolderPassword(
+  userId: string,
+  password: string,
+  actor?: AccountActor,
+) {
   if (password.length < MIN_PASSWORD_LENGTH) {
     throw new Error(`Password minimal ${MIN_PASSWORD_LENGTH} karakter.`)
   }
+  await managedAccount(userId, actor)
   const [row] = await db
     .update(owners)
     .set({ passwordHash: await hashPassword(password) })
@@ -266,15 +317,16 @@ export async function resetHolderPassword(userId: string, password: string) {
 export async function updateHolderProfile(
   userId: string,
   input: { name?: string | null; whatsapp?: string | null; role?: string },
+  actor?: AccountActor,
 ) {
-  if (input.role) {
-    if (input.role === 'SUPER_ADMIN') {
-      throw new Error('Peran ini tidak bisa dipilih.')
+  const current = await managedAccount(userId, actor)
+  const nextRole =
+    input.role && input.role !== current.role ? input.role : undefined
+  if (nextRole) {
+    if (actor?.ownerId === userId) {
+      throw new Error('Peran akunmu sendiri tidak bisa diubah.')
     }
-    const found = await db.query.accessRoles.findFirst({
-      where: eq(accessRoles.key, input.role),
-    })
-    if (!found) throw new Error('Peran tidak ditemukan.')
+    await assertMayAssignRole(nextRole, actor)
   }
   const whatsapp =
     input.whatsapp === undefined
@@ -290,7 +342,7 @@ export async function updateHolderProfile(
     .set({
       name: normalizeName(input.name),
       ...(whatsapp !== undefined ? { whatsapp } : {}),
-      ...(input.role ? { role: input.role } : {}),
+      ...(nextRole ? { role: nextRole } : {}),
     })
     .where(await holderScope(userId))
     .returning({
@@ -322,6 +374,9 @@ export async function assignUnitToHolder(input: {
       })
   if (!unit) throw new Error('Kartu tidak ditemukan.')
   await db.update(units).set({ ownerId: user.id }).where(eq(units.id, unit.id))
+  // A trial in progress moves with the card, so the new holder can collect
+  // or close it and the previous holder no longer can.
+  await transferUnitProspects(unit.id, user.id)
   return {
     unitId: unit.id,
     publicId: unit.publicId,

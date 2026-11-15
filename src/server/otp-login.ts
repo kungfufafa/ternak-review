@@ -131,9 +131,14 @@ const GENERIC_EMAIL_SENT =
 const MAIL_OFF_ERROR =
   'Pengiriman email belum aktif. Masuk pakai password, atau minta admin mengisi Resend/SMTP.'
 
-async function findActiveOwnerByEmail(email: string) {
+/** Email OTP is a holder login, like WhatsApp OTP. Staff sign in with a password. */
+async function findActiveHolderByEmail(email: string) {
   return db.query.owners.findFirst({
-    where: and(eq(owners.email, email), eq(owners.status, 'ACTIVE')),
+    where: and(
+      eq(owners.email, email),
+      inArray(owners.role, await holderRoleKeys()),
+      eq(owners.status, 'ACTIVE'),
+    ),
   })
 }
 
@@ -149,7 +154,7 @@ export async function requestEmailLoginOtp(emailRaw: string) {
   if (!email.includes('@') || email.endsWith('@wa.holder')) {
     throw new Error('Email tidak valid.')
   }
-  const owner = await findActiveOwnerByEmail(email)
+  const owner = await findActiveHolderByEmail(email)
   if (!owner) return { ok: true as const, sent: GENERIC_EMAIL_SENT }
 
   const code = generateOtp()
@@ -183,7 +188,7 @@ export async function verifyEmailLoginOtp(emailRaw: string, codeRaw: string) {
   if (!email.includes('@') || !/^\d{6}$/.test(code)) {
     throw new Error('Email atau kode tidak valid.')
   }
-  const owner = await findActiveOwnerByEmail(email)
+  const owner = await findActiveHolderByEmail(email)
   const otp = owner
     ? await db.query.emailOtps.findFirst({
         where: and(

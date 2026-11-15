@@ -150,6 +150,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:cf
+        env:
+          # Optional: uploads source maps to Sentry when the secret is set.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       - name: Apply D1 migrations
         run: npx wrangler d1 migrations apply ternak-review --remote
       - name: Deploy Worker

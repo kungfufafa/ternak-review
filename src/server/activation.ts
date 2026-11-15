@@ -7,10 +7,12 @@ import { upsertOutletFromPlace } from './outlets'
 import { getPlaceDetails } from './places'
 import { releaseCardFromShop } from './clicks'
 import {
+  assertUnitNotHeldByOther,
   collectProspectForUnit,
   convertProspectToSold,
   findInstalledUnitForPlace,
   getProspect,
+  hasProspectForUnit,
   markProspectInstalledForPlace,
   upsertProspectRecord,
 } from './prospects'
@@ -23,6 +25,7 @@ import {
   type ServiceTier,
 } from './review'
 import { getServicePackages, getServicePackage } from './service-packages'
+import { isActivationPinEnabled } from './site'
 import { isWhatsappGatewayOpen } from './whatsapp-status'
 
 function normalizePartnerRef(raw?: string | null) {
@@ -73,6 +76,8 @@ export async function getActivationCardForViewer(
   const isHolder = Boolean(
     viewer && card.ownerId && viewer.ownerId === card.ownerId && !isAdmin,
   )
+  const pinRequired =
+    !isAdmin && !isHolder && (await isActivationPinEnabled())
   return {
     id: card.id,
     publicId: card.publicId,
@@ -84,6 +89,7 @@ export async function getActivationCardForViewer(
     reviewMode: card.reviewMode,
     hasOwner: Boolean(card.ownerId),
     isHolder,
+    pinRequired,
     ownerWhatsapp: isAdmin || isHolder ? card.ownerWhatsapp : null,
   }
 }
@@ -233,11 +239,21 @@ export async function rebindUnitOutlet(input: {
     throw new Error('Kartu ini bukan punya akunmu.')
   }
   const details = await getPlaceDetails(input.placeId)
-  let nextKind: 'TRIAL' | 'SOLD' = 'SOLD'
-  if (unit.outlet?.googlePlaceId !== details.placeId) {
-    const previous = await collectProspectForUnit(unit.id)
-    if (previous?.installKind === 'TRIAL') nextKind = 'TRIAL'
+  const samePlace = unit.outlet?.googlePlaceId === details.placeId
+  if (samePlace && (await hasProspectForUnit(unit.id))) {
+    // Same shop picked again: refresh its details only. The trial or sale
+    // already recorded for this card must not change. Cards installed
+    // before prospects existed have no row yet and fall through to record it.
+    await upsertOutletFromPlace(details)
+    return { outlet: details }
   }
+  const previous = await collectProspectForUnit(unit.id)
+  const nextKind: 'TRIAL' | 'SOLD' =
+    previous?.installKind === 'TRIAL' ? 'TRIAL' : 'SOLD'
+  // Keep the shop in the account that was tracking this card, so an admin
+  // fixing the shop never leaves an ownerless prospect nobody can see.
+  const prospectOwnerId =
+    previous?.createdByOwnerId ?? unit.ownerId ?? input.actorOwnerId ?? null
   const outletId = await upsertOutletFromPlace(details)
   await db.update(units).set({ outletId }).where(eq(units.id, unit.id))
   await upsertProspectRecord({
@@ -249,14 +265,14 @@ export async function rebindUnitOutlet(input: {
     googleMapsUri: details.googleMapsUri,
     primaryType: details.primaryType,
     partnerRef: unit.partnerRef,
-    createdByOwnerId: input.actorOwnerId ?? null,
+    createdByOwnerId: prospectOwnerId,
   })
   await markProspectInstalledForPlace({
     googlePlaceId: details.placeId,
     unitId: unit.id,
     partnerRef: unit.partnerRef,
     installKind: nextKind,
-    ownerId: input.actorOwnerId ?? null,
+    ownerId: prospectOwnerId,
   })
   return { outlet: details }
 }
@@ -273,6 +289,7 @@ export async function attachProspectToCard(input: {
   prospectId: string
   publicId?: string
   sessionOwnerId?: string | null
+  sessionRole?: string | null
   trialDays?: number
 }) {
   const prospect = await getProspect(input.prospectId)
@@ -296,11 +313,13 @@ export async function attachProspectToCard(input: {
   if (occupied) {
     throw new Error('Toko ini sudah punya kartu terpasang.')
   }
+  // Use the caller's real role: activateUnit decides whether a PIN is needed,
+  // so a holder can only install a card that is theirs.
   const result = await activateUnit({
     publicId: await nextReadyPublicId(input.publicId),
     placeId: prospect.googlePlaceId,
     partnerRef: prospect.partnerRef ?? undefined,
-    sessionRole: 'ADMIN',
+    sessionRole: input.sessionRole ?? null,
     sessionOwnerId: input.sessionOwnerId ?? null,
     installKind: 'TRIAL',
     trialDays: input.trialDays,
@@ -317,6 +336,7 @@ export async function attachPlaceToCard(input: {
   notes?: string
   partnerRef?: string
   sessionOwnerId?: string | null
+  sessionRole?: string | null
   trialDays?: number
 }) {
   const saved = await upsertProspectRecord({
@@ -335,11 +355,16 @@ export async function attachPlaceToCard(input: {
     prospectId: saved.prospect.id,
     publicId: input.publicId,
     sessionOwnerId: input.sessionOwnerId,
+    sessionRole: input.sessionRole,
     trialDays: input.trialDays,
   })
 }
 
-export async function collectProspectTrial(id: string, ownerId?: string | null) {
+export async function collectProspectTrial(
+  id: string,
+  ownerId?: string | null,
+  options?: { manageAll?: boolean },
+) {
   const prospect = await getProspect(id)
   if (!prospect || (ownerId && prospect.createdByOwnerId !== ownerId)) {
     throw new Error('Prospek tidak ditemukan.')
@@ -349,6 +374,9 @@ export async function collectProspectTrial(id: string, ownerId?: string | null) 
   }
   if (!prospect.unitId) {
     throw new Error('Kartu trial sudah tidak terpasang.')
+  }
+  if (ownerId && !options?.manageAll) {
+    await assertUnitNotHeldByOther(prospect.unitId, ownerId)
   }
   const released = await releaseCardFromShop(prospect.unitId)
   if (!released.ok) {
@@ -454,6 +482,11 @@ async function assertHolderMayActivate(
     if (input.sessionOwnerId && input.sessionOwnerId === unit.ownerId) {
       return { holderOwnerId: unit.ownerId }
     }
+    // PIN switched off in the admin settings: whoever has the card may
+    // install it, and it stays with the holder it was handed to.
+    if (!(await isActivationPinEnabled())) {
+      return { holderOwnerId: unit.ownerId }
+    }
     if (!input.pin) {
       throw new Error(
         'Masukkan PIN pemegang, atau masuk sebagai admin untuk pasang tanpa PIN.',
@@ -465,6 +498,11 @@ async function assertHolderMayActivate(
     }
     await clearSuccessfulPinAttempt(unit.publicId, input.clientKey)
     return { holderOwnerId: unit.ownerId }
+  }
+  // PIN switched off and the card has no holder yet: a signed-in holder
+  // takes it, an anonymous visitor installs it with no holder at all.
+  if (!(await isActivationPinEnabled())) {
+    return { holderOwnerId: input.sessionOwnerId ?? null }
   }
   if (!input.pin) {
     throw new Error(

@@ -36,6 +36,7 @@ export const PERMISSIONS = [
   'affiliate.read',
   'affiliate.manage',
   'access.manage',
+  'activation.manage',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]
@@ -109,6 +110,7 @@ const PATH_RULES: { prefix: string; anyOf: readonly Permission[] }[] = [
   { prefix: '/admin/logs', anyOf: ['logs.read'] },
   { prefix: '/admin/affiliate', anyOf: ['affiliate.read'] },
   { prefix: '/admin/access', anyOf: ['access.manage'] },
+  { prefix: '/admin/activation', anyOf: ['activation.manage'] },
   { prefix: '/admin/prospects', anyOf: ['prospects.manage.own'] },
   { prefix: '/app/prospects', anyOf: ['prospects.manage.own'] },
   { prefix: '/dashboard/units', anyOf: ['cards.read.all', 'cards.read.own'] },
@@ -161,6 +163,10 @@ export const PERMISSION_GROUPS: {
       { id: 'site.read', label: 'Melihat halaman' },
       { id: 'site.manage', label: 'Mengubah halaman' },
     ],
+  },
+  {
+    label: 'Aktivasi kartu',
+    items: [{ id: 'activation.manage', label: 'Mengatur PIN aktivasi' }],
   },
   {
     label: 'Paket review',
