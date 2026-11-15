@@ -23,6 +23,7 @@ import { Spinner } from '#/components/ui/spinner'
 import { isStaff } from '#/lib/access'
 import { parseCode } from '#/lib/card-code'
 import { DEFAULT_TRIAL_DAYS } from '#/lib/place-rating'
+import { REPORTING_TIME_ZONE } from '#/lib/reporting-time'
 import type { ServiceTier } from '#/lib/review-settings'
 import {
   activateUnitFn,
@@ -37,6 +38,7 @@ type Step = 'pin' | 'outlet' | 'confirm' | 'done'
 
 function trialPickupSentence(endsAt: number) {
   const date = new Date(endsAt).toLocaleDateString('id-ID', {
+    timeZone: REPORTING_TIME_ZONE,
     day: 'numeric',
     month: 'long',
     year: 'numeric',

@@ -28,6 +28,7 @@ import {
 } from '#/components/ui/empty'
 import { Select } from '#/components/ui/input'
 import type { DataTableFeatures } from '#/lib/data-table-features'
+import { REPORTING_TIME_ZONE } from '#/lib/reporting-time'
 import { listOutboundLogsFn, retryFeedbackFn } from '#/server/functions'
 
 type LogItem = Awaited<ReturnType<typeof listOutboundLogsFn>>['items'][number]
@@ -57,6 +58,7 @@ export const Route = createFileRoute('/admin/logs')({
 
 function formatWhen(value: number) {
   return new Date(value).toLocaleString('id-ID', {
+    timeZone: REPORTING_TIME_ZONE,
     day: 'numeric',
     month: 'short',
     hour: '2-digit',
@@ -125,7 +127,7 @@ function OutboundLogsPage() {
           {formatWhen(row.original.createdAt)}
         </span>
       ),
-      header: 'Waktu',
+      header: 'Waktu (WIB)',
     }),
     logColumn.accessor('channel', {
       cell: ({ getValue }) => (getValue() === 'email' ? 'Email' : 'WhatsApp'),

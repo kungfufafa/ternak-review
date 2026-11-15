@@ -30,6 +30,7 @@ import { ReviewPathFields } from '#/components/review-path-fields'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '#/components/ui/field'
 import { Input, Select } from '#/components/ui/input'
 import { Spinner } from '#/components/ui/spinner'
+import { formatNumericDay } from '#/lib/utils'
 
 import type { getUnitDetail } from '#/server/clicks'
 import {
@@ -358,7 +359,7 @@ function UnitDetailEditor({
                 <dt className="text-muted-foreground">NFC</dt>
                 <dd className="mt-0.5">
                   {detail.nfcEncodedAt
-                    ? `Tertulis ${new Date(detail.nfcEncodedAt).toLocaleDateString('id-ID')}`
+                    ? `Tertulis ${formatNumericDay(detail.nfcEncodedAt)}`
                     : 'Belum ditulis'}
                 </dd>
               </div>

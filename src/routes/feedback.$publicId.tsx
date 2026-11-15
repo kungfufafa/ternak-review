@@ -16,8 +16,15 @@ import {
 
 export const Route = createFileRoute('/feedback/$publicId')({
   loader: async ({ params }) => {
-    const card = await getFeedbackCardFn({ data: { publicId: params.publicId } })
-    if (!card) throw redirect({ href: `/r/${params.publicId}` })
+    // A code outside the server function's 4–32 length bounds can't belong to
+    // a card. Treat it like an unknown card instead of calling the function,
+    // which would reject it and fail the page with a validation error.
+    const { publicId } = params
+    const card =
+      publicId.length >= 4 && publicId.length <= 32
+        ? await getFeedbackCardFn({ data: { publicId } })
+        : null
+    if (!card) throw redirect({ href: `/r/${encodeURIComponent(publicId)}` })
     return { card }
   },
   component: FeedbackPage,

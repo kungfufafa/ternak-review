@@ -1,3 +1,5 @@
+import { REPORTING_TIME_ZONE } from './reporting-time'
+
 export type PlaceRatingSnapshot = {
   rating: number | null
   userRatingCount: number | null
@@ -198,6 +200,7 @@ export function trialPickupLabel(endsAt: Date | number | null, now = Date.now())
   if (endsAt == null) return 'Jadwal ambil belum ada'
   const ends = endsAt instanceof Date ? endsAt.getTime() : endsAt
   const date = new Date(ends).toLocaleDateString('id-ID', {
+    timeZone: REPORTING_TIME_ZONE,
     day: 'numeric',
     month: 'short',
     year: 'numeric',

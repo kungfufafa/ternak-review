@@ -15,6 +15,7 @@ import {
 import { Field, FieldDescription, FieldLabel } from '#/components/ui/field'
 import { Input, Select } from '#/components/ui/input'
 import { Spinner } from '#/components/ui/spinner'
+import { formatDateTime } from '#/lib/utils'
 import {
   getSmtpSettingsFn,
   saveSmtpSettingsFn,
@@ -276,7 +277,7 @@ function SmtpPage() {
               </label>
               <FieldDescription>
                 {settings.verifiedAt
-                  ? `Tes terakhir berhasil ${new Date(settings.verifiedAt).toLocaleString('id-ID')}.`
+                  ? `Tes terakhir berhasil ${formatDateTime(settings.verifiedAt)}.`
                   : isResend
                     ? 'Kalau tes gagal “domain not verified”: domain di Resend belum Verified, atau API key-nya untuk domain lain.'
                     : 'Tes kirim dulu supaya yakin layanan menerima.'}
