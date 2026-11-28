@@ -204,6 +204,13 @@
       "when": 1794717000000,
       "tag": "0028_activation_pin_toggle",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1795737600000,
+      "tag": "0029_affiliate_review",
+      "breakpoints": true
     }
   ]
 }

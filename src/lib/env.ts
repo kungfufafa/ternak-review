@@ -115,14 +115,6 @@ export function getGoogleMapsApiKey() {
   return getGoogleMapsApiKeyFromEnv()
 }
 
-export function getAffiliateWebhookUrlFromEnv() {
-  return readEnv('AFFILIATE_WEBHOOK_URL')?.trim() ?? ''
-}
-
-export function getAffiliateWebhookUrl() {
-  return getAffiliateWebhookUrlFromEnv()
-}
-
 export function getWhatsappGatewayToken() {
   return readEnv('WHATSAPP_GATEWAY_TOKEN') ?? 'local-whatsapp-gateway-token'
 }

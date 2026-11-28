@@ -7,28 +7,16 @@ import {
 } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
 import { EllipsisVerticalIcon, SearchIcon } from 'lucide-react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { createColumnHelper } from '@tanstack/react-table'
 import { z } from 'zod'
 import { ConfirmDelete } from '#/components/confirm-delete'
 import { ListPager } from '#/components/list-pager'
 import { affiliatePlatforms } from '#/components/marketing/affiliate/content'
 import { PageHeader } from '#/components/page'
-import { Alert } from '#/components/ui/alert'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '#/components/ui/card'
 import { DataTable } from '#/components/ui/data-table'
-import { Field, FieldDescription, FieldLabel } from '#/components/ui/field'
-import { Input } from '#/components/ui/input'
-import { Spinner } from '#/components/ui/spinner'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,21 +39,22 @@ import {
 import { formatDay } from '#/lib/utils'
 import type { DataTableFeatures } from '#/lib/data-table-features'
 import {
-  clearAffiliateWebhookUrlFn,
   deleteAffiliateLeadFn,
-  getAffiliateWebhookSettingsFn,
   listAffiliateLeadsFn,
-  saveAffiliateWebhookUrlFn,
-  testAffiliateWebhookUrlFn,
 } from '#/server/functions'
-import type { AffiliateWebhookPublicSettings } from '#/server/affiliate-settings'
 import { useDebounced } from '#/hooks/use-debounced'
 import type { SerializedAffiliateLead } from '#/server/affiliate'
 
-const leadColumn = createColumnHelper<DataTableFeatures, SerializedAffiliateLead>()
+import { AFFILIATE_STATUSES, affiliateStatusLabels } from '#/types/marketing'
+
+const leadColumn = createColumnHelper<
+  DataTableFeatures,
+  SerializedAffiliateLead
+>()
 
 const affiliateSearchSchema = z.object({
-  q: z.string().trim().min(1).optional().catch(undefined),
+  review: z.enum(AFFILIATE_STATUSES).optional().catch(undefined),
+  q: z.string().trim().min(1).max(200).optional().catch(undefined),
   page: z.number().int().min(1).optional().catch(undefined),
 })
 
@@ -74,16 +63,13 @@ export const Route = createFileRoute('/admin/affiliate/')({
   search: {
     middlewares: [stripSearchParams({ page: 1 })],
   },
-  loaderDeps: ({ search }) => ({ q: search.q, page: search.page }),
-  loader: async ({ deps }) => {
-    const [leads, webhook] = await Promise.all([
-      listAffiliateLeadsFn({
-        data: { q: deps.q, page: deps.page ?? 1, pageSize: 20 },
-      }),
-      getAffiliateWebhookSettingsFn(),
-    ])
-    return { ...leads, webhook }
-  },
+  loaderDeps: ({ search }) => ({
+    q: search.q,
+    status: search.review,
+    page: search.page,
+  }),
+  loader: ({ deps }) =>
+    listAffiliateLeadsFn({ data: { ...deps, page: deps.page ?? 1, pageSize: 20 } }),
   component: AffiliateLeadsPage,
   head: () => ({
     meta: [{ title: 'Affiliate — Ternak Review' }],
@@ -91,13 +77,17 @@ export const Route = createFileRoute('/admin/affiliate/')({
 })
 
 function platformLabel(key: string) {
-  return affiliatePlatforms.find((platform) => platform.key === key)?.value ?? key
+  return (
+    affiliatePlatforms.find((platform) => platform.key === key)?.value ?? key
+  )
 }
 
 function AffiliateLeadsPage() {
-  const { leads, total, page, pageSize, pageCount, webhook } =
+  const { leads, total, page, pageSize, pageCount } =
     Route.useLoaderData()
-  const { q } = Route.useSearch()
+  const { owner } = Route.useRouteContext()
+  const canManage = owner.permissions.includes('affiliate.manage')
+  const { q, review: status } = Route.useSearch()
   const navigate = useNavigate({ from: '/admin/affiliate/' })
   const [draft, setDraft] = useState(q ?? '')
   const debouncedQ = useDebounced(draft, 300)
@@ -111,10 +101,7 @@ function AffiliateLeadsPage() {
     if (next === q) return
     void navigate({
       replace: true,
-      search: {
-        q: next,
-        page: 1,
-      },
+      search: (prev) => ({ ...prev, q: next, page: 1 }),
     })
   }, [debouncedQ, navigate, q])
   const router = useRouter()
@@ -131,15 +118,37 @@ function AffiliateLeadsPage() {
   return (
     <div className="mx-auto flex w-full max-w-screen-xl flex-col gap-8">
       <PageHeader
-        description="Cari, lihat, ubah, atau hapus orang yang daftar dari halaman affiliate."
+        description="Tinjau profil pendaftar dan tindak lanjuti mitra yang diterima."
         title="Pendaftar affiliate"
       />
 
-      <AffiliateWebhookCard settings={webhook} />
+      <nav
+        aria-label="Filter status pendaftaran"
+        className="flex flex-wrap gap-2"
+      >
+        {([undefined, ...AFFILIATE_STATUSES] as const).map((value) => (
+          <Button
+            key={value ?? 'all'}
+            asChild
+            size="sm"
+            variant={status === value ? 'default' : 'outline'}
+          >
+            <Link
+              to="/admin/affiliate"
+              search={(prev) => ({ ...prev, review: value, page: 1 })}
+              aria-current={status === value ? 'page' : undefined}
+            >
+              {value ? affiliateStatusLabels[value] : 'Semua'}
+            </Link>
+          </Button>
+        ))}
+      </nav>
 
       <InputGroup className="max-w-md">
         <InputGroupInput
           onChange={(event) => setDraft(event.target.value)}
+          maxLength={200}
+          aria-label="Cari pendaftar"
           placeholder="Cari nama, email, atau WhatsApp"
           value={draft}
         />
@@ -152,11 +161,11 @@ function AffiliateLeadsPage() {
         <Empty>
           <EmptyHeader>
             <EmptyTitle>
-              {q ? 'Tidak ada yang cocok' : 'Belum ada pendaftar'}
+              {q || status ? 'Tidak ada yang cocok' : 'Belum ada pendaftar'}
             </EmptyTitle>
             <EmptyDescription>
-              {q
-                ? 'Ubah kata kunci pencarian.'
+              {q || status
+                ? 'Coba status lain atau ubah kata kunci pencarian.'
                 : 'Form di /affiliate akan muncul di sini begitu ada yang daftar.'}
             </EmptyDescription>
           </EmptyHeader>
@@ -203,6 +212,14 @@ function AffiliateLeadsPage() {
                 ),
                 header: 'Platform',
               }),
+              leadColumn.accessor('status', {
+                header: 'Status',
+                cell: ({ row }) => (
+                  <Badge variant="outline">
+                    {affiliateStatusLabels[row.original.status]}
+                  </Badge>
+                ),
+              }),
               leadColumn.accessor('createdAt', {
                 cell: ({ getValue }) => (
                   <span className="text-muted-foreground">
@@ -242,21 +259,23 @@ function AffiliateLeadsPage() {
                                 params={{ leadId: lead.id }}
                                 to="/admin/affiliate/$leadId"
                               >
-                                Lihat / ubah
+                                Lihat detail
                               </Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
                               <a href={`mailto:${lead.email}`}>Email</a>
                             </DropdownMenuItem>
                           </DropdownMenuGroup>
-                          <DropdownMenuSeparator />
+                          {canManage && <DropdownMenuSeparator />}
                           <DropdownMenuGroup>
-                            <DropdownMenuItem
-                              onClick={() => setPending(lead)}
-                              variant="destructive"
-                            >
-                              Hapus
-                            </DropdownMenuItem>
+                            {canManage && (
+                              <DropdownMenuItem
+                                onClick={() => setPending(lead)}
+                                variant="destructive"
+                              >
+                                Hapus
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuGroup>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -306,153 +325,5 @@ function AffiliateLeadsPage() {
         title="Hapus pendaftar?"
       />
     </div>
-  )
-}
-
-function AffiliateWebhookCard({
-  settings,
-}: {
-  settings: AffiliateWebhookPublicSettings
-}) {
-  const saveFn = useServerFn(saveAffiliateWebhookUrlFn)
-  const testFn = useServerFn(testAffiliateWebhookUrlFn)
-  const clearFn = useServerFn(clearAffiliateWebhookUrlFn)
-  const router = useRouter()
-  const [url, setUrl] = useState(settings.url)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
-  const [tested, setTested] = useState(false)
-
-  useEffect(() => {
-    setUrl(settings.url)
-  }, [settings.url])
-
-  async function refresh() {
-    await router.invalidate({ sync: true })
-  }
-
-  async function onSave(event: FormEvent) {
-    event.preventDefault()
-    setBusy(true)
-    setError(null)
-    setSaved(false)
-    setTested(false)
-    try {
-      await saveFn({ data: { url } })
-      await refresh()
-      setSaved(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal menyimpan webhook.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onTest() {
-    setBusy(true)
-    setError(null)
-    setSaved(false)
-    setTested(false)
-    try {
-      await testFn({ data: url.trim() ? { url } : {} })
-      await refresh()
-      setTested(true)
-      setSaved(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Tes webhook gagal.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onClear() {
-    setBusy(true)
-    setError(null)
-    setSaved(false)
-    setTested(false)
-    try {
-      await clearFn()
-      await refresh()
-      setSaved(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal menghapus webhook UI.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Webhook Sheets</CardTitle>
-        <CardDescription>
-          URL Apps Script / webhook. Lead baru ikut terkirim ke sini. Ganti dari
-          halaman ini, tanpa redeploy.
-        </CardDescription>
-      </CardHeader>
-      <form onSubmit={(event) => void onSave(event)}>
-        <CardContent className="flex flex-col gap-3">
-          {error ? <Alert variant="danger">{error}</Alert> : null}
-          {tested ? (
-            <Alert variant="success">
-              Webhook merespons. Cek sheet — ada baris tes yang bisa dihapus.
-            </Alert>
-          ) : saved ? (
-            <Alert variant="success">Webhook disimpan.</Alert>
-          ) : null}
-          {settings.source === 'env' && !settings.hasUiUrl ? (
-            <Alert>
-              Masih ada URL lama di secret server. Simpan di sini supaya yang
-              dipakai hanya webhook UI.
-            </Alert>
-          ) : null}
-          {!settings.configured ? (
-            <Alert>
-              Belum ada webhook. Pendaftaran tetap masuk database, tanpa kirim
-              ke Sheets.
-            </Alert>
-          ) : null}
-          <Field>
-            <FieldLabel htmlFor="affiliate-webhook">URL webhook</FieldLabel>
-            <Input
-              autoComplete="off"
-              id="affiliate-webhook"
-              onChange={(event) => setUrl(event.target.value)}
-              placeholder="https://script.google.com/macros/s/…/exec"
-              spellCheck={false}
-              value={url}
-            />
-            <FieldDescription>
-              HTTPS. Tes kirim menulis satu baris “[TES]” ke tujuan itu.
-            </FieldDescription>
-          </Field>
-        </CardContent>
-        <CardFooter className="flex flex-wrap gap-2">
-          <Button disabled={busy || url.trim().length < 8} type="submit">
-            {busy ? <Spinner data-icon="inline-start" /> : null}
-            Simpan
-          </Button>
-          <Button
-            disabled={busy || (url.trim().length < 8 && !settings.configured)}
-            onClick={() => void onTest()}
-            type="button"
-            variant="outline"
-          >
-            Tes kirim
-          </Button>
-          {settings.hasUiUrl ? (
-            <Button
-              disabled={busy}
-              onClick={() => void onClear()}
-              type="button"
-              variant="ghost"
-            >
-              Hapus URL UI
-            </Button>
-          ) : null}
-        </CardFooter>
-      </form>
-    </Card>
   )
 }

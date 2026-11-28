@@ -4,6 +4,6 @@ APP_URL=http://localhost:3000
 AUTH_SECRET=change-me-to-a-long-random-string
 IP_HASH_SALT=change-me-to-a-different-long-random-string
 ADMIN_SETUP_TOKEN=change-me-to-another-long-random-string
-# Google Places + webhook afiliasi: isi di admin UI, bukan di sini.
+# Google Places: isi di admin UI, bukan di sini.
 # Local test without a phone: npm run gateway:stub
 WHATSAPP_GATEWAY_TOKEN=

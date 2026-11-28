@@ -104,7 +104,7 @@ Baileys. Stub menolak `APP_URL` non-localhost dan `NODE_ENV=production`.
 | `mobile/` | App Ternak Review (Android/iOS): produksi + Tempel NFC seperti web |
 | `/admin/site` | Saklar beranda marketing dan halaman affiliate |
 | `/admin/google` | API key Google Places |
-| `/admin/affiliate` | Lead afiliasi + webhook Sheets |
+| `/admin/affiliate` | Review pendaftaran afiliasi |
 | `/admin/packages` | Nama paket dan batas bintang intersep |
 | `/admin/users` | Buat pemegang kartu, PIN, assign kartu |
 | `/admin/prospects` | Petakan kota, lalu aktifkan kartu (trial 7 hari). Lihat toko yang sudah terpasang dan kapan harus diambil |
@@ -123,7 +123,7 @@ Satu kali, isi secret repo (`Settings → Secrets and variables → Actions`):
 1. `CLOUDFLARE_ACCOUNT_ID` — Account ID Cloudflare
 2. `CLOUDFLARE_API_TOKEN` — [Create Token](https://dash.cloudflare.com/profile/api-tokens) → template **Edit Cloudflare Workers**, scope ke akun yang sama
 
-Secret aplikasi (`AUTH_SECRET`, `IP_HASH_SALT`, `ADMIN_SETUP_TOKEN`, `WHATSAPP_GATEWAY_TOKEN`) tetap di Cloudflare (`wrangler secret put`), bukan di GitHub. API key Google Maps di `/admin/google`. Webhook afiliasi di `/admin/affiliate`.
+Secret aplikasi (`AUTH_SECRET`, `IP_HASH_SALT`, `ADMIN_SETUP_TOKEN`, `WHATSAPP_GATEWAY_TOKEN`) tetap di Cloudflare (`wrangler secret put`), bukan di GitHub. API key Google Maps di `/admin/google`.
 
 ```bash
 # Bootstrap Cloudflare (sekali): D1, secret Worker, DNS/route
@@ -133,7 +133,7 @@ npx wrangler secret put AUTH_SECRET
 npx wrangler secret put IP_HASH_SALT
 npx wrangler secret put ADMIN_SETUP_TOKEN
 npx wrangler secret put WHATSAPP_GATEWAY_TOKEN  # jika Pro/gateway diaktifkan
-# Google Places: Admin → Google Maps. Webhook afiliasi: Admin → Affiliate.
+# Google Places: Admin → Google Maps.
 
 # Darurat saja, kalau GitHub Actions tidak bisa deploy:
 npm run deploy:cf
@@ -161,7 +161,7 @@ gateway dengan nomor yang sama. Pairing dan statusnya tersedia di
 `/admin/whatsapp`.
 
 API key Google Places diatur di `/admin/google` (terenkripsi di database).
-Webhook afiliasi diatur di `/admin/affiliate`. Keduanya tidak di `.env`.
+Pendaftaran afiliasi tersimpan di tabel `affiliate_leads` dan dikelola lewat `/admin/affiliate`.
 
 Email keluar diatur di `/admin/smtp`, bukan di `.env`. **Resend** (API key +
 domain pengirim yang sudah verified) memakai HTTP, jadi jalan di Cloudflare

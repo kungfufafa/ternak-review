@@ -1,7 +1,6 @@
-import { count, desc, eq, or, sql } from 'drizzle-orm'
+import { and, count, desc, eq, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import { affiliateLeads } from '#/db/schema'
-import { resolveAffiliateWebhookUrl } from '#/server/affiliate-settings'
 import { getPublicSiteFlags } from '#/server/site'
 import {
   AFFILIATE_PLATFORM_KEYS,
@@ -9,6 +8,7 @@ import {
   type AffiliateLeadInput,
   type AffiliatePlatformKey,
   type AffiliateSubmitResult,
+  type AffiliateStatus,
 } from '#/types/marketing'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -17,15 +17,6 @@ const MAX_NAME_LENGTH = 120
 const MAX_EMAIL_LENGTH = 254
 const MAX_WHATSAPP_LENGTH = 32
 const MAX_USERNAME_LENGTH = 100
-
-export const AFFILIATE_PLATFORM_LABEL: Record<string, string> = {
-  instagram: 'Instagram',
-  tiktok: 'TikTok',
-  youtube: 'YouTube',
-  facebook: 'Facebook',
-  x: 'X (Twitter)',
-  threads: 'Threads',
-}
 
 function isPlatformKey(value: string): value is AffiliatePlatformKey {
   return PLATFORM_SET.has(value)
@@ -106,40 +97,6 @@ export function validateAffiliateLead(body: unknown): AffiliateValidation {
   }
 }
 
-async function forwardAffiliateWebhook(
-  lead: AffiliateLeadInput,
-): Promise<boolean> {
-  const url = await resolveAffiliateWebhookUrl()
-  if (!url) return false
-
-  const payload = new FormData()
-  payload.append('nama', lead.nama)
-  payload.append(
-    'platforms',
-    lead.platforms.map((key) => AFFILIATE_PLATFORM_LABEL[key] ?? key).join(', '),
-  )
-  payload.append('username_instagram', lead.usernames.instagram ?? '')
-  payload.append('username_tiktok', lead.usernames.tiktok ?? '')
-  payload.append('username_youtube', lead.usernames.youtube ?? '')
-  payload.append('username_facebook', lead.usernames.facebook ?? '')
-  payload.append('username_x', lead.usernames.x ?? '')
-  payload.append('username_threads', lead.usernames.threads ?? '')
-  payload.append('email', lead.email)
-  payload.append('whatsapp', lead.whatsapp)
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      body: payload,
-      signal: AbortSignal.timeout(5_000),
-      redirect: 'manual',
-    })
-    return res.ok
-  } catch {
-    return false
-  }
-}
-
 export async function submitAffiliateLead(
   body: unknown,
 ): Promise<AffiliateSubmitResult> {
@@ -173,7 +130,6 @@ export async function submitAffiliateLead(
     }
   }
 
-  await forwardAffiliateWebhook(parsed.data)
   return { ok: true }
 }
 
@@ -185,6 +141,8 @@ export function whatsappHref(whatsapp: string) {
 }
 
 export type SerializedAffiliateLead = {
+  status: AffiliateStatus
+  referralUrl: string | null
   id: string
   nama: string
   email: string
@@ -202,6 +160,8 @@ function searchNeedle(q?: string) {
 }
 
 function serializeLead(row: {
+  status: AffiliateStatus
+  referralUrl: string | null
   id: string
   nama: string
   email: string
@@ -212,6 +172,8 @@ function serializeLead(row: {
 }): SerializedAffiliateLead {
   return {
     id: row.id,
+    status: row.status,
+    referralUrl: row.referralUrl,
     nama: row.nama,
     email: row.email,
     whatsapp: row.whatsapp,
@@ -237,6 +199,7 @@ function leadSearchWhere(q?: string) {
 }
 
 export async function listAffiliateLeads(input?: {
+  status?: AffiliateStatus
   q?: string
   page?: number
   pageSize?: number
@@ -246,7 +209,10 @@ export async function listAffiliateLeads(input?: {
     100,
   )
   const page = Math.max(input?.page ?? 1, 1)
-  const where = leadSearchWhere(input?.q)
+  const where = and(
+    leadSearchWhere(input?.q),
+    input?.status ? eq(affiliateLeads.status, input.status) : undefined,
+  )
 
   const [totalRow] = await db
     .select({ total: count() })
@@ -263,7 +229,7 @@ export async function listAffiliateLeads(input?: {
 
   const rows = await db.query.affiliateLeads.findMany({
     where,
-    orderBy: [desc(affiliateLeads.createdAt)],
+    orderBy: [desc(affiliateLeads.createdAt), desc(affiliateLeads.id)],
     limit: pageSize,
     offset: (safePage - 1) * pageSize,
   })
@@ -311,6 +277,19 @@ export async function updateAffiliateLead(id: string, body: unknown) {
     .where(eq(affiliateLeads.id, id))
 
   return { ok: true as const }
+}
+
+export async function reviewAffiliateLead(
+  id: string,
+  status: AffiliateStatus,
+  referralUrl: string | null,
+) {
+  const [updated] = await db
+    .update(affiliateLeads)
+    .set({ status, referralUrl: status === 'approved' ? referralUrl : null })
+    .where(eq(affiliateLeads.id, id))
+    .returning({ id: affiliateLeads.id })
+  if (!updated) throw new Error('Pendaftar tidak ditemukan.')
 }
 
 export async function deleteAffiliateLead(id: string) {

@@ -28,19 +28,12 @@ import {
   saveGooglePlacesKey,
 } from '../src/server/google.ts'
 import {
-  clearAffiliateWebhookUrl,
-  getAffiliateWebhookPublicSettings,
-  normalizeAffiliateWebhookUrl,
-  resolveAffiliateWebhookUrl,
-  saveAffiliateWebhookUrl,
-} from '../src/server/affiliate-settings.ts'
-import {
   getPublicSiteFlags,
   isActivationPinEnabled,
   saveActivationPinEnabled,
   saveSiteFlags,
 } from '../src/server/site.ts'
-import { submitAffiliateLead } from '../src/server/affiliate.ts'
+import { listAffiliateLeads, submitAffiliateLead } from '../src/server/affiliate.ts'
 import {
   mobileBatchIdSchema,
   mobileGenerateSchema,
@@ -2204,27 +2197,6 @@ async function main() {
   if ((await resolveGoogleMapsApiKey()).length > 0) {
     throw new Error('Clearing UI Google key must drop the stored secret')
   }
-  const hook = 'https://example.com/affiliate-hook'
-  await saveAffiliateWebhookUrl(hook)
-  const hookSettings = await getAffiliateWebhookPublicSettings()
-  if (hookSettings.source !== 'ui' || (await resolveAffiliateWebhookUrl()) !== hook) {
-    throw new Error('Affiliate webhook from admin UI must override env')
-  }
-  await clearAffiliateWebhookUrl()
-  if ((await resolveAffiliateWebhookUrl()).length > 0) {
-    throw new Error('Clearing UI affiliate webhook must drop the stored URL')
-  }
-  try {
-    normalizeAffiliateWebhookUrl('https://169.254.169.254/latest/meta-data')
-    throw new Error('Private webhook URL must be rejected')
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === 'Private webhook URL must be rejected'
-    ) {
-      throw error
-    }
-  }
   await saveSiteFlags({ homeEnabled: false, affiliateEnabled: false })
   const closed = await getPublicSiteFlags()
   if (closed.homeEnabled || closed.affiliateEnabled) {
@@ -2241,6 +2213,20 @@ async function main() {
     throw new Error('Affiliate signup must reject when the public page is off')
   }
   await saveSiteFlags({ homeEnabled: true, affiliateEnabled: true })
+
+  const signup = {
+    nama: 'Mitra uji',
+    email: `mitra-${crypto.randomUUID()}@example.com`,
+    whatsapp: '081234567890',
+    platforms: ['instagram'],
+    usernames: { instagram: 'mitrauji' },
+  }
+  const submitted = await submitAffiliateLead(signup)
+  if (!submitted.ok) throw new Error(submitted.error)
+  const queue = await listAffiliateLeads({ q: signup.email, status: 'pending' })
+  if (queue.total !== 1 || queue.leads[0]?.email !== signup.email) {
+    throw new Error('Pendaftaran harus tersimpan dan muncul di antrean review')
+  }
 
   const leftover = await generateStockBatch({ count: 2, label: 'QA-READY' })
   const keep = leftover.units[0]

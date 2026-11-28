@@ -21,13 +21,6 @@ import {
   saveGooglePlacesKey,
 } from '../src/server/google.ts'
 import {
-  clearAffiliateWebhookCache,
-  clearAffiliateWebhookUrl,
-  normalizeAffiliateWebhookUrl,
-  resolveAffiliateWebhookUrl,
-  saveAffiliateWebhookUrl,
-} from '../src/server/affiliate-settings.ts'
-import {
   expireSiteFlagsCache,
   getPublicSiteFlags,
   saveSiteFlags,
@@ -188,37 +181,11 @@ async function main() {
     throw new Error('Hapus key UI harus kembali ke .env')
   }
   process.env.GOOGLE_MAPS_API_KEY = ''
-  process.env.AFFILIATE_WEBHOOK_URL = 'https://env.example/hook'
-  await saveAffiliateWebhookUrl('https://ui.example/hook')
-  if ((await resolveAffiliateWebhookUrl()) !== 'https://ui.example/hook') {
-    throw new Error('Webhook afiliasi dari UI wajib menang atas .env')
-  }
-  await clearAffiliateWebhookUrl()
-  if ((await resolveAffiliateWebhookUrl()) !== 'https://env.example/hook') {
-    throw new Error('Hapus webhook UI harus kembali ke .env')
-  }
-  await expectReject(
-    async () =>
-      normalizeAffiliateWebhookUrl('https://169.254.169.254/latest/meta-data'),
-    'Webhook metadata',
-  )
-  await expectReject(
-    async () => normalizeAffiliateWebhookUrl('https://192.168.0.1/hook'),
-    'Webhook LAN',
-  )
-  await expectReject(
-    async () => normalizeAffiliateWebhookUrl('http://evil.example/hook'),
-    'Webhook HTTP publik',
-  )
-
   await saveSiteFlags({ homeEnabled: false, affiliateEnabled: false })
   process.env.GOOGLE_MAPS_API_KEY = 'env-after-missing-table-1234567890'
-  process.env.AFFILIATE_WEBHOOK_URL = 'https://env.example/hook'
   await db.run(sql`DROP TABLE google_settings`)
-  await db.run(sql`DROP TABLE affiliate_settings`)
   await db.run(sql`DROP TABLE site_settings`)
   clearGooglePlacesKeyCache()
-  clearAffiliateWebhookCache()
   expireSiteFlagsCache()
   if ((await resolveGoogleMapsApiKey()) !== process.env.GOOGLE_MAPS_API_KEY) {
     throw new Error('Tanpa tabel google_settings harus fallback ke env')
@@ -227,15 +194,11 @@ async function main() {
   if (googleAfterDrop.source !== 'env') {
     throw new Error('Settings Google tanpa tabel harus tetap baca env')
   }
-  if ((await resolveAffiliateWebhookUrl()) !== process.env.AFFILIATE_WEBHOOK_URL) {
-    throw new Error('Tanpa tabel affiliate_settings harus fallback ke env')
-  }
   const flagsAfterDrop = await getPublicSiteFlags()
   if (flagsAfterDrop.homeEnabled || flagsAfterDrop.affiliateEnabled) {
     throw new Error('Flag halaman publik harus memakai nilai terakhir, bukan default ON')
   }
   process.env.GOOGLE_MAPS_API_KEY = ''
-  process.env.AFFILIATE_WEBHOOK_URL = ''
   assertProductionConfig()
 
   console.log('security flow passed')

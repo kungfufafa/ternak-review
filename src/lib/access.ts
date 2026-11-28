@@ -201,7 +201,7 @@ export const PERMISSION_GROUPS: {
     label: 'Affiliate',
     items: [
       { id: 'affiliate.read', label: 'Melihat pendaftar' },
-      { id: 'affiliate.manage', label: 'Mengubah pendaftar dan webhook' },
+      { id: 'affiliate.manage', label: 'Mengelola pendaftaran afiliasi' },
     ],
   },
   {

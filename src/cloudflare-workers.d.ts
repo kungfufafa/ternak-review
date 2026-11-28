@@ -7,7 +7,6 @@ declare module 'cloudflare:workers' {
     ADMIN_SETUP_TOKEN?: string
     TRUST_PROXY?: string
     GOOGLE_MAPS_API_KEY?: string
-    AFFILIATE_WEBHOOK_URL?: string
     WHATSAPP_GATEWAY_TOKEN?: string
     NODE_ENV?: string
   }

@@ -28,17 +28,20 @@ import {
 } from '#/components/ui/field'
 import { Input } from '#/components/ui/input'
 import { Spinner } from '#/components/ui/spinner'
-import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from '#/components/ui/toggle-group'
+import { ToggleGroup, ToggleGroupItem } from '#/components/ui/toggle-group'
 import { formatDay } from '#/lib/utils'
 import {
   deleteAffiliateLeadFn,
   getAffiliateLeadFn,
   updateAffiliateLeadFn,
+  reviewAffiliateLeadFn,
 } from '#/server/functions'
 import type { SerializedAffiliateLead } from '#/server/affiliate'
+import {
+  AFFILIATE_STATUSES,
+  affiliateStatusLabels,
+  type AffiliateStatus,
+} from '#/types/marketing'
 import type {
   AffiliateFieldErrors,
   AffiliatePlatformKey,
@@ -61,8 +64,139 @@ function AffiliateLeadPage() {
   return <AffiliateLeadEditor key={lead.id} lead={lead} />
 }
 
+function AffiliateReview({
+  lead,
+  canManage,
+}: {
+  lead: SerializedAffiliateLead
+  canManage: boolean
+}) {
+  const router = useRouter()
+  const review = useServerFn(reviewAffiliateLeadFn)
+  const [status, setStatus] = useState(lead.status)
+  const [url, setUrl] = useState(lead.referralUrl ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  async function save(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setSaved(false)
+    setError('')
+    try {
+      await review({
+        data: {
+          leadId: lead.id,
+          status,
+          referralUrl: status === 'approved' ? url.trim() || null : null,
+        },
+      })
+      await router.invalidate({ sync: true })
+      if (status !== 'approved') setUrl('')
+      setSaved(true)
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Gagal menyimpan keputusan.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Review pendaftaran</CardTitle>
+        <CardDescription>
+          Status saat ini · {affiliateStatusLabels[lead.status]}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        {canManage && (
+          <form className="grid gap-4" onSubmit={save}>
+            <Field>
+              <FieldLabel htmlFor="review-status">
+                Status pendaftaran
+              </FieldLabel>
+              <select
+                className="rounded-md border bg-background p-2"
+                disabled={busy}
+                id="review-status"
+                value={status}
+                onChange={(event) => {
+                  setStatus(event.target.value as AffiliateStatus)
+                  setSaved(false)
+                }}
+              >
+                {AFFILIATE_STATUSES.map((item) => (
+                  <option key={item} value={item}>
+                    {affiliateStatusLabels[item]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {status === 'approved' && (
+              <Field>
+                <FieldLabel htmlFor="referral-url">
+                  Link afiliasi pribadi (opsional)
+                </FieldLabel>
+                <Input
+                  id="referral-url"
+                  type="url"
+                  pattern="https://.+"
+                  maxLength={2048}
+                  placeholder="https://…"
+                  disabled={busy}
+                  value={url}
+                  onChange={(event) => {
+                    setUrl(event.target.value)
+                    setSaved(false)
+                  }}
+                />
+                <FieldDescription>
+                  Masukkan link mitra dari penyedia checkout untuk dibagikan
+                  lewat WhatsApp.
+                </FieldDescription>
+              </Field>
+            )}
+            {error && <Alert variant="danger">{error}</Alert>}
+            {saved && <Alert variant="success">Keputusan tersimpan.</Alert>}
+            <Button
+              className="justify-self-start"
+              disabled={busy}
+              type="submit"
+            >
+              Simpan keputusan
+            </Button>
+          </form>
+        )}
+        {lead.status === 'approved' && lead.referralUrl && (
+          <Button asChild variant="outline" className="justify-self-start">
+            <a
+              href={
+                lead.whatsappUrl +
+                '?text=' +
+                encodeURIComponent(
+                  `Halo ${lead.nama}, pendaftaran afiliasi kamu diterima. Ini link pribadi kamu: ${lead.referralUrl}`,
+                )
+              }
+              target="_blank"
+              rel="noreferrer"
+            >
+              Bagikan link via WhatsApp
+            </a>
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function AffiliateLeadEditor({ lead }: { lead: SerializedAffiliateLead }) {
   const router = useRouter()
+  const { owner } = Route.useRouteContext()
+  const canManage = owner.permissions.includes('affiliate.manage')
   const updateLead = useServerFn(updateAffiliateLeadFn)
   const deleteLead = useServerFn(deleteAffiliateLeadFn)
 
@@ -85,7 +219,8 @@ function AffiliateLeadEditor({ lead }: { lead: SerializedAffiliateLead }) {
   const [deleting, setDeleting] = useState(false)
 
   const selectedPlatforms = useMemo(
-    () => affiliatePlatforms.filter((platform) => selected.includes(platform.key)),
+    () =>
+      affiliatePlatforms.filter((platform) => selected.includes(platform.key)),
     [selected],
   )
 
@@ -138,13 +273,15 @@ function AffiliateLeadEditor({ lead }: { lead: SerializedAffiliateLead }) {
                 WhatsApp
               </a>
             </Button>
-            <Button
-              onClick={() => setConfirmOpen(true)}
-              type="button"
-              variant="destructive"
-            >
-              Hapus
-            </Button>
+            {canManage && (
+              <Button
+                onClick={() => setConfirmOpen(true)}
+                type="button"
+                variant="destructive"
+              >
+                Hapus
+              </Button>
+            )}
           </div>
         }
         description={`Daftar ${formatDay(lead.createdAt)}`}
@@ -158,6 +295,8 @@ function AffiliateLeadEditor({ lead }: { lead: SerializedAffiliateLead }) {
         ← Semua pendaftar
       </Link>
 
+      <AffiliateReview lead={lead} canManage={canManage} />
+
       {banner ? <Alert variant="danger">{banner}</Alert> : null}
       {success ? <Alert variant="success">Perubahan disimpan.</Alert> : null}
 
@@ -165,106 +304,112 @@ function AffiliateLeadEditor({ lead }: { lead: SerializedAffiliateLead }) {
         <CardHeader>
           <CardTitle>Data pendaftar</CardTitle>
           <CardDescription>
-            Ubah kalau ada typo atau platform yang baru.
+            Kontak dan akun yang dicantumkan saat mendaftar.
           </CardDescription>
         </CardHeader>
         <form onSubmit={onSave}>
           <CardContent>
-            <FieldGroup>
-              <Field data-invalid={errors.nama || undefined}>
-                <FieldLabel htmlFor="lead-nama">Nama</FieldLabel>
-                <Input
-                  aria-invalid={errors.nama || undefined}
-                  id="lead-nama"
-                  onChange={(event) => setNama(event.target.value)}
-                  value={nama}
-                />
-                {errors.nama ? <FieldError>Nama wajib diisi.</FieldError> : null}
-              </Field>
-              <Field data-invalid={errors.email || undefined}>
-                <FieldLabel htmlFor="lead-email">Email</FieldLabel>
-                <Input
-                  aria-invalid={errors.email || undefined}
-                  id="lead-email"
-                  onChange={(event) => setEmail(event.target.value)}
-                  type="email"
-                  value={email}
-                />
-                {errors.email ? (
-                  <FieldError>Email tidak valid.</FieldError>
-                ) : null}
-              </Field>
-              <Field data-invalid={errors.whatsapp || undefined}>
-                <FieldLabel htmlFor="lead-whatsapp">WhatsApp</FieldLabel>
-                <Input
-                  aria-invalid={errors.whatsapp || undefined}
-                  id="lead-whatsapp"
-                  onChange={(event) => setWhatsapp(event.target.value)}
-                  value={whatsapp}
-                />
-                {errors.whatsapp ? (
-                  <FieldError>Nomor WhatsApp tidak valid.</FieldError>
-                ) : null}
-              </Field>
-              <Field data-invalid={errors.platforms || undefined}>
-                <FieldLabel>Platform</FieldLabel>
-                <ToggleGroup
-                  className="flex flex-wrap"
-                  onValueChange={(value) =>
-                    setSelected(value as AffiliatePlatformKey[])
-                  }
-                  spacing={2}
-                  type="multiple"
-                  value={selected}
-                  variant="outline"
-                >
-                  {affiliatePlatforms.map((platform) => (
-                    <ToggleGroupItem key={platform.key} value={platform.key}>
-                      {platform.value}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
-                {errors.platforms ? (
-                  <FieldError>Pilih minimal satu platform.</FieldError>
-                ) : (
-                  <FieldDescription>
-                    Username hanya wajib untuk platform yang dipilih.
-                  </FieldDescription>
-                )}
-              </Field>
-              {selectedPlatforms.map((platform) => (
-                <Field
-                  data-invalid={errors[`user-${platform.key}`] || undefined}
-                  key={platform.key}
-                >
-                  <FieldLabel htmlFor={`lead-user-${platform.key}`}>
-                    {platform.label}
-                  </FieldLabel>
+            <fieldset disabled={!canManage}>
+              <FieldGroup>
+                <Field data-invalid={errors.nama || undefined}>
+                  <FieldLabel htmlFor="lead-nama">Nama</FieldLabel>
                   <Input
-                    aria-invalid={errors[`user-${platform.key}`] || undefined}
-                    id={`lead-user-${platform.key}`}
-                    onChange={(event) =>
-                      setUsernames((current) => ({
-                        ...current,
-                        [platform.key]: event.target.value,
-                      }))
-                    }
-                    placeholder={platform.placeholder}
-                    value={usernames[platform.key] ?? ''}
+                    aria-invalid={errors.nama || undefined}
+                    id="lead-nama"
+                    onChange={(event) => setNama(event.target.value)}
+                    value={nama}
                   />
-                  {errors[`user-${platform.key}`] ? (
-                    <FieldError>Username wajib diisi.</FieldError>
+                  {errors.nama ? (
+                    <FieldError>Nama wajib diisi.</FieldError>
                   ) : null}
                 </Field>
-              ))}
-            </FieldGroup>
+                <Field data-invalid={errors.email || undefined}>
+                  <FieldLabel htmlFor="lead-email">Email</FieldLabel>
+                  <Input
+                    aria-invalid={errors.email || undefined}
+                    id="lead-email"
+                    onChange={(event) => setEmail(event.target.value)}
+                    type="email"
+                    value={email}
+                  />
+                  {errors.email ? (
+                    <FieldError>Email tidak valid.</FieldError>
+                  ) : null}
+                </Field>
+                <Field data-invalid={errors.whatsapp || undefined}>
+                  <FieldLabel htmlFor="lead-whatsapp">WhatsApp</FieldLabel>
+                  <Input
+                    aria-invalid={errors.whatsapp || undefined}
+                    id="lead-whatsapp"
+                    onChange={(event) => setWhatsapp(event.target.value)}
+                    value={whatsapp}
+                  />
+                  {errors.whatsapp ? (
+                    <FieldError>Nomor WhatsApp tidak valid.</FieldError>
+                  ) : null}
+                </Field>
+                <Field data-invalid={errors.platforms || undefined}>
+                  <FieldLabel>Platform</FieldLabel>
+                  <ToggleGroup
+                    className="flex flex-wrap"
+                    onValueChange={(value) =>
+                      setSelected(value as AffiliatePlatformKey[])
+                    }
+                    spacing={2}
+                    type="multiple"
+                    value={selected}
+                    variant="outline"
+                  >
+                    {affiliatePlatforms.map((platform) => (
+                      <ToggleGroupItem key={platform.key} value={platform.key}>
+                        {platform.value}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                  {errors.platforms ? (
+                    <FieldError>Pilih minimal satu platform.</FieldError>
+                  ) : (
+                    <FieldDescription>
+                      Username hanya wajib untuk platform yang dipilih.
+                    </FieldDescription>
+                  )}
+                </Field>
+                {selectedPlatforms.map((platform) => (
+                  <Field
+                    data-invalid={errors[`user-${platform.key}`] || undefined}
+                    key={platform.key}
+                  >
+                    <FieldLabel htmlFor={`lead-user-${platform.key}`}>
+                      {platform.label}
+                    </FieldLabel>
+                    <Input
+                      aria-invalid={errors[`user-${platform.key}`] || undefined}
+                      id={`lead-user-${platform.key}`}
+                      onChange={(event) =>
+                        setUsernames((current) => ({
+                          ...current,
+                          [platform.key]: event.target.value,
+                        }))
+                      }
+                      placeholder={platform.placeholder}
+                      value={usernames[platform.key] ?? ''}
+                    />
+                    {errors[`user-${platform.key}`] ? (
+                      <FieldError>Username wajib diisi.</FieldError>
+                    ) : null}
+                  </Field>
+                ))}
+              </FieldGroup>
+            </fieldset>
           </CardContent>
-          <CardFooter>
-            <Button disabled={busy} type="submit">
-              {busy ? <Spinner data-icon="inline-start" /> : null}
-              {busy ? 'Menyimpan…' : 'Simpan perubahan'}
-            </Button>
-          </CardFooter>
+          {canManage && (
+            <CardFooter>
+              <Button disabled={busy} type="submit">
+                {busy ? <Spinner data-icon="inline-start" /> : null}
+                {busy ? 'Menyimpan…' : 'Simpan perubahan'}
+              </Button>
+            </CardFooter>
+          )}
         </form>
       </Card>
 

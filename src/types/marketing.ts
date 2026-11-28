@@ -61,6 +61,14 @@ export const AFFILIATE_PLATFORM_KEYS = [
   'threads',
 ] as const
 
+export const AFFILIATE_STATUSES = ['pending', 'approved', 'rejected'] as const
+export type AffiliateStatus = (typeof AFFILIATE_STATUSES)[number]
+export const affiliateStatusLabels: Record<AffiliateStatus, string> = {
+  pending: 'Menunggu review',
+  approved: 'Diterima',
+  rejected: 'Ditolak',
+}
+
 export interface AffiliateLeadInput {
   nama: string
   email: string

@@ -1,3 +1,4 @@
+import { AFFILIATE_STATUSES } from '../types/marketing'
 import { relations, sql } from 'drizzle-orm'
 import {
   check,
@@ -258,6 +259,8 @@ export const affiliateLeads = sqliteTable(
   'affiliate_leads',
   {
     id: text('id').primaryKey().$defaultFn(uuid),
+    status: text('status', { enum: AFFILIATE_STATUSES }).notNull().default('pending'),
+    referralUrl: text('referral_url'),
     nama: text('nama').notNull(),
     email: text('email').notNull(),
     whatsapp: text('whatsapp').notNull(),

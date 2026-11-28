@@ -63,15 +63,10 @@ import {
   deleteAffiliateLead,
   getAffiliateLead,
   listAffiliateLeads,
+  reviewAffiliateLead,
   submitAffiliateLead,
   updateAffiliateLead,
 } from '#/server/affiliate'
-import {
-  clearAffiliateWebhookUrl,
-  getAffiliateWebhookPublicSettings,
-  saveAffiliateWebhookUrl,
-  testAffiliateWebhookUrl,
-} from '#/server/affiliate-settings'
 import { getCardDesign, saveCardDesign } from '#/server/card-design'
 import {
   getPublicSiteFlags,
@@ -92,7 +87,7 @@ import {
   getClientFingerprint,
   hashRateLimitIdentifier,
 } from '#/server/request'
-import { AFFILIATE_PLATFORM_KEYS } from '#/types/marketing'
+import { AFFILIATE_PLATFORM_KEYS, AFFILIATE_STATUSES } from '#/types/marketing'
 import { servicePackageSchema } from '#/lib/review-settings'
 import {
   getServicePackages,
@@ -851,7 +846,7 @@ const affiliateLeadInputSchema = z.object({
   whatsapp: z.string().trim().min(9).max(32),
   platforms: z.array(z.enum(AFFILIATE_PLATFORM_KEYS)).min(1).max(6),
   usernames: z
-    .record(z.enum(AFFILIATE_PLATFORM_KEYS), z.string().trim().max(100))
+    .partialRecord(z.enum(AFFILIATE_PLATFORM_KEYS), z.string().trim().max(100))
     .optional(),
 }).strict()
 
@@ -882,6 +877,7 @@ export const submitAffiliateLeadFn = createServerFn({ method: 'POST' })
   })
 
 const affiliateListSchema = z.object({
+  status: z.enum(AFFILIATE_STATUSES).optional(),
   q: z.string().max(200).optional(),
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
@@ -976,46 +972,6 @@ export const saveViewPrefsFn = createServerFn({ method: 'POST' })
     return saveViewPrefs(owner.ownerId, view, prefs)
   })
 
-export const getAffiliateWebhookSettingsFn = createServerFn({
-  method: 'GET',
-}).handler(async () => {
-  await requirePermission('affiliate.read')
-  return getAffiliateWebhookPublicSettings()
-})
-
-export const saveAffiliateWebhookUrlFn = createServerFn({ method: 'POST' })
-  .validator(z.object({ url: z.string().trim().min(8).max(500) }))
-  .handler(async ({ data }) => {
-    await requirePermission('affiliate.manage')
-    await assertRateLimit(`affiliate-webhook:${getClientFingerprint()}`, {
-      max: 20,
-      windowMs: 15 * 60_000,
-    })
-    return saveAffiliateWebhookUrl(data.url)
-  })
-
-export const testAffiliateWebhookUrlFn = createServerFn({ method: 'POST' })
-  .validator(z.object({ url: z.string().max(500).optional() }))
-  .handler(async ({ data }) => {
-    await requirePermission('affiliate.manage')
-    await assertRateLimit(`affiliate-webhook:${getClientFingerprint()}`, {
-      max: 20,
-      windowMs: 15 * 60_000,
-    })
-    return testAffiliateWebhookUrl(data.url)
-  })
-
-export const clearAffiliateWebhookUrlFn = createServerFn({
-  method: 'POST',
-}).handler(async () => {
-  await requirePermission('affiliate.manage')
-  await assertRateLimit(`affiliate-webhook:${getClientFingerprint()}`, {
-    max: 20,
-    windowMs: 15 * 60_000,
-  })
-  return clearAffiliateWebhookUrl()
-})
-
 export const listAffiliateLeadsFn = createServerFn({ method: 'GET' })
   .validator(affiliateListSchema.optional())
   .handler(async ({ data }) => {
@@ -1041,6 +997,17 @@ export const updateAffiliateLeadFn = createServerFn({ method: 'POST' })
     await requirePermission('affiliate.manage')
     const { leadId, ...body } = data
     return updateAffiliateLead(leadId, body)
+  })
+
+export const reviewAffiliateLeadFn = createServerFn({ method: 'POST' })
+  .validator(z.object({
+    leadId: z.string().uuid(),
+    status: z.enum(AFFILIATE_STATUSES),
+    referralUrl: z.url({ protocol: /^https$/ }).max(2048).nullable(),
+  }))
+  .handler(async ({ data }) => {
+    await requirePermission('affiliate.manage')
+    await reviewAffiliateLead(data.leadId, data.status, data.referralUrl)
   })
 
 export const deleteAffiliateLeadFn = createServerFn({ method: 'POST' })
