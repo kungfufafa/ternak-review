@@ -104,8 +104,8 @@ function PackageEditor({ servicePackage }: { servicePackage: ServicePackage }) {
           {isBasic
             ? 'Paket default · scan langsung ke Google Review Maps'
             : servicePackage.serviceTier === 'PLUS'
-              ? 'Rating rendah ditawari WhatsApp owner. Google Review tetap tersedia.'
-              : 'Rating rendah ditawari form ke owner. Google Review tetap tersedia.'}
+              ? 'Rating rendah langsung membuka WhatsApp owner.'
+              : 'Rating rendah langsung mengisi form untuk owner.'}
         </CardDescription>
       </CardHeader>
       <form onSubmit={save}>

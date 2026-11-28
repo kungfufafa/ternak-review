@@ -39,7 +39,6 @@ function FeedbackPage() {
   const submitFn = useServerFn(submitAnonymousFeedbackFn)
   const [rating, setRating] = useState<number | null>(null)
   const [anonymousRating, setAnonymousRating] = useState<number | null>(null)
-  const [ownerChatUrl, setOwnerChatUrl] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -49,7 +48,6 @@ function FeedbackPage() {
   async function chooseRating(nextRating: number) {
     setRating(nextRating)
     setAnonymousRating(null)
-    setOwnerChatUrl(null)
     setError(null)
     setSubmitted(false)
     setBusy(true)
@@ -59,12 +57,6 @@ function FeedbackPage() {
       })
       if (result.kind === 'anonymous') {
         setAnonymousRating(nextRating)
-        return
-      }
-      // A low rating is an offer to talk to the owner, never a gate: the
-      // guest still gets Google Review as an equal choice.
-      if (result.kind === 'owner_whatsapp') {
-        setOwnerChatUrl(result.url)
         return
       }
       window.location.assign(result.url)
@@ -136,25 +128,6 @@ function FeedbackPage() {
             ))}
           </div>
           {busy ? <Spinner className="self-center" /> : null}
-          {ownerChatUrl ? (
-            <div className="flex flex-col gap-3">
-              <p className="text-center text-sm text-muted-foreground">
-                Sampaikan langsung ke pemilik toko, atau tulis review di Google.
-              </p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <Button asChild variant="outline">
-                  <a href={ownerChatUrl} rel="noreferrer">
-                    Chat pemilik via WhatsApp
-                  </a>
-                </Button>
-                <Button asChild variant="outline">
-                  <a href={card.googleReviewUrl} rel="noreferrer">
-                    Tulis review di Google
-                  </a>
-                </Button>
-              </div>
-            </div>
-          ) : null}
           {showAnonymousForm ? (
             <form className="flex flex-col gap-3" onSubmit={submit}>
               <label className="text-sm font-medium" htmlFor="feedback-message">
@@ -181,12 +154,8 @@ function FeedbackPage() {
               Terima kasih sudah membantu toko memperbaiki layanan.
             </p>
           ) : null}
-          {ownerChatUrl ? null : (
-            <Button
-              asChild
-              className={showAnonymousForm ? 'w-full' : 'self-center'}
-              variant={showAnonymousForm ? 'outline' : 'link'}
-            >
+          {anonymousRating !== null ? null : (
+            <Button asChild className="self-center" variant="link">
               <a href={card.googleReviewUrl} rel="noreferrer">
                 Tulis review di Google
               </a>
