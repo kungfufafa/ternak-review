@@ -122,7 +122,13 @@ function FeedbackPage() {
                 type="button"
                 variant={rating === value ? 'default' : 'outline'}
               >
-                <StarIcon className={rating === value ? 'fill-current' : undefined} />
+                <StarIcon
+                  className={
+                    rating !== null && value <= rating
+                      ? 'fill-yellow-400 text-yellow-400'
+                      : 'text-muted-foreground'
+                  }
+                />
                 <span className="text-xs">{value}</span>
               </Button>
             ))}
